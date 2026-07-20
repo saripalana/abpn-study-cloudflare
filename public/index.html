@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>ABPN Psychiatry Study</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">ABPN PSYCHIATRY STUDY</div>
+      <h1>Board Practice</h1>
+      <p class="subtitle">Local-first study with protected Cloudflare synchronization.</p>
+    </div>
+    <div class="header-actions">
+      <span id="syncStatus" class="sync-status">Local</span>
+      <button id="syncBtn" class="ghost" type="button">Sync</button>
+      <button id="homeBtn" class="ghost" type="button" hidden>Dashboard</button>
+    </div>
+  </header>
+  <main id="app" class="shell" aria-live="polite">
+    <section class="loading-card">Loading question banks…</section>
+  </main>
+  <input id="bankImportInput" type="file" accept="application/json,.json" hidden>
+  <footer>Unofficial personal study tool. Not produced or endorsed by ABPN.</footer>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
