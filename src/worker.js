@@ -7,14 +7,72 @@ const json = (data, status = 200, extraHeaders = {}) => new Response(JSON.string
   },
 });
 
+const releaseMode = (env) => env.APP_RELEASE_MODE === "full" ? "full" : "setup";
+const cloudSyncEnabled = (env) => releaseMode(env) === "full" && env.CLOUD_SYNC_ENABLED === "true";
+
 const withSecurityHeaders = (response) => {
   const headers = new Headers(response.headers);
   headers.set("x-content-type-options", "nosniff");
   headers.set("referrer-policy", "no-referrer");
   headers.set("x-frame-options", "DENY");
   headers.set("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  headers.set(
+    "content-security-policy",
+    "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+  );
   return new Response(response.body, { status: response.status, headers });
 };
+
+const setupPage = () => new Response(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ABPN Study · Protected setup</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f7fb; color: #172033; }
+    main { width: min(38rem, calc(100% - 2rem)); padding: 2.5rem; border: 1px solid #dbe3ef; border-radius: 1.25rem; background: white; box-shadow: 0 1rem 3rem rgba(20, 35, 60, .10); }
+    h1 { margin: .3rem 0 .8rem; font-size: clamp(1.8rem, 5vw, 2.6rem); }
+    p { line-height: 1.6; color: #4d5b73; }
+    .eyebrow { font-size: .78rem; font-weight: 800; letter-spacing: .12em; color: #2458c6; }
+    .status { margin-top: 1.5rem; padding: .9rem 1rem; border-radius: .8rem; background: #eef4ff; color: #173f91; font-weight: 700; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #101522; color: #f4f7fb; }
+      main { background: #171e2d; border-color: #2b3850; }
+      p { color: #bac5d8; }
+      .status { background: #1d3157; color: #cfe0ff; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">ABPN PSYCHIATRY STUDY</div>
+    <h1>Protected setup is active</h1>
+    <p>The study application and question banks are intentionally unavailable during initial Cloudflare configuration.</p>
+    <p>Cloud synchronization is disabled. No study progress is being written to Cloudflare.</p>
+    <div class="status">Safe setup mode · local study data remains untouched</div>
+  </main>
+</body>
+</html>`, {
+  status: 200,
+  headers: {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+  },
+});
+
+function requireSyncReady(env) {
+  if (releaseMode(env) !== "full") {
+    throw json({ error: "Application setup is not complete" }, 503);
+  }
+  if (env.CLOUD_SYNC_ENABLED !== "true") {
+    throw json({ error: "Cloud synchronization is disabled" }, 503);
+  }
+  if (!env.DB) {
+    throw json({ error: "Cloud synchronization database is not configured" }, 503);
+  }
+}
 
 function requireContext(request, env) {
   const deviceId = request.headers.get("x-abpn-device-id")?.trim();
@@ -37,8 +95,11 @@ async function ensureUserAndDevice(env, userId, deviceId) {
 }
 
 async function handleHealth(env) {
-  let database = "unconfigured";
-  if (env.DB) {
+  const mode = releaseMode(env);
+  const syncEnabled = cloudSyncEnabled(env);
+  let database = env.DB ? "configured" : "unconfigured";
+
+  if (syncEnabled && env.DB) {
     try {
       await env.DB.prepare("SELECT 1 AS ok").first();
       database = "connected";
@@ -51,6 +112,8 @@ async function handleHealth(env) {
     ok: database !== "error",
     service: "abpn-study-cloudflare",
     environment: env.APP_ENV || "unknown",
+    releaseMode: mode,
+    cloudSyncEnabled: syncEnabled,
     database,
     timestamp: new Date().toISOString(),
   }, database === "error" ? 503 : 200);
@@ -117,6 +180,7 @@ async function upsertQuestionProgress(env, userId, deviceId, payload) {
 }
 
 async function handleSyncPush(request, env) {
+  requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
   await ensureUserAndDevice(env, userId, deviceId);
   const body = await request.json();
@@ -142,6 +206,7 @@ async function handleSyncPush(request, env) {
 }
 
 async function handleSyncPull(request, env) {
+  requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
   await ensureUserAndDevice(env, userId, deviceId);
   const url = new URL(request.url);
@@ -203,6 +268,15 @@ export default {
     const url = new URL(request.url);
 
     try {
+      if (releaseMode(env) !== "full") {
+        const response = url.pathname === "/api/health"
+          ? await handleHealth(env)
+          : url.pathname.startsWith("/api/")
+            ? json({ error: "Application setup is not complete" }, 503)
+            : setupPage();
+        return withSecurityHeaders(response);
+      }
+
       const response = url.pathname.startsWith("/api/")
         ? await routeApi(request, env)
         : await env.ASSETS.fetch(request);
