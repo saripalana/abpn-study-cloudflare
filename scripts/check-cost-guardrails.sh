@@ -30,9 +30,9 @@ mapfile -t wrangler_files < <(
 
 # Only static assets and D1 are permitted Cloudflare runtime bindings.
 # Any other product requires an explicit policy change and owner approval.
-forbidden_binding_pattern='(^|[[:space:]"'"''])(r2_buckets|kv_namespaces|queues|durable_objects|workflows|ai|vectorize|hyperdrive|browser|analytics_engine_datasets|images|logfwdr|services|dispatch_namespaces|mtls_certificates|unsafe|send_email)([[:space:]"'"'']|=|:|$)'
-forbidden_schedule_pattern='(^|[[:space:]"'"''])(triggers|crons)([[:space:]"'"'']|=|:|$)'
-forbidden_paid_pattern='workers[[:space:]_-]*paid|plan[[:space:]]*[=:][[:space:]]*["'"'']?paid|usage_model[[:space:]]*[=:][[:space:]]*["'"'']?unbound'
+forbidden_binding_pattern='(^|[[:space:]"'"'"'])(r2_buckets|kv_namespaces|queues|durable_objects|workflows|ai|vectorize|hyperdrive|browser|analytics_engine_datasets|images|logfwdr|services|dispatch_namespaces|mtls_certificates|unsafe|send_email)([[:space:]"'"'"']|=|:|$)'
+forbidden_schedule_pattern='(^|[[:space:]"'"'"'])(triggers|crons)([[:space:]"'"'"']|=|:|$)'
+forbidden_paid_pattern='workers[[:space:]_-]*paid|plan[[:space:]]*[=:][[:space:]]*["'"'"']?paid|usage_model[[:space:]]*[=:][[:space:]]*["'"'"']?unbound'
 
 for file in "${wrangler_files[@]}"; do
   if grep -Ein "$forbidden_binding_pattern" "$file" >/dev/null; then
@@ -70,8 +70,7 @@ for file in "${deployment_files[@]}"; do
   fi
 done
 
-# A future production configuration must declare the emergency sync kill switch.
-# This check activates once a Wrangler file exists.
+# A production configuration must declare the emergency sync kill switch.
 if (( ${#wrangler_files[@]} > 0 )); then
   kill_switch_found=0
   for file in "${wrangler_files[@]}"; do

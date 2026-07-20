@@ -1,0 +1,50 @@
+name: Validate ABPN Study Cloudflare
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --silent
+      - name: Verify pinned K&S source, unit tests, and Worker build
+        run: npm run verify >/tmp/verify.log 2>&1 || { cat /tmp/verify.log; exit 1; }
+      - name: Confirm generated K&S manifest
+        run: |
+          test -f public/banks/generated/ks-psychiatry-core.js
+          test -f public/banks/generated/ks-psychiatry-core.manifest.json
+          grep -q '"questionCount": 602' public/banks/generated/ks-psychiatry-core.manifest.json
+      - name: Install Chromium and WebKit
+        run: npx playwright install --with-deps chromium webkit >/tmp/playwright-install.log 2>&1 || { tail -n 200 /tmp/playwright-install.log; exit 1; }
+      - name: Run desktop Chrome flows
+        run: npx playwright test --project=chromium-desktop --reporter=line
+      - name: Run iPhone 13 Safari flows
+        id: iphone
+        continue-on-error: true
+        run: npx playwright test --project=iphone-13-safari --reporter=json > iphone-safari-report.json
+      - name: Upload iPhone Safari report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-safari-report
+          path: |
+            iphone-safari-report.json
+            test-results/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Fail when iPhone Safari validation fails
+        if: steps.iphone.outcome == 'failure'
+        run: exit 1

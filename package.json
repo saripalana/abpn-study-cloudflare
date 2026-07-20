@@ -1,0 +1,22 @@
+{
+  "name": "abpn-study-cloudflare",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bank:import": "node scripts/import-ks-bank.mjs",
+    "dev": "npm run bank:import && wrangler dev",
+    "dev:test": "wrangler dev --local --port 8787 --var APP_RELEASE_MODE:full --var CLOUD_SYNC_ENABLED:false",
+    "deploy": "npm run verify && wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply abpn-study-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply abpn-study-db --remote",
+    "guardrails": "bash scripts/check-cost-guardrails.sh",
+    "test": "node --test",
+    "test:e2e": "playwright test",
+    "verify": "npm run bank:import && npm run guardrails && npm test && wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.1",
+    "wrangler": "^4.0.0"
+  }
+}

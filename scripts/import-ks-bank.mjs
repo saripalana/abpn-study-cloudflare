@@ -1,0 +1,56 @@
+import { createHash } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import vm from 'node:vm';
+
+const source = Object.freeze({
+  repository: 'saripalana/ks-study-guide',
+  commit: '4d03f158c6fbfacd698796d94c213a49ac8a377d',
+  path: 'data.js',
+  expectedGitBlobSha: 'f4180d69a4a6bbd8a7f764bb88e7f2f404f7431f',
+  expectedQuestionCount: 602,
+});
+
+const url = `https://raw.githubusercontent.com/${source.repository}/${source.commit}/${source.path}`;
+const response = await fetch(url, { headers: { 'user-agent': 'abpn-study-cloudflare-bank-import' } });
+if (!response.ok) throw new Error(`Unable to retrieve pinned K&S source: HTTP ${response.status}`);
+const bytes = Buffer.from(await response.arrayBuffer());
+const gitBlobSha = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+if (gitBlobSha !== source.expectedGitBlobSha) {
+  throw new Error(`K&S source hash mismatch: expected ${source.expectedGitBlobSha}, received ${gitBlobSha}`);
+}
+
+const code = bytes.toString('utf8').replace(/^\uFEFF/, '');
+const sandbox = Object.create(null);
+vm.createContext(sandbox);
+vm.runInContext(`${code}\n;globalThis.__QUESTIONS__ = QUESTIONS;`, sandbox, { timeout: 5000 });
+const questions = sandbox.__QUESTIONS__;
+if (!Array.isArray(questions) || questions.length !== source.expectedQuestionCount) {
+  throw new Error(`K&S count mismatch: expected ${source.expectedQuestionCount}, received ${Array.isArray(questions) ? questions.length : 'non-array'}`);
+}
+
+const ids = new Set();
+for (const [index, question] of questions.entries()) {
+  const id = String(question?.id || '');
+  const choices = Array.isArray(question?.choices) ? question.choices : [];
+  const letters = Array.isArray(question?.choiceLetters) ? question.choiceLetters : [];
+  if (!id || ids.has(id)) throw new Error(`Missing or duplicate K&S question id at index ${index}: ${id}`);
+  if (!String(question?.question || '').trim()) throw new Error(`K&S question ${id} has no prompt`);
+  if (choices.length < 2 || choices.length !== letters.length) throw new Error(`K&S question ${id} has invalid choices`);
+  if (!letters.includes(String(question?.correctLetter || ''))) throw new Error(`K&S question ${id} has an invalid correct answer`);
+  ids.add(id);
+}
+
+const bank = {
+  id: 'ks-psychiatry-core',
+  title: 'K&S Psychiatry Question Bank',
+  shortTitle: 'K&S Psychiatry',
+  description: 'Kaplan & Sadock psychiatry review questions for personal board preparation.',
+  version: source.commit,
+  source: { ...source, verifiedGitBlobSha: gitBlobSha },
+  questions,
+};
+
+await mkdir('public/banks/generated', { recursive: true });
+await writeFile('public/banks/generated/ks-psychiatry-core.js', `export const KS_PSYCHIATRY_BANK = ${JSON.stringify(bank)};\n`, 'utf8');
+await writeFile('public/banks/generated/ks-psychiatry-core.manifest.json', `${JSON.stringify({ ...bank.source, bankId: bank.id, questionCount: questions.length }, null, 2)}\n`, 'utf8');
+console.log(`Verified and generated ${questions.length} K&S questions from ${source.commit}.`);

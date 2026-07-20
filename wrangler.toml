@@ -1,0 +1,19 @@
+name = "abpn-study-cloudflare"
+main = "src/worker.js"
+compatibility_date = "2026-07-20"
+
+# The Worker must run before every asset request. This prevents the study
+# application and question-bank files from being served while setup mode is
+# active or if Cloudflare Access has not yet been verified.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+# First-deployment defaults are deliberately locked. A real D1 binding is
+# added only after the setup Worker is deployed, Cloudflare Access is enabled,
+# and the one-user Access policy is tested.
+[vars]
+APP_ENV = "development"
+APP_RELEASE_MODE = "setup"
+CLOUD_SYNC_ENABLED = "false"
