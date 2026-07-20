@@ -32,4 +32,19 @@ jobs:
       - name: Run desktop Chrome flows
         run: npx playwright test --project=chromium-desktop --reporter=line
       - name: Run iPhone 13 Safari flows
-        run: npx playwright test --project=iphone-13-safari --reporter=line
+        id: iphone
+        continue-on-error: true
+        run: npx playwright test --project=iphone-13-safari --reporter=json > iphone-safari-report.json
+      - name: Upload iPhone Safari report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-safari-report
+          path: |
+            iphone-safari-report.json
+            test-results/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Fail when iPhone Safari validation fails
+        if: steps.iphone.outcome == 'failure'
+        run: exit 1
