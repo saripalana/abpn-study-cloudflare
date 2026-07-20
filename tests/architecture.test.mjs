@@ -6,6 +6,7 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("Cloudflare version contains no Google service dependencies", async () => {
   const files = await Promise.all([
+    read("src/access-worker.js"),
     read("src/worker.js"),
     read("src/client/storage.js"),
     read("src/client/sync.js"),
@@ -41,6 +42,25 @@ test("worker exposes health and bidirectional sync endpoints behind release cont
   assert.match(worker, /APP_RELEASE_MODE/);
   assert.match(worker, /CLOUD_SYNC_ENABLED/);
   assert.match(worker, /requireSyncReady/);
+});
+
+test("Cloudflare Access JWT validation is the outer request gateway", async () => {
+  const [accessWorker, wrangler, packageJson] = await Promise.all([
+    read("src/access-worker.js"),
+    read("wrangler.toml"),
+    read("package.json"),
+  ]);
+
+  assert.match(wrangler, /main\s*=\s*"src\/access-worker\.js"/);
+  assert.match(wrangler, /ACCESS_JWT_REQUIRED\s*=\s*"true"/);
+  assert.match(wrangler, /ACCESS_TEAM_DOMAIN\s*=\s*"https:\/\/[^\"]+\.cloudflareaccess\.com"/);
+  assert.match(wrangler, /ACCESS_POLICY_AUD\s*=\s*"[a-f0-9]+"/);
+  assert.match(accessWorker, /cf-access-jwt-assertion/i);
+  assert.match(accessWorker, /createRemoteJWKSet/);
+  assert.match(accessWorker, /jwtVerify/);
+  assert.match(accessWorker, /audience/);
+  assert.match(accessWorker, /issuer/);
+  assert.match(packageJson, /"jose"\s*:\s*"6\.2\.3"/);
 });
 
 test("first deployment is locked and cannot bypass the Worker for static assets", async () => {
