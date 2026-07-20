@@ -19,7 +19,12 @@ export default defineConfig({
     },
     {
       name: 'iphone-13-safari',
-      use: { ...devices['iPhone 13'], browserName: 'webkit' }
+      use: {
+        ...devices['iPhone 13'],
+        browserName: 'webkit',
+        hasTouch: true,
+        isMobile: true
+      }
     }
   ],
   webServer: {
