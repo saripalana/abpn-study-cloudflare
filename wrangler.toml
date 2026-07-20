@@ -1,5 +1,5 @@
 name = "abpn-study-cloudflare"
-main = "src/worker.js"
+main = "src/access-worker.js"
 compatibility_date = "2026-07-20"
 
 # The Worker must run before every asset request. This prevents the study
@@ -17,3 +17,6 @@ run_worker_first = true
 APP_ENV = "development"
 APP_RELEASE_MODE = "setup"
 CLOUD_SYNC_ENABLED = "false"
+ACCESS_JWT_REQUIRED = "true"
+ACCESS_TEAM_DOMAIN = "https://falling-snow-6183.cloudflareaccess.com"
+ACCESS_POLICY_AUD = "efe6977a32c7d52f79c07e63673f5daf7b63d306777391d17fa8c739484f0dd6"
