@@ -18,15 +18,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      - name: Install dependencies
+        run: npm install --silent
       - name: Verify pinned K&S source, unit tests, and Worker build
-        run: npm run verify
+        run: npm run verify >/tmp/verify.log 2>&1 || { cat /tmp/verify.log; exit 1; }
       - name: Confirm generated K&S manifest
         run: |
           test -f public/banks/generated/ks-psychiatry-core.js
           test -f public/banks/generated/ks-psychiatry-core.manifest.json
           grep -q '"questionCount": 602' public/banks/generated/ks-psychiatry-core.manifest.json
       - name: Install Chromium and WebKit
-        run: npx playwright install --with-deps chromium webkit
-      - name: Run desktop Chrome and iPhone Safari flows
-        run: npm run test:e2e
+        run: npx playwright install --with-deps chromium webkit >/tmp/playwright-install.log 2>&1 || { tail -n 200 /tmp/playwright-install.log; exit 1; }
+      - name: Run desktop Chrome flows
+        run: npx playwright test --project=chromium-desktop --reporter=line
+      - name: Run iPhone 13 Safari flows
+        run: npx playwright test --project=iphone-13-safari --reporter=line
