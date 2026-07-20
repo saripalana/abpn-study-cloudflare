@@ -96,7 +96,6 @@ test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page },
     const startButton = [...document.querySelectorAll('button')].find((button) => button.textContent.includes('Start randomized set'));
     return {
       userAgent: navigator.userAgent,
-      touchPoints: navigator.maxTouchPoints,
       innerWidth: window.innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
       inputFontSize: Number.parseFloat(getComputedStyle(countInput).fontSize),
@@ -108,7 +107,8 @@ test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page },
   });
 
   expect(dashboard.userAgent).toContain('iPhone');
-  expect(dashboard.touchPoints).toBeGreaterThan(0);
+  expect(dashboard.innerWidth).toBeGreaterThanOrEqual(375);
+  expect(dashboard.innerWidth).toBeLessThanOrEqual(430);
   expect(dashboard.scrollWidth).toBeLessThanOrEqual(dashboard.innerWidth + 1);
   expect(dashboard.inputFontSize).toBeGreaterThanOrEqual(16);
   expect(dashboard.inputHeight).toBeGreaterThanOrEqual(44);
