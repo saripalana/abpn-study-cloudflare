@@ -1,1 +1,1 @@
-export * from '../../../src/client/study-engine.js';
+export * from '/client/study-engine.js';
