@@ -13,8 +13,14 @@ export default defineConfig({
     screenshot: 'only-on-failure'
   },
   projects: [
-    { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'] } },
-    { name: 'chromium-mobile', use: { ...devices['Pixel 7'] } }
+    {
+      name: 'chromium-desktop',
+      use: { ...devices['Desktop Chrome'], browserName: 'chromium' }
+    },
+    {
+      name: 'iphone-13-safari',
+      use: { ...devices['iPhone 13'], browserName: 'webkit' }
+    }
   ],
   webServer: {
     command: 'npm run dev:test',
