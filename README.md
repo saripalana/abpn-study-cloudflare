@@ -27,9 +27,14 @@ Active development. This repository is separate from and does not modify:
 - Local persistence: IndexedDB
 - API: Cloudflare Worker
 - Cloud database: Cloudflare D1
-- Optional backup objects: Cloudflare R2
-- Authentication: Cloudflare Access or app-specific authentication
-- Deployment: Cloudflare Workers/Pages
+- Authentication: Cloudflare Access
+- Deployment: Cloudflare Workers with static assets
+
+## Cost safety
+
+This project is restricted to Cloudflare Zero Trust Free, Workers Free, D1 Free, and static assets. Paid Workers and additional metered Cloudflare products are prohibited. Repository CI blocks prohibited bindings and paid-plan configuration.
+
+The controlling requirements are in [`docs/COST_AND_USAGE_POLICY.md`](docs/COST_AND_USAGE_POLICY.md). Cloud synchronization must not be enabled until the application quotas, kill switch, fail-closed routing, local-only fallback, billing alerts, and usage checks in that policy are implemented and tested.
 
 ## Safety rules
 
@@ -39,6 +44,7 @@ Active development. This repository is separate from and does not modify:
 4. Existing progress is migrated from an exported copy, never from the sole live copy.
 5. Local data remains usable during network outages.
 6. Sync conflicts are resolved at record level and are never handled by replacing the entire database blindly.
+7. Cost guardrails are release-blocking and cannot be bypassed for production deployment.
 
 ## Development stages
 
@@ -49,5 +55,6 @@ Active development. This repository is separate from and does not modify:
 5. Add Worker API and D1 schema.
 6. Add synchronization, conflict handling, and authentication.
 7. Add migration and backup/restore tools.
-8. Run functional, data-integrity, offline, and multi-device tests.
-9. Deploy only after validation.
+8. Implement and verify cost, quota, kill-switch, and fail-closed safeguards.
+9. Run functional, data-integrity, offline, multi-device, security, and cost-safety tests.
+10. Deploy only after validation.
