@@ -85,3 +85,49 @@ test('bank switching does not expose another bank active set', async ({ page }) 
   await page.locator('#bankSelect').selectOption('validation-bank');
   await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
 });
+
+test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'iphone-13-safari', 'iPhone-specific WebKit validation');
+  await useValidationBank(page);
+
+  const dashboard = await page.evaluate(() => {
+    const countInput = document.querySelector('#countInput');
+    const bankSelect = document.querySelector('#bankSelect');
+    const startButton = [...document.querySelectorAll('button')].find((button) => button.textContent.includes('Start randomized set'));
+    return {
+      userAgent: navigator.userAgent,
+      touchPoints: navigator.maxTouchPoints,
+      innerWidth: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      inputFontSize: Number.parseFloat(getComputedStyle(countInput).fontSize),
+      inputHeight: countInput.getBoundingClientRect().height,
+      selectHeight: bankSelect.getBoundingClientRect().height,
+      startHeight: startButton.getBoundingClientRect().height,
+      viewportMeta: document.querySelector('meta[name="viewport"]')?.content || ''
+    };
+  });
+
+  expect(dashboard.userAgent).toContain('iPhone');
+  expect(dashboard.touchPoints).toBeGreaterThan(0);
+  expect(dashboard.scrollWidth).toBeLessThanOrEqual(dashboard.innerWidth + 1);
+  expect(dashboard.inputFontSize).toBeGreaterThanOrEqual(16);
+  expect(dashboard.inputHeight).toBeGreaterThanOrEqual(44);
+  expect(dashboard.selectHeight).toBeGreaterThanOrEqual(44);
+  expect(dashboard.startHeight).toBeGreaterThanOrEqual(44);
+  expect(dashboard.viewportMeta).toContain('viewport-fit=cover');
+
+  await page.locator('#countInput').fill('1');
+  await page.locator('#timingSelect').selectOption('untimed');
+  await page.getByRole('button', { name: 'Start randomized set' }).tap();
+  await expect(page.getByRole('heading', { name: 'Question 1 of 1' })).toBeVisible();
+
+  const exam = await page.evaluate(() => ({
+    innerWidth: window.innerWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    choiceHeights: [...document.querySelectorAll('.choice')].map((choice) => choice.getBoundingClientRect().height),
+    mapHeights: [...document.querySelectorAll('.question-map button')].map((button) => button.getBoundingClientRect().height)
+  }));
+  expect(exam.scrollWidth).toBeLessThanOrEqual(exam.innerWidth + 1);
+  expect(Math.min(...exam.choiceHeights)).toBeGreaterThanOrEqual(44);
+  expect(Math.min(...exam.mapHeights)).toBeGreaterThanOrEqual(44);
+});
