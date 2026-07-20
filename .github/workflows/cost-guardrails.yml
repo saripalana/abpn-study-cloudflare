@@ -1,0 +1,26 @@
+name: Cost guardrails
+
+on:
+  push:
+    branches:
+      - main
+      - cost-safeguards
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  enforce-free-only-cloudflare-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Make guardrail script executable
+        run: chmod +x scripts/check-cost-guardrails.sh
+
+      - name: Reject paid or prohibited Cloudflare configuration
+        run: ./scripts/check-cost-guardrails.sh
