@@ -10,9 +10,15 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-# First-deployment defaults are deliberately locked. A real D1 binding is
-# added only after the setup Worker is deployed, Cloudflare Access is enabled,
-# and the one-user Access policy is tested.
+# The database binding is present only so schema migrations and connectivity
+# can be validated. Setup mode and the cloud-sync kill switch below prevent
+# the application from reading or writing study data.
+[[d1_databases]]
+binding = "DB"
+database_name = "abpn-study-db"
+database_id = "356b5061-81c2-4327-bdec-27127e03319d"
+migrations_dir = "./migrations"
+
 [vars]
 APP_ENV = "development"
 APP_RELEASE_MODE = "setup"

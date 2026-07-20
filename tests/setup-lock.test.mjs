@@ -2,21 +2,38 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/worker.js";
 
-function setupEnvironment() {
+function setupEnvironment({ includeDatabase = false } = {}) {
   let assetRequests = 0;
-  return {
-    env: {
-      APP_ENV: "test",
-      APP_RELEASE_MODE: "setup",
-      CLOUD_SYNC_ENABLED: "false",
-      ASSETS: {
-        async fetch() {
-          assetRequests += 1;
-          return new Response("sensitive study asset", { status: 200 });
-        },
+  let databaseRequests = 0;
+  const env = {
+    APP_ENV: "test",
+    APP_RELEASE_MODE: "setup",
+    CLOUD_SYNC_ENABLED: "false",
+    ASSETS: {
+      async fetch() {
+        assetRequests += 1;
+        return new Response("sensitive study asset", { status: 200 });
       },
     },
+  };
+
+  if (includeDatabase) {
+    env.DB = {
+      prepare() {
+        databaseRequests += 1;
+        throw new Error("Setup mode must not query D1");
+      },
+      batch() {
+        databaseRequests += 1;
+        throw new Error("Setup mode must not write D1");
+      },
+    };
+  }
+
+  return {
+    env,
     assetRequestCount: () => assetRequests,
+    databaseRequestCount: () => databaseRequests,
   };
 }
 
@@ -45,8 +62,21 @@ test("setup health endpoint reports locked local-only state without requiring D1
   assert.equal(assetRequestCount(), 0);
 });
 
+test("setup mode recognizes the D1 binding without reading or writing it", async () => {
+  const { env, assetRequestCount, databaseRequestCount } = setupEnvironment({ includeDatabase: true });
+  const response = await worker.fetch(new Request("https://study.example/api/health"), env);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.releaseMode, "setup");
+  assert.equal(body.cloudSyncEnabled, false);
+  assert.equal(body.database, "configured");
+  assert.equal(assetRequestCount(), 0);
+  assert.equal(databaseRequestCount(), 0);
+});
+
 test("setup mode rejects synchronization without touching assets or a database", async () => {
-  const { env, assetRequestCount } = setupEnvironment();
+  const { env, assetRequestCount, databaseRequestCount } = setupEnvironment({ includeDatabase: true });
   const response = await worker.fetch(new Request("https://study.example/api/sync/push", {
     method: "POST",
     body: JSON.stringify({ changes: [] }),
@@ -57,4 +87,5 @@ test("setup mode rejects synchronization without touching assets or a database",
   assert.equal(response.status, 503);
   assert.equal(body.error, "Application setup is not complete");
   assert.equal(assetRequestCount(), 0);
+  assert.equal(databaseRequestCount(), 0);
 });

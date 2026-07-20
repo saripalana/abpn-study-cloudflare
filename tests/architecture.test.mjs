@@ -63,11 +63,15 @@ test("Cloudflare Access JWT validation is the outer request gateway", async () =
   assert.match(packageJson, /"jose"\s*:\s*"6\.2\.3"/);
 });
 
-test("first deployment is locked and cannot bypass the Worker for static assets", async () => {
+test("verified D1 database is bound while the application remains locked", async () => {
   const wrangler = await read("wrangler.toml");
   assert.match(wrangler, /run_worker_first\s*=\s*true/);
+  assert.match(wrangler, /\[\[d1_databases\]\]/);
+  assert.match(wrangler, /binding\s*=\s*"DB"/);
+  assert.match(wrangler, /database_name\s*=\s*"abpn-study-db"/);
+  assert.match(wrangler, /database_id\s*=\s*"356b5061-81c2-4327-bdec-27127e03319d"/);
+  assert.match(wrangler, /migrations_dir\s*=\s*"\.\/migrations"/);
   assert.match(wrangler, /APP_RELEASE_MODE\s*=\s*"setup"/);
   assert.match(wrangler, /CLOUD_SYNC_ENABLED\s*=\s*"false"/);
-  assert.doesNotMatch(wrangler, /database_id\s*=/);
   assert.doesNotMatch(wrangler, /00000000-0000-0000-0000-000000000000/);
 });
