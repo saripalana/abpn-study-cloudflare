@@ -1,6 +1,6 @@
 {
   "name": "abpn-study-cloudflare",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,9 +10,10 @@
     "deploy": "npm run verify && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply abpn-study-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply abpn-study-db --remote",
+    "guardrails": "bash scripts/check-cost-guardrails.sh",
     "test": "node --test",
     "test:e2e": "playwright test",
-    "verify": "npm run bank:import && npm test && wrangler deploy --dry-run"
+    "verify": "npm run bank:import && npm run guardrails && npm test && wrangler deploy --dry-run"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1",
