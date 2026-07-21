@@ -37,35 +37,42 @@ function classificationLabel(bank) {
   return "User-imported source question bank";
 }
 
-function openImportPicker() {
-  if (!importInput) {
-    alert("The question-bank file selector is unavailable. Refresh the page and try again.");
-    return;
-  }
+function upgradeImportControl() {
+  const current = document.getElementById("importBankBtn");
+  if (!current) return;
+  if (current instanceof HTMLLabelElement && current.htmlFor === importInput.id) return;
 
-  importInput.value = "";
-  try {
-    if (typeof importInput.showPicker === "function") {
-      importInput.showPicker();
-    } else {
-      importInput.click();
-    }
-  } catch (error) {
-    console.warn("Native file picker could not be opened with showPicker; using click fallback.", error);
-    importInput.click();
-  }
+  const label = document.createElement("label");
+  label.id = "importBankBtn";
+  label.className = current.className || "secondary";
+  label.htmlFor = importInput.id;
+  label.setAttribute("role", "button");
+  label.tabIndex = 0;
+  label.textContent = current.textContent?.trim() || "Import question bank";
+  Object.assign(label.style, {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    borderRadius: "10px",
+    padding: "10px 14px",
+    minHeight: "44px",
+    font: "inherit",
+    fontWeight: "800",
+    cursor: "pointer",
+    touchAction: "manipulation",
+  });
+  current.replaceWith(label);
 }
 
-// Capture clicks at the stable application root. Dashboard rendering replaces the
-// visible button node, so attaching directly to a particular button can leave a
-// newly rendered button without the import behavior.
-app.addEventListener("click", (event) => {
-  const button = event.target instanceof Element ? event.target.closest("#importBankBtn") : null;
-  if (!button || !app.contains(button)) return;
+// The native label-to-file-input activation path works in Chrome and Safari and
+// remains valid whenever the dashboard redraws and replaces its visible controls.
+app.addEventListener("keydown", (event) => {
+  const control = event.target instanceof Element ? event.target.closest("#importBankBtn") : null;
+  if (!control || !app.contains(control) || !["Enter", " "].includes(event.key)) return;
   event.preventDefault();
-  event.stopPropagation();
-  openImportPicker();
-}, true);
+  importInput.click();
+});
 
 async function seedBankMetadata() {
   const signature = QUESTION_BANKS
@@ -181,10 +188,14 @@ function appendOriginNote(hero, bank) {
 }
 
 async function attachControls() {
+  // This must run before the asynchronous metadata work so a newly rendered
+  // button is upgraded even while another attachment pass is still active.
+  upgradeImportControl();
   if (attaching) return;
   attaching = true;
   try {
     await seedBankMetadata();
+    upgradeImportControl();
     const bankId = activeBankId();
     const bank = bankDefinition(bankId);
     if (!bank) return;
