@@ -160,6 +160,12 @@ async function renderQuestion() {
   const reveal = activeSet.submitted || (activeSet.mode === 'tutor' && answer);
   const progress = await progressMap(activeBank.id);
   const flagged = progress.get(question.id)?.isFlagged;
+  const isLastQuestion = activeSet.index === activeSet.questionIds.length - 1;
+  const finalNavigation = activeSet.submitted && isLastQuestion
+    ? '<button id="resultsBtn" class="primary">View results</button>'
+    : !activeSet.submitted && activeSet.mode === 'tutor' && isLastQuestion
+      ? '<button id="finishSetBtn" class="primary">Finish set</button>'
+      : `<button id="nextBtn" class="primary" ${isLastQuestion ? 'disabled' : ''}>Next</button>`;
   startedQuestionAt = Date.now();
 
   app.innerHTML = `<section class="card exam"><div class="exam-head"><div><div class="eyebrow" style="color:var(--blue)">${esc(activeBank.shortTitle)}</div><h2>Question ${activeSet.index + 1} of ${activeSet.questionIds.length}</h2></div><div id="timer" class="timer">${activeSet.timed ? formatTime(activeSet.remainingSeconds) : 'Untimed'}</div></div><div class="progress"><span style="width:${(activeSet.index + 1) / activeSet.questionIds.length * 100}%"></span></div><div class="question">${esc(question.question)}</div><div class="choices">${question.choices.map((choice, index) => {
@@ -169,7 +175,7 @@ async function renderQuestion() {
     if (reveal && letter === question.correctLetter) classes += ' correct';
     if (reveal && answer?.selectedAnswer === letter && letter !== question.correctLetter) classes += ' incorrect';
     return `<button class="${classes}" data-answer="${esc(letter)}" ${activeSet.submitted ? 'disabled' : ''}><span class="letter">${esc(letter)}</span><span>${esc(choice)}</span></button>`;
-  }).join('')}</div>${reveal ? `<div class="explanation"><strong>${answer?.selectedAnswer === question.correctLetter ? 'Correct' : `Correct answer: ${esc(question.correctLetter)}`}</strong><div>${esc(question.explanation)}</div></div>` : ''}<div class="actions"><button id="flagBtn" class="secondary">${flagged ? 'Unflag' : 'Flag'} question</button>${!activeSet.submitted && activeSet.mode === 'test' ? '<button id="submitBtn" class="danger">Submit set</button>' : ''}</div><div class="question-map">${activeSet.questionIds.map((id, index) => `<button data-index="${index}" class="${index === activeSet.index ? 'current ' : ''}${activeSet.answers.has(id) ? 'answered ' : ''}${progress.get(id)?.isFlagged ? 'flagged' : ''}">${index + 1}</button>`).join('')}</div><div class="exam-nav"><button id="prevBtn" class="secondary" ${activeSet.index === 0 ? 'disabled' : ''}>Previous</button><button id="exitBtn" class="secondary">Save and exit</button>${activeSet.submitted && activeSet.index === activeSet.questionIds.length - 1 ? '<button id="resultsBtn" class="primary">View results</button>' : `<button id="nextBtn" class="primary" ${activeSet.index === activeSet.questionIds.length - 1 ? 'disabled' : ''}>Next</button>`}</div></section>`;
+  }).join('')}</div>${reveal ? `<div class="explanation"><strong>${answer?.selectedAnswer === question.correctLetter ? 'Correct' : `Correct answer: ${esc(question.correctLetter)}`}</strong><div>${esc(question.explanation)}</div></div>` : ''}<div class="actions"><button id="flagBtn" class="secondary">${flagged ? 'Unflag' : 'Flag'} question</button>${!activeSet.submitted && activeSet.mode === 'test' ? '<button id="submitBtn" class="danger">Submit set</button>' : ''}</div><div class="question-map">${activeSet.questionIds.map((id, index) => `<button data-index="${index}" class="${index === activeSet.index ? 'current ' : ''}${activeSet.answers.has(id) ? 'answered ' : ''}${progress.get(id)?.isFlagged ? 'flagged' : ''}">${index + 1}</button>`).join('')}</div><div class="exam-nav"><button id="prevBtn" class="secondary" ${activeSet.index === 0 ? 'disabled' : ''}>Previous</button><button id="exitBtn" class="secondary">Save and exit</button>${finalNavigation}</div></section>`;
 
   document.querySelectorAll('.choice').forEach((button) => { button.onclick = () => answerQuestion(question, button.dataset.answer); });
   document.getElementById('flagBtn').onclick = async () => {
@@ -178,6 +184,9 @@ async function renderQuestion() {
     await renderQuestion();
   };
   document.getElementById('submitBtn')?.addEventListener('click', () => submitSet(false));
+  document.getElementById('finishSetBtn')?.addEventListener('click', async () => {
+    await submitSet(false, true);
+  });
   document.querySelectorAll('.question-map button').forEach((button) => {
     button.onclick = async () => { activeSet.index = Number(button.dataset.index); await saveActiveSet(); await renderQuestion(); };
   });
@@ -228,16 +237,19 @@ async function saveProgress(question, entry) {
   });
 }
 
-async function submitSet(auto = false) {
+async function submitSet(auto = false, showResults = false) {
   if (!activeSet || activeSet.submitted) return;
   activeSet.submitted = true;
-  for (const id of activeSet.questionIds) {
-    const entry = activeSet.answers.get(id);
-    if (entry) await saveProgress(activeBank.byId.get(id), entry);
+  if (activeSet.mode === 'test') {
+    for (const id of activeSet.questionIds) {
+      const entry = activeSet.answers.get(id);
+      if (entry) await saveProgress(activeBank.byId.get(id), entry);
+    }
   }
   await saveActiveSet('completed');
   if (auto) alert('Time expired. The set was submitted.');
-  await renderQuestion();
+  if (showResults) renderResults();
+  else await renderQuestion();
 }
 
 function renderResults() {
