@@ -75,11 +75,45 @@ test("D1 migration creates one persistent guardrail row without destructive stat
   assert.doesNotMatch(migration, /\bDELETE\s+FROM\b/i);
 });
 
-test("production remains locked while guardrails are deployed", async () => {
+test("production serves the protected app while cloud synchronization remains disabled", async () => {
   const wrangler = await read("wrangler.toml");
-  assert.match(wrangler, /APP_RELEASE_MODE\s*=\s*"setup"/);
+  assert.match(wrangler, /APP_RELEASE_MODE\s*=\s*"full"/);
   assert.match(wrangler, /CLOUD_SYNC_ENABLED\s*=\s*"false"/);
+  assert.match(wrangler, /ACCESS_JWT_REQUIRED\s*=\s*"true"/);
   assert.match(wrangler, /STUDY_USER_ID\s*=\s*"[a-f0-9-]+"/);
+
+  let assetRequests = 0;
+  const env = {
+    APP_RELEASE_MODE: "full",
+    CLOUD_SYNC_ENABLED: "false",
+    ASSETS: {
+      fetch: async () => {
+        assetRequests += 1;
+        return new Response("local-only-app", { headers: { "content-type": "text/html" } });
+      },
+    },
+  };
+
+  const appResponse = await worker.fetch(new Request("https://study.example/"), env);
+  assert.equal(appResponse.status, 200);
+  assert.equal(await appResponse.text(), "local-only-app");
+  assert.equal(assetRequests, 1);
+
+  const healthResponse = await worker.fetch(new Request("https://study.example/api/health"), env);
+  const health = await healthResponse.json();
+  assert.equal(health.releaseMode, "full");
+  assert.equal(health.cloudSyncEnabled, false);
+  assert.equal(health.localOnly, true);
+  assert.equal(health.database, "unconfigured");
+
+  const syncResponse = await worker.fetch(new Request("https://study.example/api/sync/pull", {
+    headers: { "x-abpn-device-id": "test-device" },
+  }), env);
+  assert.equal(syncResponse.status, 503);
+  assert.deepEqual(await syncResponse.json(), {
+    error: "Cloud synchronization is disabled",
+    localOnly: true,
+  });
 });
 
 test("the visible application includes the guarded local-only synchronization controller", async () => {
