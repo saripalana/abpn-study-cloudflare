@@ -4,7 +4,7 @@ Private, local-first ABPN Psychiatry study application with optional Cloudflare 
 
 ## Project status
 
-Active development. This repository is separate from and does not modify:
+Active development in protected setup mode. Cloudflare Access and D1 are configured, but the full application and cloud synchronization remain disabled pending controlled validation. This repository is separate from and does not modify:
 
 - `saripalana/ks-study-guide`
 - `saripalana/abpn-study-lite`
@@ -36,6 +36,8 @@ This project is restricted to Cloudflare Zero Trust Free, Workers Free, D1 Free,
 
 The controlling requirements are in [`docs/COST_AND_USAGE_POLICY.md`](docs/COST_AND_USAGE_POLICY.md). Cloud synchronization must not be enabled until the application quotas, kill switch, fail-closed routing, local-only fallback, billing alerts, and usage checks in that policy are implemented and tested.
 
+Backup, restore, Worker rollback, and D1 migration recovery are controlled by [`docs/BACKUP_RESTORE_AND_ROLLBACK.md`](docs/BACKUP_RESTORE_AND_ROLLBACK.md).
+
 ## Safety rules
 
 1. Development occurs in this repository only.
@@ -45,6 +47,7 @@ The controlling requirements are in [`docs/COST_AND_USAGE_POLICY.md`](docs/COST_
 5. Local data remains usable during network outages.
 6. Sync conflicts are resolved at record level and are never handled by replacing the entire database blindly.
 7. Cost guardrails are release-blocking and cannot be bypassed for production deployment.
+8. Portable backups contain local study records and bank references only; original question content remains repository-versioned and separate.
 
 ## Development stages
 
@@ -57,4 +60,4 @@ The controlling requirements are in [`docs/COST_AND_USAGE_POLICY.md`](docs/COST_
 7. Add migration and backup/restore tools.
 8. Implement and verify cost, quota, kill-switch, and fail-closed safeguards.
 9. Run functional, data-integrity, offline, multi-device, security, and cost-safety tests.
-10. Deploy only after validation.
+10. Activate only after a separate controlled validation and release review.
