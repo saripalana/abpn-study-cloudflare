@@ -15,7 +15,7 @@
       <p class="subtitle">Local-first study with protected Cloudflare synchronization.</p>
     </div>
     <div class="header-actions">
-      <span id="syncStatus" class="sync-status">Local</span>
+      <span id="syncStatus" class="sync-status">Local only</span>
       <button id="syncBtn" class="ghost" type="button">Sync</button>
       <button id="homeBtn" class="ghost" type="button" hidden>Dashboard</button>
     </div>
@@ -26,5 +26,6 @@
   <input id="bankImportInput" type="file" accept="application/json,.json" hidden>
   <footer>Unofficial personal study tool. Not produced or endorsed by ABPN.</footer>
   <script type="module" src="/app.js"></script>
+  <script type="module" src="/sync-controller.js"></script>
 </body>
 </html>
