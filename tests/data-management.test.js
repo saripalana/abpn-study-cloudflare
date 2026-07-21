@@ -35,12 +35,15 @@ test("reset requires a typed second confirmation and explains its scope", async 
 });
 
 test("confirmed destructive reloads cannot be undone by the ordinary active-set autosave", async () => {
-  const [index, guard, controller] = await Promise.all([
+  const [index, bootstrap, guard, controller] = await Promise.all([
     read("public/index.html"),
+    read("public/bootstrap.js"),
     read("public/active-autosave-guard.js"),
     read("public/data-management-controller.js"),
   ]);
-  assert.ok(index.indexOf("active-autosave-guard.js") < index.indexOf("app.js"));
+  assert.ok(index.indexOf("active-autosave-guard.js") < index.indexOf("bootstrap.js"));
+  assert.doesNotMatch(index, /src="\/app\.js"/);
+  assert.match(bootstrap, /await import\("\.\/app\.js"\)/);
   assert.match(guard, /type !== "beforeunload"/);
   assert.match(guard, /sessionStorage\.getItem\(suppressionKey\) === "true"/);
   assert.match(controller, /reloadAfterDestructiveAction/);

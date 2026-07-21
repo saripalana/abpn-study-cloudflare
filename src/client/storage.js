@@ -1,9 +1,11 @@
 const DB_NAME = "abpn-study";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const STORES = Object.freeze({
   META: "meta",
   BANKS: "banks",
+  BANK_CONTENT: "questionBankContent",
+  BANK_REVISIONS: "questionBankRevisions",
   PROGRESS: "progress",
   SETS: "practiceSets",
   ANSWERS: "practiceSetAnswers",
@@ -40,6 +42,13 @@ export async function openStudyDatabase() {
     }
     if (!db.objectStoreNames.contains(STORES.BANKS)) {
       db.createObjectStore(STORES.BANKS, { keyPath: "id" });
+    }
+    if (!db.objectStoreNames.contains(STORES.BANK_CONTENT)) {
+      db.createObjectStore(STORES.BANK_CONTENT, { keyPath: "id" });
+    }
+    if (!db.objectStoreNames.contains(STORES.BANK_REVISIONS)) {
+      const store = db.createObjectStore(STORES.BANK_REVISIONS, { keyPath: ["bankId", "checksum"] });
+      store.createIndex("byBank", "bankId", { unique: false });
     }
     if (!db.objectStoreNames.contains(STORES.PROGRESS)) {
       const store = db.createObjectStore(STORES.PROGRESS, { keyPath: ["bankId", "questionId"] });
@@ -106,6 +115,16 @@ export async function deleteRecord(storeName, key) {
     const tx = db.transaction(storeName, "readwrite");
     tx.objectStore(storeName).delete(key);
     await transactionDone(tx);
+  } finally {
+    db.close();
+  }
+}
+
+export async function recordsByIndex(storeName, indexName, key) {
+  const db = await openStudyDatabase();
+  try {
+    const tx = db.transaction(storeName, "readonly");
+    return await requestResult(tx.objectStore(storeName).index(indexName).getAll(key));
   } finally {
     db.close();
   }

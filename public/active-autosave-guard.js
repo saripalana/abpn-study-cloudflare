@@ -11,6 +11,9 @@
   const originalRemoveEventListener = window.removeEventListener;
   const wrappedListeners = new WeakMap();
 
+  // Keep this narrow wrapper for the lifetime of the page. The application is
+  // loaded asynchronously after local question-bank packages are read, so its
+  // beforeunload handler may be registered after DOMContentLoaded.
   window.addEventListener = function addGuardedEventListener(type, listener, options) {
     if (type !== "beforeunload" || typeof listener !== "function") {
       return originalAddEventListener.call(this, type, listener, options);
@@ -30,9 +33,4 @@
       : listener;
     return originalRemoveEventListener.call(this, type, wrapped, options);
   };
-
-  originalAddEventListener.call(window, "DOMContentLoaded", () => {
-    window.addEventListener = originalAddEventListener;
-    window.removeEventListener = originalRemoveEventListener;
-  }, { once: true });
 })();

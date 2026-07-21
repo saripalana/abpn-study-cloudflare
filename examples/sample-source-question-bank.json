@@ -1,0 +1,44 @@
+{
+  "format": "abpn-question-bank",
+  "schemaVersion": 1,
+  "bank": {
+    "id": "sample-source-bank",
+    "title": "Sample Source Question Bank",
+    "shortTitle": "Sample Bank",
+    "description": "A two-question package used to demonstrate the import format.",
+    "version": "1.0.0",
+    "sourceType": "user-imported",
+    "contentClass": "source-material",
+    "sourceLabel": "Example package",
+    "questions": [
+      {
+        "id": "sample-source-1",
+        "chapterTitle": "Psychopharmacology",
+        "question": "Which property is required for a valid imported question?",
+        "choices": [
+          "At least two choices and a correct answer matching one choice letter",
+          "A shared question id with K&S",
+          "No category",
+          "Cloud synchronization"
+        ],
+        "choiceLetters": ["A", "B", "C", "D"],
+        "correctLetter": "A",
+        "explanation": "The package validator requires at least two choices and a correct letter found in the choice-letter array."
+      },
+      {
+        "id": "sample-source-2",
+        "chapterTitle": "Question Banks",
+        "question": "How is progress kept separate between question banks?",
+        "choices": [
+          "By question number alone",
+          "By bank id and question id together",
+          "By browser tab",
+          "By answer letter"
+        ],
+        "choiceLetters": ["A", "B", "C", "D"],
+        "correctLetter": "B",
+        "explanation": "Progress uses a compound bank-and-question identifier."
+      }
+    ]
+  }
+}
