@@ -4,7 +4,7 @@ Private, local-first ABPN Psychiatry study application with optional Cloudflare 
 
 ## Project status
 
-Active development in protected setup mode. Cloudflare Access and D1 are configured, but the full application and cloud synchronization remain disabled pending controlled validation. This repository is separate from and does not modify:
+Active development in a protected local-only release. Cloudflare Access and D1 are configured, the full study application is available only to the approved Access identity, and all cloud synchronization remains disabled pending controlled validation. This repository is separate from and does not modify:
 
 - `saripalana/ks-study-guide`
 - `saripalana/abpn-study-lite`
