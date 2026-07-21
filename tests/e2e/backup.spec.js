@@ -126,7 +126,7 @@ test('restores non-destructively, preserves a newer local record, and preserves 
   expect(restored.invalidSet.invalidQuestionIds).toContain('missing-question');
   expect(restored.answer.selectedAnswer).toBe('C');
   expect(restored.snapshots.length).toBeGreaterThanOrEqual(1);
-  expect(dialogs.some((message) => message.includes('newer local records are kept'))).toBe(true);
+  expect(dialogs.some((message) => /newer local records are kept/i.test(message))).toBe(true);
   expect(dialogs.some((message) => message.includes('Restore completed safely'))).toBe(true);
   await expect(page.getByRole('button', { name: 'Restore backup' })).toBeVisible();
 });
