@@ -8,11 +8,14 @@ import {
 } from "./client/question-bank-import.js";
 import { STORES, getRecord, putRecord, recordsByIndex } from "./client/storage.js";
 
+await import("./bootstrap.js");
+
 const app = document.getElementById("app");
 const importInput = document.getElementById("bankImportInput");
 const SELECTED_BANK_KEY = "abpn-study:selected-bank";
 let attaching = false;
 let importBusy = false;
+let metadataSignature = null;
 
 const protectedBankIds = () => QUESTION_BANKS.filter((bank) => bank.protected).map((bank) => bank.id);
 const bankDefinition = (id) => QUESTION_BANKS.find((bank) => bank.id === id) || null;
@@ -35,6 +38,11 @@ function classificationLabel(bank) {
 }
 
 async function seedBankMetadata() {
+  const signature = QUESTION_BANKS
+    .map((bank) => `${bank.id}:${bank.version || "1"}:${bank.checksum || "built-in"}:${bank.questions?.length || 0}`)
+    .join("|");
+  if (signature === metadataSignature) return;
+
   const now = new Date().toISOString();
   await Promise.all(QUESTION_BANKS.map((bank) => putRecord(STORES.BANKS, {
     id: bank.id,
@@ -51,6 +59,7 @@ async function seedBankMetadata() {
     importedAt: bank.importedAt || null,
     updatedAt: now,
   })));
+  metadataSignature = signature;
 }
 
 async function importPackage(file) {
@@ -121,6 +130,26 @@ async function downloadActivePackage(bankId) {
   }
 }
 
+function appendOriginNote(hero, bank) {
+  if (!hero || hero.querySelector(".bank-origin-note")) return;
+  const note = document.createElement("p");
+  note.className = "bank-origin-note";
+
+  const pill = document.createElement("span");
+  pill.className = "pill";
+  pill.textContent = classificationLabel(bank);
+  note.append(pill);
+
+  if (bank.sourceLabel) {
+    note.append(document.createTextNode(" "));
+    const source = document.createElement("span");
+    source.className = "muted";
+    source.textContent = bank.sourceLabel;
+    note.append(source);
+  }
+  hero.append(note);
+}
+
 async function attachControls() {
   if (attaching) return;
   attaching = true;
@@ -137,13 +166,7 @@ async function attachControls() {
       importButton.addEventListener("click", () => importInput.click());
     }
 
-    const hero = app.querySelector(".hero > div:first-child");
-    if (hero && !hero.querySelector(".bank-origin-note")) {
-      const note = document.createElement("p");
-      note.className = "bank-origin-note";
-      note.innerHTML = `<span class="pill">${classificationLabel(bank)}</span>${bank.sourceLabel ? ` <span class="muted">${bank.sourceLabel}</span>` : ""}`;
-      hero.append(note);
-    }
+    appendOriginNote(app.querySelector(".hero > div:first-child"), bank);
 
     const protection = sectionByHeading("Data protection");
     const actions = protection?.querySelector(".actions");
