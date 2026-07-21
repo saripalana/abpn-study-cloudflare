@@ -36,6 +36,12 @@ export function normalizeBank(definition) {
     shortTitle: String(definition.shortTitle || definition.title || id),
     description: String(definition.description || ""),
     version: String(definition.version || "1"),
+    sourceType: String(definition.sourceType || "repository-protected"),
+    contentClass: String(definition.contentClass || "source-material"),
+    sourceLabel: String(definition.sourceLabel || ""),
+    protected: Boolean(definition.protected),
+    importedAt: definition.importedAt || null,
+    checksum: definition.checksum || null,
     questions,
     byId: new Map(questions.map((q) => [q.id, q]))
   });
