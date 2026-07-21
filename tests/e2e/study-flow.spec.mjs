@@ -29,15 +29,22 @@ test('test-mode set restores question, answers, and results after reload', async
   await expect(page.locator('.question-map button').first()).toHaveClass(/answered/);
 
   await page.locator('.choice').first().click();
+  page.once('dialog', async (dialog) => {
+    expect(dialog.type()).toBe('confirm');
+    expect(dialog.message()).toContain('2 answered');
+    expect(dialog.message()).toContain('0 unanswered');
+    await dialog.accept();
+  });
   await page.getByRole('button', { name: 'Submit set' }).click();
-  await expect(page.locator('.explanation')).toBeVisible();
-  await page.getByRole('button', { name: 'View results' }).click();
-  await expect(page.getByText(/answered · 0 omitted/)).toBeVisible();
-  await page.getByRole('button', { name: 'Finish' }).click();
+  await expect(page.getByText('SET RESULTS')).toBeVisible();
+  await expect(page.getByText(/2 answered · 0 omitted/)).toBeVisible();
+  await page.getByRole('button', { name: 'Back to dashboard' }).click();
   await expect(page.getByRole('heading', { name: 'Create practice set' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'History / Previous tests' })).toBeVisible();
 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Resume active set' })).toHaveCount(0);
+  await expect(page.locator('.history-item')).toHaveCount(1);
 });
 
 test('tutor mode reveals feedback immediately and records analytics', async ({ page }) => {
