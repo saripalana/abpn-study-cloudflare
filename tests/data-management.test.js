@@ -34,6 +34,19 @@ test("reset requires a typed second confirmation and explains its scope", async 
   assert.match(controller, /Undo last deletion\/reset/);
 });
 
+test("confirmed destructive reloads cannot be undone by the ordinary active-set autosave", async () => {
+  const [index, guard, controller] = await Promise.all([
+    read("public/index.html"),
+    read("public/active-autosave-guard.js"),
+    read("public/data-management-controller.js"),
+  ]);
+  assert.ok(index.indexOf("active-autosave-guard.js") < index.indexOf("app.js"));
+  assert.match(guard, /type !== "beforeunload"/);
+  assert.match(guard, /sessionStorage\.getItem\(suppressionKey\) === "true"/);
+  assert.match(controller, /reloadAfterDestructiveAction/);
+  assert.match(controller, /SUPPRESS_ACTIVE_AUTOSAVE_KEY/);
+});
+
 test("the application loads data management controls without enabling cloud sync", async () => {
   const [index, wrangler] = await Promise.all([
     read("public/index.html"),
