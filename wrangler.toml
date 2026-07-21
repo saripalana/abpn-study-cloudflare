@@ -2,17 +2,15 @@ name = "abpn-study-cloudflare"
 main = "src/access-worker.js"
 compatibility_date = "2026-07-20"
 
-# The Worker must run before every asset request. This prevents the study
-# application and question-bank files from being served while setup mode is
-# active or if Cloudflare Access has not yet been verified.
+# The Worker runs before every asset request so Cloudflare Access JWT validation
+# is enforced before the application or question-bank files are served.
 [assets]
 directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-# The database binding is present only so schema migrations and connectivity
-# can be validated. Setup mode and the cloud-sync kill switch below prevent
-# the application from reading or writing study data.
+# D1 remains bound for schema and connectivity validation. The cloud-sync kill
+# switch below prevents all study-data reads and writes during local-only release.
 [[d1_databases]]
 binding = "DB"
 database_name = "abpn-study-db"
@@ -21,7 +19,7 @@ migrations_dir = "./migrations"
 
 [vars]
 APP_ENV = "development"
-APP_RELEASE_MODE = "setup"
+APP_RELEASE_MODE = "full"
 CLOUD_SYNC_ENABLED = "false"
 STUDY_USER_ID = "f0ac0ac0-4fdd-4c36-a305-29c3182fc9b0"
 ACCESS_JWT_REQUIRED = "true"
