@@ -43,7 +43,22 @@ jobs:
       - name: Install Chromium and WebKit
         run: npx playwright install --with-deps chromium webkit >/tmp/playwright-install.log 2>&1 || { tail -n 200 /tmp/playwright-install.log; exit 1; }
       - name: Run desktop Chrome flows
-        run: npx playwright test --project=chromium-desktop --reporter=line
+        id: desktop
+        continue-on-error: true
+        run: npx playwright test --project=chromium-desktop --reporter=json > desktop-chrome-report.json
+      - name: Upload desktop Chrome report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-chrome-report
+          path: |
+            desktop-chrome-report.json
+            test-results/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Fail when desktop Chrome validation fails
+        if: steps.desktop.outcome == 'failure'
+        run: exit 1
       - name: Run iPhone 13 Safari flows
         id: iphone
         continue-on-error: true
