@@ -63,7 +63,7 @@ test("Cloudflare Access JWT validation is the outer request gateway", async () =
   assert.match(packageJson, /"jose"\s*:\s*"6\.2\.3"/);
 });
 
-test("verified D1 database is bound while the application remains locked", async () => {
+test("verified D1 remains bound while the protected application is released local-only", async () => {
   const wrangler = await read("wrangler.toml");
   assert.match(wrangler, /run_worker_first\s*=\s*true/);
   assert.match(wrangler, /\[\[d1_databases\]\]/);
@@ -71,7 +71,8 @@ test("verified D1 database is bound while the application remains locked", async
   assert.match(wrangler, /database_name\s*=\s*"abpn-study-db"/);
   assert.match(wrangler, /database_id\s*=\s*"356b5061-81c2-4327-bdec-27127e03319d"/);
   assert.match(wrangler, /migrations_dir\s*=\s*"\.\/migrations"/);
-  assert.match(wrangler, /APP_RELEASE_MODE\s*=\s*"setup"/);
+  assert.match(wrangler, /APP_RELEASE_MODE\s*=\s*"full"/);
   assert.match(wrangler, /CLOUD_SYNC_ENABLED\s*=\s*"false"/);
+  assert.match(wrangler, /ACCESS_JWT_REQUIRED\s*=\s*"true"/);
   assert.doesNotMatch(wrangler, /00000000-0000-0000-0000-000000000000/);
 });
