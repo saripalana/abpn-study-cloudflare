@@ -37,6 +37,36 @@ function classificationLabel(bank) {
   return "User-imported source question bank";
 }
 
+function openImportPicker() {
+  if (!importInput) {
+    alert("The question-bank file selector is unavailable. Refresh the page and try again.");
+    return;
+  }
+
+  importInput.value = "";
+  try {
+    if (typeof importInput.showPicker === "function") {
+      importInput.showPicker();
+    } else {
+      importInput.click();
+    }
+  } catch (error) {
+    console.warn("Native file picker could not be opened with showPicker; using click fallback.", error);
+    importInput.click();
+  }
+}
+
+// Capture clicks at the stable application root. Dashboard rendering replaces the
+// visible button node, so attaching directly to a particular button can leave a
+// newly rendered button without the import behavior.
+app.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest("#importBankBtn") : null;
+  if (!button || !app.contains(button)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  openImportPicker();
+}, true);
+
 async function seedBankMetadata() {
   const signature = QUESTION_BANKS
     .map((bank) => `${bank.id}:${bank.version || "1"}:${bank.checksum || "built-in"}:${bank.questions?.length || 0}`)
@@ -158,13 +188,6 @@ async function attachControls() {
     const bankId = activeBankId();
     const bank = bankDefinition(bankId);
     if (!bank) return;
-
-    const importButton = document.getElementById("importBankBtn");
-    if (importButton && importButton.dataset.importReady !== "true") {
-      importButton.onclick = null;
-      importButton.dataset.importReady = "true";
-      importButton.addEventListener("click", () => importInput.click());
-    }
 
     appendOriginNote(app.querySelector(".hero > div:first-child"), bank);
 
