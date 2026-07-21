@@ -86,7 +86,6 @@ export class SyncClient {
 
   async request(path, options = {}) {
     let lastError;
-
     for (let attempt = 0; attempt <= MAX_AUTOMATIC_RETRIES; attempt += 1) {
       try {
         const response = await this.fetchImpl(`${this.apiBase}${path}`, {
@@ -97,9 +96,7 @@ export class SyncClient {
             ...(options.headers ?? {}),
           },
         });
-
         if (response.ok) return response.status === 204 ? null : response.json();
-
         const details = await parseErrorResponse(response);
         const error = new SyncRequestError(
           `Sync request failed (${response.status}): ${details.message}`,
@@ -112,14 +109,10 @@ export class SyncClient {
         lastError = error;
         if (attempt === MAX_AUTOMATIC_RETRIES) break;
       }
-
       await sleep(retryDelay(attempt));
     }
-
     if (lastError instanceof SyncRequestError) throw lastError;
-    throw new SyncRequestError(`Sync request failed after ${MAX_AUTOMATIC_RETRIES} retries: ${lastError?.message || "network error"}`, {
-      localOnly: true,
-    });
+    throw new SyncRequestError(`Sync request failed after ${MAX_AUTOMATIC_RETRIES} retries: ${lastError?.message || "network error"}`, { localOnly: true });
   }
 
   async pushPending({ batchSize = DEFAULT_BATCH_SIZE } = {}) {
@@ -127,104 +120,49 @@ export class SyncClient {
     const pending = (await getAllRecords(STORES.OUTBOX))
       .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
       .slice(0, safeBatchSize);
-
     if (pending.length === 0) return { pushed: 0, pending: 0 };
-
     const result = await this.request("/api/sync/push", {
       method: "POST",
       body: JSON.stringify({ changes: pending }),
     });
-
     const acceptedIds = new Set(result.acceptedIds ?? []);
-    await Promise.all(
-      pending
-        .filter((item) => acceptedIds.has(item.id))
-        .map((item) => deleteRecord(STORES.OUTBOX, item.id))
-    );
-    return {
-      pushed: acceptedIds.size,
-      pending: Math.max(0, pending.length - acceptedIds.size),
-      conflicts: result.conflicts ?? [],
-    };
+    await Promise.all(pending.filter((item) => acceptedIds.has(item.id)).map((item) => deleteRecord(STORES.OUTBOX, item.id)));
+    return { pushed: acceptedIds.size, pending: Math.max(0, pending.length - acceptedIds.size), conflicts: result.conflicts ?? [] };
   }
 
   async pullRemote({ cursor = null } = {}) {
     const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
     const result = await this.request(`/api/sync/pull${query}`, { method: "GET" });
-
     for (const change of result.changes ?? []) {
-      if (change.entityType === "questionProgress" && change.operation === "upsert") {
-        await putRecord(STORES.PROGRESS, change.payload);
-      }
-      if (change.entityType === "practiceSet" && change.operation === "upsert") {
-        await putRecord(STORES.SETS, change.payload);
-      }
-      if (change.entityType === "practiceSetAnswer" && change.operation === "upsert") {
-        await putRecord(STORES.ANSWERS, change.payload);
-      }
+      if (change.entityType === "questionProgress" && change.operation === "upsert") await putRecord(STORES.PROGRESS, change.payload);
+      if (change.entityType === "practiceSet" && change.operation === "upsert") await putRecord(STORES.SETS, change.payload);
+      if (change.entityType === "practiceSetAnswer" && change.operation === "upsert") await putRecord(STORES.ANSWERS, change.payload);
     }
-
-    if (result.nextCursor) {
-      await putRecord(STORES.META, { key: "syncCursor", value: result.nextCursor });
-    }
+    if (result.nextCursor) await putRecord(STORES.META, { key: "syncCursor", value: result.nextCursor });
     return result;
   }
 
   async synchronize({ background = false, force = false } = {}) {
     const state = await getSyncState();
-    if (state.suspended) {
-      return {
-        status: "suspended",
-        localOnly: true,
-        reason: state.suspensionReason || "three-consecutive-failures",
-        state,
-      };
-    }
-
+    if (state.suspended) return { status: "suspended", localOnly: true, reason: state.suspensionReason || "three-consecutive-failures", state };
     const pending = await getAllRecords(STORES.OUTBOX);
     const lastAttemptTime = state.lastAttemptAt ? Date.parse(state.lastAttemptAt) : 0;
     if (background && !force) {
-      if (pending.length === 0) {
-        return { status: "skipped", localOnly: true, reason: "no-meaningful-local-changes", state };
-      }
-      if (lastAttemptTime && Date.now() - lastAttemptTime < MIN_BACKGROUND_INTERVAL_MS) {
-        return { status: "skipped", localOnly: true, reason: "background-interval", state };
-      }
+      if (pending.length === 0) return { status: "skipped", localOnly: true, reason: "no-meaningful-local-changes", state };
+      if (lastAttemptTime && Date.now() - lastAttemptTime < MIN_BACKGROUND_INTERVAL_MS) return { status: "skipped", localOnly: true, reason: "background-interval", state };
     }
-
-    const attemptAt = new Date().toISOString();
-    await saveSyncState({ lastAttemptAt: attemptAt });
-
+    await saveSyncState({ lastAttemptAt: new Date().toISOString() });
     try {
       const cursorRecord = await getRecord(STORES.META, "syncCursor");
       const push = await this.pushPending();
       const pull = await this.pullRemote({ cursor: cursorRecord?.value ?? null });
-      const nextState = await saveSyncState({
-        mode: "cloud-ready",
-        suspended: false,
-        suspensionReason: null,
-        consecutiveFailures: 0,
-        lastSuccessAt: new Date().toISOString(),
-      });
-      return {
-        status: "success",
-        localOnly: false,
-        pushed: push.pushed,
-        conflicts: push.conflicts,
-        pulled: (pull.changes ?? []).length,
-        nextCursor: pull.nextCursor ?? null,
-        state: nextState,
-      };
+      const nextState = await saveSyncState({ mode: "cloud-ready", suspended: false, suspensionReason: null, consecutiveFailures: 0, lastSuccessAt: new Date().toISOString() });
+      return { status: "success", localOnly: false, pushed: push.pushed, conflicts: push.conflicts, pulled: (pull.changes ?? []).length, nextCursor: pull.nextCursor ?? null, state: nextState };
     } catch (error) {
       const failures = Number(state.consecutiveFailures || 0) + 1;
       const serverReason = error?.responseBody?.reason || null;
       const suspended = Boolean(error?.localOnly || serverReason || failures >= FAILURE_SUSPENSION_THRESHOLD);
-      const nextState = await saveSyncState({
-        mode: "local-only",
-        suspended,
-        suspensionReason: suspended ? (serverReason || error.message || "three-consecutive-failures") : null,
-        consecutiveFailures: failures,
-      });
+      const nextState = await saveSyncState({ mode: "local-only", suspended, suspensionReason: suspended ? (serverReason || error.message || "three-consecutive-failures") : null, consecutiveFailures: failures });
       error.syncState = nextState;
       throw error;
     }

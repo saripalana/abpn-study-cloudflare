@@ -7,6 +7,17 @@ const json = (data, status = 200, extraHeaders = {}) => new Response(JSON.string
   },
 });
 
+export const SYNC_LIMITS = Object.freeze({
+  maxAuthorizedUsers: 1,
+  maxRequestBodyBytes: 2 * 1024 * 1024,
+  maxWriteActionsPerMinute: 5,
+  maxSyncRequestsPerUtcDay: 2_000,
+  maxRowsReadPerUtcDay: 50_000,
+  maxRowsWrittenPerUtcDay: 2_500,
+  maxPushChanges: 100,
+  maxPullRows: 200,
+});
+
 const releaseMode = (env) => env.APP_RELEASE_MODE === "full" ? "full" : "setup";
 const cloudSyncEnabled = (env) => releaseMode(env) === "full" && env.CLOUD_SYNC_ENABLED === "true";
 
@@ -64,25 +75,208 @@ const setupPage = () => new Response(`<!doctype html>
 
 function requireSyncReady(env) {
   if (releaseMode(env) !== "full") {
-    throw json({ error: "Application setup is not complete" }, 503);
+    throw json({ error: "Application setup is not complete", localOnly: true }, 503);
   }
   if (env.CLOUD_SYNC_ENABLED !== "true") {
-    throw json({ error: "Cloud synchronization is disabled" }, 503);
+    throw json({ error: "Cloud synchronization is disabled", localOnly: true }, 503);
   }
   if (!env.DB) {
-    throw json({ error: "Cloud synchronization database is not configured" }, 503);
+    throw json({ error: "Cloud synchronization database is not configured", localOnly: true }, 503);
   }
 }
 
 function requireContext(request, env) {
   const deviceId = request.headers.get("x-abpn-device-id")?.trim();
   const userId = env.STUDY_USER_ID?.trim();
-  if (!userId) throw new Response("STUDY_USER_ID is not configured", { status: 503 });
-  if (!deviceId) throw new Response("Missing x-abpn-device-id", { status: 400 });
+  if (!userId) throw json({ error: "STUDY_USER_ID is not configured", localOnly: true }, 503);
+  if (!deviceId) throw json({ error: "Missing x-abpn-device-id" }, 400);
+  if (deviceId.length > 200) throw json({ error: "Invalid x-abpn-device-id" }, 400);
   return { userId, deviceId };
 }
 
+function utcBuckets(now = new Date()) {
+  const iso = now.toISOString();
+  return { day: iso.slice(0, 10), minute: iso.slice(0, 16), now: iso };
+}
+
+async function readUsage(env) {
+  return env.DB.prepare(`
+    SELECT utc_day, utc_minute, request_count, write_actions, rows_read, rows_written,
+           suspended, suspension_reason, updated_at
+    FROM app_usage
+    WHERE id = 1
+  `).first();
+}
+
+async function suspendCloudSync(env, reason) {
+  await env.DB.prepare(`
+    UPDATE app_usage
+    SET suspended = 1, suspension_reason = ?, updated_at = ?
+    WHERE id = 1
+  `).bind(reason, new Date().toISOString()).run();
+}
+
+function usageSnapshot(row) {
+  if (!row) return null;
+  return {
+    utcDay: row.utc_day,
+    utcMinute: row.utc_minute,
+    requestCount: Number(row.request_count || 0),
+    writeActions: Number(row.write_actions || 0),
+    rowsRead: Number(row.rows_read || 0),
+    rowsWritten: Number(row.rows_written || 0),
+    suspended: Boolean(row.suspended),
+    suspensionReason: row.suspension_reason || null,
+    updatedAt: row.updated_at,
+  };
+}
+
+function quotaReason(projected) {
+  if (projected.requests > SYNC_LIMITS.maxSyncRequestsPerUtcDay) return "daily-sync-request-limit";
+  if (projected.writeActions > SYNC_LIMITS.maxWriteActionsPerMinute) return "per-minute-write-action-limit";
+  if (projected.rowsRead > SYNC_LIMITS.maxRowsReadPerUtcDay) return "daily-rows-read-limit";
+  if (projected.rowsWritten > SYNC_LIMITS.maxRowsWrittenPerUtcDay) return "daily-rows-written-limit";
+  return null;
+}
+
+async function reserveUsage(env, delta = {}) {
+  const bucket = utcBuckets();
+  let row = await readUsage(env);
+  if (!row) throw json({ error: "Usage guardrail table is not configured", localOnly: true }, 503);
+  if (row.suspended) {
+    throw json({
+      error: "Cloud synchronization is suspended",
+      reason: row.suspension_reason || "manual-suspension",
+      localOnly: true,
+    }, 503);
+  }
+
+  const dayChanged = row.utc_day !== bucket.day;
+  const minuteChanged = row.utc_minute !== bucket.minute;
+  let resetWrite = 0;
+
+  if (dayChanged || minuteChanged) {
+    await env.DB.prepare(`
+      UPDATE app_usage
+      SET utc_day = ?,
+          utc_minute = ?,
+          request_count = CASE WHEN utc_day = ? THEN request_count ELSE 0 END,
+          rows_read = CASE WHEN utc_day = ? THEN rows_read ELSE 0 END,
+          rows_written = CASE WHEN utc_day = ? THEN rows_written ELSE 0 END,
+          write_actions = CASE WHEN utc_minute = ? THEN write_actions ELSE 0 END,
+          updated_at = ?
+      WHERE id = 1 AND suspended = 0
+    `).bind(
+      bucket.day,
+      bucket.minute,
+      bucket.day,
+      bucket.day,
+      bucket.day,
+      bucket.minute,
+      bucket.now
+    ).run();
+    resetWrite = 1;
+    row = {
+      ...row,
+      utc_day: bucket.day,
+      utc_minute: bucket.minute,
+      request_count: dayChanged ? 0 : row.request_count,
+      rows_read: dayChanged ? 0 : row.rows_read,
+      rows_written: dayChanged ? 0 : row.rows_written,
+      write_actions: minuteChanged ? 0 : row.write_actions,
+    };
+  }
+
+  const increments = {
+    requests: Math.max(0, Number(delta.requests || 0)),
+    writeActions: Math.max(0, Number(delta.writeActions || 0)),
+    rowsRead: Math.max(0, Number(delta.rowsRead || 0)) + 1,
+    rowsWritten: Math.max(0, Number(delta.rowsWritten || 0)) + 1 + resetWrite,
+  };
+  const projected = {
+    requests: Number(row.request_count || 0) + increments.requests,
+    writeActions: Number(row.write_actions || 0) + increments.writeActions,
+    rowsRead: Number(row.rows_read || 0) + increments.rowsRead,
+    rowsWritten: Number(row.rows_written || 0) + increments.rowsWritten,
+  };
+  const reason = quotaReason(projected);
+  if (reason) {
+    await suspendCloudSync(env, reason);
+    throw json({
+      error: "Cloud synchronization was suspended before an internal free-tier limit was reached",
+      reason,
+      localOnly: true,
+      limits: SYNC_LIMITS,
+    }, 429, { "retry-after": "86400" });
+  }
+
+  const updated = await env.DB.prepare(`
+    UPDATE app_usage
+    SET request_count = request_count + ?,
+        write_actions = write_actions + ?,
+        rows_read = rows_read + ?,
+        rows_written = rows_written + ?,
+        updated_at = ?
+    WHERE id = 1
+      AND suspended = 0
+      AND request_count + ? <= ?
+      AND write_actions + ? <= ?
+      AND rows_read + ? <= ?
+      AND rows_written + ? <= ?
+    RETURNING utc_day, utc_minute, request_count, write_actions, rows_read, rows_written,
+              suspended, suspension_reason, updated_at
+  `).bind(
+    increments.requests,
+    increments.writeActions,
+    increments.rowsRead,
+    increments.rowsWritten,
+    bucket.now,
+    increments.requests,
+    SYNC_LIMITS.maxSyncRequestsPerUtcDay,
+    increments.writeActions,
+    SYNC_LIMITS.maxWriteActionsPerMinute,
+    increments.rowsRead,
+    SYNC_LIMITS.maxRowsReadPerUtcDay,
+    increments.rowsWritten,
+    SYNC_LIMITS.maxRowsWrittenPerUtcDay
+  ).first();
+
+  if (!updated) {
+    await suspendCloudSync(env, "concurrent-quota-check-failed");
+    throw json({
+      error: "Cloud synchronization was suspended because a quota reservation could not be completed safely",
+      reason: "concurrent-quota-check-failed",
+      localOnly: true,
+    }, 429, { "retry-after": "86400" });
+  }
+  return usageSnapshot(updated);
+}
+
+async function parseBoundedJson(request) {
+  const declaredLength = Number(request.headers.get("content-length") || 0);
+  if (declaredLength > SYNC_LIMITS.maxRequestBodyBytes) {
+    throw json({ error: "Request body exceeds the 2 MiB synchronization limit" }, 413);
+  }
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > SYNC_LIMITS.maxRequestBodyBytes) {
+    throw json({ error: "Request body exceeds the 2 MiB synchronization limit" }, 413);
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw json({ error: "Invalid JSON request body" }, 400);
+  }
+}
+
 async function ensureUserAndDevice(env, userId, deviceId) {
+  const otherUser = await env.DB.prepare("SELECT id FROM users WHERE id != ? LIMIT 1").bind(userId).first();
+  if (otherUser) {
+    throw json({
+      error: "The one-user synchronization limit has been reached",
+      localOnly: true,
+    }, 403);
+  }
+
   const now = new Date().toISOString();
   await env.DB.batch([
     env.DB.prepare(
@@ -98,11 +292,14 @@ async function handleHealth(env) {
   const mode = releaseMode(env);
   const syncEnabled = cloudSyncEnabled(env);
   let database = env.DB ? "configured" : "unconfigured";
+  let usage = null;
 
   if (syncEnabled && env.DB) {
     try {
       await env.DB.prepare("SELECT 1 AS ok").first();
-      database = "connected";
+      const usageRow = await readUsage(env);
+      usage = usageSnapshot(usageRow);
+      database = usage?.suspended ? "suspended" : "connected";
     } catch {
       database = "error";
     }
@@ -113,33 +310,51 @@ async function handleHealth(env) {
     service: "abpn-study-cloudflare",
     environment: env.APP_ENV || "unknown",
     releaseMode: mode,
-    cloudSyncEnabled: syncEnabled,
+    cloudSyncEnabled: syncEnabled && database !== "suspended",
+    localOnly: !syncEnabled || database === "suspended",
     database,
+    usage,
+    limits: SYNC_LIMITS,
     timestamp: new Date().toISOString(),
   }, database === "error" ? 503 : 200);
 }
 
+function boundedString(value, field, maxLength = 200) {
+  const result = String(value || "").trim();
+  if (!result || result.length > maxLength) throw new Error(`${field} is invalid`);
+  return result;
+}
+
 async function upsertQuestionProgress(env, userId, deviceId, payload) {
-  const bankId = String(payload.bankId || "");
-  const questionId = String(payload.questionId || "");
-  if (!bankId || !questionId) throw new Error("questionProgress requires bankId and questionId");
+  const bankId = boundedString(payload.bankId, "bankId");
+  const questionId = boundedString(payload.questionId, "questionId");
+  const incomingRevision = Number(payload.revision || 1);
+  if (!Number.isSafeInteger(incomingRevision) || incomingRevision < 1) {
+    throw new Error("questionProgress revision is invalid");
+  }
+  const updatedAt = String(payload.updatedAt || new Date().toISOString());
+  if (!Number.isFinite(Date.parse(updatedAt))) throw new Error("questionProgress updatedAt is invalid");
 
   const current = await env.DB.prepare(
     "SELECT revision, updated_at FROM question_progress WHERE user_id = ? AND bank_id = ? AND question_id = ?"
   ).bind(userId, bankId, questionId).first();
 
-  const incomingRevision = Number(payload.revision || 1);
-  if (current && incomingRevision < Number(current.revision)) {
-    return {
-      conflict: true,
-      entityType: "questionProgress",
-      entityKey: `${bankId}:${questionId}`,
-      remoteRevision: Number(current.revision),
-      remoteUpdatedAt: current.updated_at,
-    };
+  if (current) {
+    const remoteRevision = Number(current.revision);
+    if (incomingRevision < remoteRevision || (incomingRevision === remoteRevision && updatedAt !== current.updated_at)) {
+      return {
+        conflict: true,
+        entityType: "questionProgress",
+        entityKey: `${bankId}:${questionId}`,
+        remoteRevision,
+        remoteUpdatedAt: current.updated_at,
+      };
+    }
+    if (incomingRevision === remoteRevision && updatedAt === current.updated_at) {
+      return { conflict: false, idempotent: true, changeId: null };
+    }
   }
 
-  const updatedAt = String(payload.updatedAt || new Date().toISOString());
   await env.DB.prepare(`
     INSERT INTO question_progress (
       user_id, bank_id, question_id, selected_answer, is_correct, is_flagged,
@@ -159,11 +374,11 @@ async function upsertQuestionProgress(env, userId, deviceId, payload) {
     userId,
     bankId,
     questionId,
-    payload.selectedAnswer ?? null,
+    payload.selectedAnswer == null ? null : String(payload.selectedAnswer).slice(0, 20),
     payload.isCorrect == null ? null : Number(Boolean(payload.isCorrect)),
     Number(Boolean(payload.isFlagged)),
-    Number(payload.timesUsed || 0),
-    Number(payload.totalTimeMs || 0),
+    Math.max(0, Number(payload.timesUsed || 0)),
+    Math.max(0, Number(payload.totalTimeMs || 0)),
     payload.lastUsedAt ?? null,
     incomingRevision,
     updatedAt,
@@ -182,9 +397,21 @@ async function upsertQuestionProgress(env, userId, deviceId, payload) {
 async function handleSyncPush(request, env) {
   requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
+  const body = await parseBoundedJson(request);
+  if (!Array.isArray(body.changes)) throw json({ error: "changes must be an array" }, 400);
+  if (body.changes.length > SYNC_LIMITS.maxPushChanges) {
+    throw json({ error: `A synchronization batch may contain at most ${SYNC_LIMITS.maxPushChanges} changes` }, 400);
+  }
+  const changes = body.changes;
+  await reserveUsage(env, {
+    requests: 1,
+    writeActions: changes.length,
+    rowsRead: changes.length + (changes.length ? 1 : 0),
+    rowsWritten: changes.length * 2 + (changes.length ? 2 : 0),
+  });
+
+  if (!changes.length) return json({ acceptedIds: [], conflicts: [] });
   await ensureUserAndDevice(env, userId, deviceId);
-  const body = await request.json();
-  const changes = Array.isArray(body.changes) ? body.changes.slice(0, 100) : [];
   const acceptedIds = [];
   const conflicts = [];
 
@@ -198,6 +425,7 @@ async function handleSyncPush(request, env) {
       if (result.conflict) conflicts.push({ id: change.id, ...result });
       else acceptedIds.push(change.id);
     } catch (error) {
+      if (error instanceof Response) throw error;
       conflicts.push({ id: change.id, reason: error.message || "invalid-change" });
     }
   }
@@ -208,9 +436,15 @@ async function handleSyncPush(request, env) {
 async function handleSyncPull(request, env) {
   requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
+  await reserveUsage(env, {
+    requests: 1,
+    rowsRead: SYNC_LIMITS.maxPullRows + 1,
+    rowsWritten: 2,
+  });
   await ensureUserAndDevice(env, userId, deviceId);
   const url = new URL(request.url);
-  const cursor = Math.max(0, Number(url.searchParams.get("cursor") || 0));
+  const rawCursor = Number(url.searchParams.get("cursor") || 0);
+  const cursor = Number.isSafeInteger(rawCursor) && rawCursor >= 0 ? rawCursor : 0;
   const rows = await env.DB.prepare(`
     SELECT sc.id, sc.entity_type, sc.entity_id, sc.operation, sc.revision, sc.changed_at,
            qp.bank_id, qp.question_id, qp.selected_answer, qp.is_correct, qp.is_flagged,
@@ -222,7 +456,7 @@ async function handleSyncPull(request, env) {
       AND sc.entity_id = qp.bank_id || ':' || qp.question_id
     WHERE sc.user_id = ? AND sc.id > ? AND (sc.device_id IS NULL OR sc.device_id != ?)
     ORDER BY sc.id ASC
-    LIMIT 200
+    LIMIT ${SYNC_LIMITS.maxPullRows}
   `).bind(userId, cursor, deviceId).all();
 
   const changes = rows.results.map((row) => ({
@@ -272,7 +506,7 @@ export default {
         const response = url.pathname === "/api/health"
           ? await handleHealth(env)
           : url.pathname.startsWith("/api/")
-            ? json({ error: "Application setup is not complete" }, 503)
+            ? json({ error: "Application setup is not complete", localOnly: true }, 503)
             : setupPage();
         return withSecurityHeaders(response);
       }
@@ -284,7 +518,7 @@ export default {
     } catch (error) {
       if (error instanceof Response) return withSecurityHeaders(error);
       console.error("Unhandled request error", error);
-      return withSecurityHeaders(json({ error: "Internal server error" }, 500));
+      return withSecurityHeaders(json({ error: "Internal server error", localOnly: true }, 500));
     }
   },
 };
