@@ -37,42 +37,33 @@ function classificationLabel(bank) {
   return "User-imported source question bank";
 }
 
-function upgradeImportControl() {
-  const current = document.getElementById("importBankBtn");
-  if (!current) return;
-  if (current instanceof HTMLLabelElement && current.htmlFor === importInput.id) return;
-
-  const label = document.createElement("label");
-  label.id = "importBankBtn";
-  label.className = current.className || "secondary";
-  label.htmlFor = importInput.id;
-  label.setAttribute("role", "button");
-  label.tabIndex = 0;
-  label.textContent = current.textContent?.trim() || "Import question bank";
-  Object.assign(label.style, {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    boxSizing: "border-box",
-    borderRadius: "10px",
-    padding: "10px 14px",
-    minHeight: "44px",
-    font: "inherit",
-    fontWeight: "800",
-    cursor: "pointer",
-    touchAction: "manipulation",
-  });
-  current.replaceWith(label);
+function importControlFromEvent(event) {
+  const target = event.target;
+  if (!(target instanceof Element)) return null;
+  const control = target.closest("#importBankBtn");
+  return control && app.contains(control) ? control : null;
 }
 
-// The native label-to-file-input activation path works in Chrome and Safari and
-// remains valid whenever the dashboard redraws and replaces its visible controls.
-app.addEventListener("keydown", (event) => {
-  const control = event.target instanceof Element ? event.target.closest("#importBankBtn") : null;
-  if (!control || !app.contains(control) || !["Enter", " "].includes(event.key)) return;
+function openImportPicker(event) {
+  const control = importControlFromEvent(event);
+  if (!control) return false;
   event.preventDefault();
+  event.stopImmediatePropagation();
   importInput.click();
-});
+  return true;
+}
+
+// The dashboard is redrawn whenever banks or study state change. Capture-phase
+// delegation keeps the import action attached to the stable app root and stops
+// any obsolete placeholder handler on a newly rendered button from running.
+app.addEventListener("click", (event) => {
+  openImportPicker(event);
+}, true);
+
+app.addEventListener("keydown", (event) => {
+  if (!["Enter", " "].includes(event.key)) return;
+  openImportPicker(event);
+}, true);
 
 async function seedBankMetadata() {
   const signature = QUESTION_BANKS
@@ -188,14 +179,10 @@ function appendOriginNote(hero, bank) {
 }
 
 async function attachControls() {
-  // This must run before the asynchronous metadata work so a newly rendered
-  // button is upgraded even while another attachment pass is still active.
-  upgradeImportControl();
   if (attaching) return;
   attaching = true;
   try {
     await seedBankMetadata();
-    upgradeImportControl();
     const bankId = activeBankId();
     const bank = bankDefinition(bankId);
     if (!bank) return;
