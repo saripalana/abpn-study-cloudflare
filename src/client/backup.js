@@ -20,11 +20,6 @@ const BACKUP_STORE_KEYS = Object.freeze({
 const REQUIRED_ARRAY_KEYS = Object.freeze(Object.values(BACKUP_STORE_KEYS));
 const RESTORABLE_STORES = Object.freeze(Object.keys(BACKUP_STORE_KEYS));
 
-const requestResult = (request) => new Promise((resolve, reject) => {
-  request.onsuccess = () => resolve(request.result);
-  request.onerror = () => reject(request.error ?? new Error("IndexedDB request failed"));
-});
-
 const transactionDone = (transaction) => new Promise((resolve, reject) => {
   transaction.oncomplete = () => resolve();
   transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB transaction failed"));
@@ -38,6 +33,18 @@ const laterTimestamp = (left, right) => {
   const rightTime = validDate(right) ? Date.parse(right) : 0;
   return rightTime > leftTime;
 };
+
+function containsQuestionContent(value, seen = new WeakSet()) {
+  if (!value || typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) return value.some((item) => containsQuestionContent(item, seen));
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === "questions") return true;
+    if (containsQuestionContent(nested, seen)) return true;
+  }
+  return false;
+}
 
 function recordKey(storeName, record) {
   if (storeName === STORES.PROGRESS) return `${record.bankId}\u0000${record.questionId}`;
@@ -57,9 +64,6 @@ function assertUniqueRecords(storeName, records, label) {
 
 function validateBank(record) {
   if (!isObject(record) || !record.id || !record.title) throw new Error("Backup contains invalid question-bank metadata.");
-  if (Object.hasOwn(record, "questions")) {
-    throw new Error("Backup must not contain question-bank content. Only bank metadata is portable.");
-  }
 }
 
 function validateProgress(record) {
@@ -100,6 +104,9 @@ export function validatePortableBackup(input) {
   if (!isObject(input.data)) throw new Error("Backup data section is missing.");
   if (input.questionContentIncluded !== false) {
     throw new Error("Backup does not confirm that original question-bank content is excluded.");
+  }
+  if (containsQuestionContent(input.data)) {
+    throw new Error("Backup contains question-bank content. Portable backups may contain only local study records and bank references.");
   }
 
   for (const key of REQUIRED_ARRAY_KEYS) {
@@ -226,7 +233,8 @@ export async function restorePortableBackup(input, { knownQuestionIdsByBank = {}
   ]);
   const currentArrays = await Promise.all(RESTORABLE_STORES.map((store) => getAllRecords(store)));
   const currentByStore = new Map(RESTORABLE_STORES.map((store, index) => [store, currentArrays[index]]));
-  const chosenSets = new Map();
+  const currentSetMap = new Map(currentByStore.get(STORES.SETS).map((set) => [set.id, set]));
+  const incomingSetMap = new Map(backup.data.practiceSets.map((set) => [set.id, set]));
   const writes = new Map(RESTORABLE_STORES.map((store) => [store, []]));
   const summary = {
     imported: 0,
@@ -241,6 +249,7 @@ export async function restorePortableBackup(input, { knownQuestionIdsByBank = {}
     const currentMap = new Map(currentByStore.get(storeName).map((record) => [recordKey(storeName, record), record]));
     for (const incomingRecord of incomingByStore.get(storeName)) {
       let candidate = structuredClone(incomingRecord);
+      let preserveActiveTimer = false;
 
       if (storeName === STORES.BANKS && !knownQuestions.has(candidate.id)) {
         summary.skippedUnknownBank += 1;
@@ -272,19 +281,14 @@ export async function restorePortableBackup(input, { knownQuestionIdsByBank = {}
             invalidQuestionIds: invalidReferences.slice(0, 100),
           };
           summary.quarantinedSets += 1;
-        } else if (candidate.status === "active" && candidate.timed && !candidate.submitted) {
-          candidate = {
-            ...candidate,
-            restoredFromUpdatedAt: candidate.updatedAt ?? null,
-            updatedAt: new Date().toISOString(),
-          };
+        } else {
+          preserveActiveTimer = candidate.status === "active" && candidate.timed && !candidate.submitted;
         }
       }
       if (storeName === STORES.ANSWERS) {
-        const incomingSet = backup.data.practiceSets.find((set) => set.id === candidate.setId);
-        const currentSet = currentByStore.get(STORES.SETS).find((set) => set.id === candidate.setId);
-        const parentSet = incomingSet || currentSet;
-        if (!parentSet || !knownQuestions.get(parentSet.bankId)?.has(candidate.questionId)) {
+        const parentSet = incomingSetMap.get(candidate.setId) || currentSetMap.get(candidate.setId);
+        const bankQuestions = parentSet ? knownQuestions.get(parentSet.bankId) : null;
+        if (!parentSet || !bankQuestions || !bankQuestions.has(candidate.questionId)) {
           summary.skippedUnknownQuestion += 1;
           continue;
         }
@@ -292,15 +296,20 @@ export async function restorePortableBackup(input, { knownQuestionIdsByBank = {}
 
       const key = recordKey(storeName, candidate);
       const current = currentMap.get(key);
-      const preferred = choosePreferredRecord(storeName, current, candidate);
+      let preferred = choosePreferredRecord(storeName, current, candidate);
       if (preferred === current) {
         summary.keptNewerLocal += 1;
-        if (storeName === STORES.SETS) chosenSets.set(key, current);
         continue;
+      }
+      if (storeName === STORES.SETS && preserveActiveTimer) {
+        preferred = {
+          ...preferred,
+          restoredFromUpdatedAt: preferred.updatedAt ?? null,
+          updatedAt: new Date().toISOString(),
+        };
       }
       writes.get(storeName).push(preferred);
       currentMap.set(key, preferred);
-      if (storeName === STORES.SETS) chosenSets.set(key, preferred);
       summary.imported += 1;
     }
   }
