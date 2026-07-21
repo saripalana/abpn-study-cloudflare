@@ -7,7 +7,19 @@ import {
 } from "./client/data-management.js";
 
 const app = document.getElementById("app");
+const SUPPRESS_ACTIVE_AUTOSAVE_KEY = "abpn-study:suppress-active-autosave";
 let attaching = false;
+
+window.addEventListener("beforeunload", (event) => {
+  if (sessionStorage.getItem(SUPPRESS_ACTIVE_AUTOSAVE_KEY) !== "true") return;
+  sessionStorage.removeItem(SUPPRESS_ACTIVE_AUTOSAVE_KEY);
+  event.stopImmediatePropagation();
+}, { capture: true });
+
+function reloadAfterDestructiveAction() {
+  sessionStorage.setItem(SUPPRESS_ACTIVE_AUTOSAVE_KEY, "true");
+  location.reload();
+}
 
 function selectedBank() {
   const select = document.getElementById("bankSelect");
@@ -57,7 +69,7 @@ async function discardActiveSet(bank) {
     type: "discard-active-set",
   });
   alert("The active set was discarded safely. Use Undo last deletion/reset in Data protection to restore it.");
-  location.reload();
+  reloadAfterDestructiveAction();
 }
 
 async function deleteCompletedTest(button, bank) {
@@ -82,7 +94,7 @@ async function deleteCompletedTest(button, bank) {
     type: "delete-completed-set",
   });
   alert("The completed test was deleted from History. Use Undo last deletion/reset in Data protection to restore it.");
-  location.reload();
+  reloadAfterDestructiveAction();
 }
 
 async function resetCurrentBank(bank) {
@@ -115,7 +127,7 @@ async function resetCurrentBank(bank) {
     `Saved answers removed: ${summary.deletedAnswers}`,
     "Use Undo last deletion/reset in Data protection to restore the snapshot.",
   ].join("\n"));
-  location.reload();
+  reloadAfterDestructiveAction();
 }
 
 async function undoLastAction(action) {
