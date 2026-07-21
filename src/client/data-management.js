@@ -11,11 +11,6 @@ import {
 
 const LAST_DESTRUCTIVE_ACTION_KEY = "lastDestructiveAction";
 
-const requestResult = (request) => new Promise((resolve, reject) => {
-  request.onsuccess = () => resolve(request.result);
-  request.onerror = () => reject(request.error ?? new Error("IndexedDB request failed"));
-});
-
 const transactionDone = (transaction) => new Promise((resolve, reject) => {
   transaction.oncomplete = () => resolve();
   transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB transaction failed"));
