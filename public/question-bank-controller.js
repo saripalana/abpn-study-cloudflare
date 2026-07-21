@@ -37,6 +37,43 @@ function classificationLabel(bank) {
   return "User-imported source question bank";
 }
 
+function upgradeImportControl() {
+  const current = document.getElementById("importBankBtn");
+  if (!current) return;
+  if (current instanceof HTMLLabelElement && current.htmlFor === importInput.id) return;
+
+  const label = document.createElement("label");
+  label.id = "importBankBtn";
+  label.className = current.className || "secondary";
+  label.htmlFor = importInput.id;
+  label.setAttribute("role", "button");
+  label.tabIndex = 0;
+  label.textContent = current.textContent?.trim() || "Import question bank";
+  Object.assign(label.style, {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    borderRadius: "10px",
+    padding: "10px 14px",
+    minHeight: "44px",
+    font: "inherit",
+    fontWeight: "800",
+    cursor: "pointer",
+    touchAction: "manipulation",
+  });
+  current.replaceWith(label);
+}
+
+// The native label-to-file-input activation path works in Chrome and Safari and
+// remains valid whenever the dashboard redraws and replaces its visible controls.
+app.addEventListener("keydown", (event) => {
+  const control = event.target instanceof Element ? event.target.closest("#importBankBtn") : null;
+  if (!control || !app.contains(control) || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  importInput.click();
+});
+
 async function seedBankMetadata() {
   const signature = QUESTION_BANKS
     .map((bank) => `${bank.id}:${bank.version || "1"}:${bank.checksum || "built-in"}:${bank.questions?.length || 0}`)
@@ -151,20 +188,17 @@ function appendOriginNote(hero, bank) {
 }
 
 async function attachControls() {
+  // This must run before the asynchronous metadata work so a newly rendered
+  // button is upgraded even while another attachment pass is still active.
+  upgradeImportControl();
   if (attaching) return;
   attaching = true;
   try {
     await seedBankMetadata();
+    upgradeImportControl();
     const bankId = activeBankId();
     const bank = bankDefinition(bankId);
     if (!bank) return;
-
-    const importButton = document.getElementById("importBankBtn");
-    if (importButton && importButton.dataset.importReady !== "true") {
-      importButton.onclick = null;
-      importButton.dataset.importReady = "true";
-      importButton.addEventListener("click", () => importInput.click());
-    }
 
     appendOriginNote(app.querySelector(".hero > div:first-child"), bank);
 

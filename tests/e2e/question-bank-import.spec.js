@@ -60,6 +60,7 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
 
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
+  await expect(page.locator('#importBankBtn')).toHaveAttribute('for', 'bankImportInput');
   await importPackageThroughButton(page, packageData());
 
   await expect(page.locator('#bankSelect')).toHaveValue('browser-import-bank');
@@ -147,4 +148,26 @@ test('rejects a package that attempts to overwrite a protected built-in bank', a
   await page.selectOption('#bankSelect', 'validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
   await expect(page.getByText('3 questions loaded.', { exact: false })).toBeVisible();
+});
+
+test('native import control survives replacement of the dashboard button', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#importBankBtn')).toHaveAttribute('for', 'bankImportInput');
+
+  await page.evaluate(() => {
+    const current = document.getElementById('importBankBtn');
+    const replacement = document.createElement('button');
+    replacement.id = 'importBankBtn';
+    replacement.className = 'secondary';
+    replacement.type = 'button';
+    replacement.textContent = 'Import question bank';
+    replacement.onclick = () => alert('stale placeholder handler');
+    current.replaceWith(replacement);
+  });
+
+  await expect(page.locator('#importBankBtn')).toHaveAttribute('for', 'bankImportInput');
+  const chooserPromise = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import question bank' }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles([]);
 });
