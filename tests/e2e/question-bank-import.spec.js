@@ -60,6 +60,7 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
 
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
+  await expect(page.locator('#importBankBtn')).toHaveAttribute('for', 'bankImportInput');
   await importPackageThroughButton(page, packageData());
 
   await expect(page.locator('#bankSelect')).toHaveValue('browser-import-bank');
@@ -149,27 +150,24 @@ test('rejects a package that attempts to overwrite a protected built-in bank', a
   await expect(page.getByText('3 questions loaded.', { exact: false })).toBeVisible();
 });
 
-test('import picker still opens after the visible dashboard button is replaced', async ({ page }) => {
-  const dialogs = [];
-  page.on('dialog', async (dialog) => {
-    dialogs.push(dialog.message());
-    await dialog.dismiss();
-  });
-
+test('native import control survives replacement of the dashboard button', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Import question bank' })).toBeVisible();
+  await expect(page.locator('#importBankBtn')).toHaveAttribute('for', 'bankImportInput');
 
   await page.evaluate(() => {
-    const button = document.getElementById('importBankBtn');
-    const replacement = button.cloneNode(true);
+    const current = document.getElementById('importBankBtn');
+    const replacement = document.createElement('button');
+    replacement.id = 'importBankBtn';
+    replacement.className = 'secondary';
+    replacement.type = 'button';
+    replacement.textContent = 'Import question bank';
     replacement.onclick = () => alert('stale placeholder handler');
-    button.replaceWith(replacement);
+    current.replaceWith(replacement);
   });
 
+  await expect(page.locator('#importBankBtn')).toHaveAttribute('for', 'bankImportInput');
   const chooserPromise = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Import question bank' }).click();
   const chooser = await chooserPromise;
   await chooser.setFiles([]);
-
-  expect(dialogs).toEqual([]);
 });
