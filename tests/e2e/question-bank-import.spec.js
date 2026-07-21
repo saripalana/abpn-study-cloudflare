@@ -148,3 +148,28 @@ test('rejects a package that attempts to overwrite a protected built-in bank', a
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
   await expect(page.getByText('3 questions loaded.', { exact: false })).toBeVisible();
 });
+
+test('import picker still opens after the visible dashboard button is replaced', async ({ page }) => {
+  const dialogs = [];
+  page.on('dialog', async (dialog) => {
+    dialogs.push(dialog.message());
+    await dialog.dismiss();
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Import question bank' })).toBeVisible();
+
+  await page.evaluate(() => {
+    const button = document.getElementById('importBankBtn');
+    const replacement = button.cloneNode(true);
+    replacement.onclick = () => alert('stale placeholder handler');
+    button.replaceWith(replacement);
+  });
+
+  const chooserPromise = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import question bank' }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles([]);
+
+  expect(dialogs).toEqual([]);
+});
