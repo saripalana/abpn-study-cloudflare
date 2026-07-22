@@ -4,6 +4,14 @@ import {
   sha256Hex,
 } from "./question-bank-import.js";
 
+if (typeof document !== "undefined" && !document.querySelector('link[data-spiegel-question-styles]')) {
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "/multiselect-questions.css";
+  link.dataset.spiegelQuestionStyles = "true";
+  document.head.append(link);
+}
+
 function extractJsonArray(source) {
   const marker = /(?:const|let|var)\s+QUESTIONS\s*=/.exec(source);
   if (!marker) throw new Error("The legacy source does not define a QUESTIONS array.");
