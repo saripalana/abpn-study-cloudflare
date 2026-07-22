@@ -25,11 +25,11 @@ test("destructive operations are scoped and snapshot-first", async () => {
   assert.doesNotMatch(source, /indexedDB\.deleteDatabase/);
 });
 
-test("reset requires a typed second confirmation and explains its scope", async () => {
+test("reset requires a typed second confirmation and explains its deck scope", async () => {
   const controller = await read("public/data-management-controller.js");
   assert.match(controller, /Type RESET to confirm/);
   assert.match(controller, /typed !== "RESET"/);
-  assert.match(controller, /Question-bank content, other banks, downloaded backups, and Cloudflare data will not be deleted/);
+  assert.match(controller, /Deck content, other decks, downloaded backups, and Cloudflare data will not be deleted/);
   assert.match(controller, /Cumulative question performance and category analytics will not be recalculated or erased/);
   assert.match(controller, /Undo last deletion\/reset/);
 });

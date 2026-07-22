@@ -82,7 +82,7 @@ test('discards an active set and restores its answers with Undo', async ({ page 
   await expect(page.locator('.question-map button.unanswered')).toHaveCount(1);
 });
 
-test('resets only the selected bank and restores progress history and active sets', async ({ page }) => {
+test('resets only the selected deck and restores progress history and active sets', async ({ page }) => {
   await useValidationBank(page);
   await page.evaluate(async () => {
     const { QUESTION_BANKS } = await import('/banks/catalog.js');
@@ -171,11 +171,11 @@ test('resets only the selected bank and restores progress history and active set
 
   const resetMessages = await clickThroughDialogsAndReload(
     page,
-    page.getByRole('button', { name: 'Reset current bank' }),
+    page.getByRole('button', { name: 'Reset current deck' }),
     { promptValue: 'RESET' }
   );
   expect(resetMessages.map(({ type }) => type)).toEqual(['confirm', 'prompt', 'alert']);
-  expect(resetMessages.some(({ message }) => message.includes('other banks'))).toBe(true);
+  expect(resetMessages.some(({ message }) => message.includes('other decks'))).toBe(true);
 
   await expect(page.locator('.stat').filter({ hasText: 'Used' }).locator('strong')).toHaveText('0');
   await expect(page.locator('.history-item')).toHaveCount(0);

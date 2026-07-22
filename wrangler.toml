@@ -9,8 +9,9 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-# D1 stores only the signed-in user's synchronized study records. Local
-# IndexedDB remains primary, and server/client guardrails fail back to local-only.
+# D1 stores only the signed-in user's bounded synchronization records and
+# versioned user-added deck packages. IndexedDB remains the primary local store,
+# and server/client guardrails fail back to local-only operation.
 [[d1_databases]]
 binding = "DB"
 database_name = "abpn-study-db"
