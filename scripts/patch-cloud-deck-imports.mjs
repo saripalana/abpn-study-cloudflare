@@ -17,6 +17,7 @@ await patch("public/app.js", (source) => source
     "Every deck is loaded from the same protected Deck Library and keeps independent progress, history, and analytics.",
   )
   .replace("Import question bank", "Add deck from file")
+  .replace("Import from file", "Add deck from file")
 );
 
 await patch("public/data-management-controller.js", (source) => source
@@ -41,7 +42,8 @@ await patch("public/question-bank-controller.js", (source) => {
     .replace('if (bank.sourceType === "repository-protected") return "Protected source question bank";\n', "")
     .replace('if (bank.sourceType === "system-validation") return "Built-in system validation bank";\n', "")
     .replace('return "User-imported source question bank";', 'return "Source deck";')
-    .replace('button.textContent = current.textContent?.trim() || "Import question bank";', 'button.textContent = current.textContent?.trim() || "Add deck from file";')
+    .replace('button.textContent = current.textContent?.trim() || "Import question bank";', 'button.textContent = "Add deck from file";')
+    .replace('button.textContent = current.textContent?.trim() || "Add deck from file";', 'button.textContent = "Add deck from file";')
     .replace("Refresh the page once and try Import question bank again.", "Refresh the page once and try Add deck from file again.")
     .replace("Your existing question banks and study progress were not changed.", "Your existing decks and study progress were not changed.")
     .replace("Question content is stored locally in its own versioned package store. Progress and completed tests remain in separate stores.",
@@ -121,3 +123,8 @@ await patch("public/github-question-bank-controller.js", (source) => {
   }
   return source;
 });
+
+await patch("tests/e2e/study-flow.spec.mjs", (source) => source
+  .replaceAll('value="Question Banks"', 'value="Decks"')
+  .replaceAll("How should progress from two different question banks be stored?", "How should progress from two different decks be stored?")
+);
