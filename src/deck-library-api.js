@@ -2,6 +2,7 @@ const MAX_DECK_PACKAGE_BYTES = 20 * 1024 * 1024;
 const CHUNK_CHARACTERS = 240_000;
 const MAX_CHUNKS = 96;
 const MAX_DECKS = 50;
+const MAX_BOOTSTRAP_BODY_BYTES = 4 * 1024;
 
 const safeId = (value) => {
   const id = String(value || "").trim().toLowerCase();
@@ -24,6 +25,18 @@ async function readBoundedText(request) {
   return { text: new TextDecoder().decode(bytes), bytes: bytes.byteLength };
 }
 
+async function readBootstrapBody(request) {
+  const declared = Number(request.headers.get("content-length") || 0);
+  if (declared > MAX_BOOTSTRAP_BODY_BYTES) throw new Error("Deck bootstrap request is too large");
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > MAX_BOOTSTRAP_BODY_BYTES) throw new Error("Deck bootstrap request is too large");
+  let parsed;
+  try { parsed = JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new Error("Deck bootstrap request is not valid JSON"); }
+  return {
+    version: safeText(parsed?.version, "Deck bootstrap version", 100),
+  };
+}
+
 function validatePackage(parsed, expectedId) {
   if (!parsed || parsed.format !== "abpn-question-bank" || parsed.schemaVersion !== 1) {
     throw new Error("Deck package format is invalid");
@@ -32,7 +45,6 @@ function validatePackage(parsed, expectedId) {
   if (!bank || typeof bank !== "object") throw new Error("Deck package bank is missing");
   const id = safeId(bank.id);
   if (id !== expectedId) throw new Error("Deck id does not match the request path");
-  if (bank.protected) throw new Error("Protected built-in decks cannot be replaced through the deck library");
   if (!Array.isArray(bank.questions) || !bank.questions.length || bank.questions.length > 5000) {
     throw new Error("Deck must contain between 1 and 5,000 questions");
   }
@@ -66,6 +78,39 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
   requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
 
+  if (url.pathname === "/api/decks/bootstrap") {
+    if (request.method === "GET") {
+      await reserveUsage(env, { requests: 1, rowsRead: 1, rowsWritten: 0 });
+      await ensureUserAndDevice(env, userId, deviceId);
+      const state = await env.DB.prepare(
+        "SELECT bootstrap_version, completed_at, updated_at FROM deck_library_state WHERE user_id = ?"
+      ).bind(userId).first();
+      return json({
+        version: state?.bootstrap_version || "",
+        completedAt: state?.completed_at || null,
+        updatedAt: state?.updated_at || null,
+      });
+    }
+
+    if (request.method === "PUT") {
+      const body = await readBootstrapBody(request);
+      await reserveUsage(env, { requests: 1, writeActions: 1, rowsRead: 1, rowsWritten: 2 });
+      await ensureUserAndDevice(env, userId, deviceId);
+      const now = new Date().toISOString();
+      await env.DB.prepare(`
+        INSERT INTO deck_library_state (user_id, bootstrap_version, completed_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          bootstrap_version = excluded.bootstrap_version,
+          completed_at = excluded.completed_at,
+          updated_at = excluded.updated_at
+      `).bind(userId, body.version, now, now).run();
+      return json({ ok: true, version: body.version, completedAt: now, updatedAt: now });
+    }
+
+    return json({ error: "Method not allowed" }, 405, { allow: "GET, PUT" });
+  }
+
   if (request.method === "GET" && url.pathname === "/api/decks") {
     await reserveUsage(env, { requests: 1, rowsRead: MAX_DECKS, rowsWritten: 0 });
     await ensureUserAndDevice(env, userId, deviceId);
@@ -91,7 +136,7 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
   }
 
   const deckId = deckPath(url);
-  if (!deckId) return json({ error: "Invalid deck path" }, 400);
+  if (!deckId || deckId === "bootstrap") return json({ error: "Invalid deck path" }, 400);
 
   if (request.method === "GET") {
     const metadata = await env.DB.prepare(
@@ -132,7 +177,7 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
         "SELECT COUNT(*) AS deck_count FROM deck_packages WHERE user_id = ?"
       ).bind(userId).first();
       if (Number(count?.deck_count || 0) >= MAX_DECKS) {
-        return json({ error: `The Deck Library may contain at most ${MAX_DECKS} user-added decks.` }, 409);
+        return json({ error: `The Deck Library may contain at most ${MAX_DECKS} decks.` }, 409);
       }
     }
 
