@@ -77,7 +77,7 @@ async function parseErrorResponse(response) {
 }
 
 export class SyncClient {
-  constructor({ apiBase = "", deviceId, fetchImpl = fetch } = {}) {
+  constructor({ apiBase = "", deviceId, fetchImpl = globalThis.fetch.bind(globalThis) } = {}) {
     if (!deviceId) throw new Error("deviceId is required");
     this.apiBase = apiBase.replace(/\/$/, "");
     this.deviceId = deviceId;
