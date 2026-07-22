@@ -66,6 +66,24 @@ test("non-retryable quota responses do not create an automatic retry loop", asyn
   assert.equal(calls, 1);
 });
 
+test("the default browser fetch keeps its required global context", async () => {
+  const originalFetch = globalThis.fetch;
+  let observedThis;
+  globalThis.fetch = function () {
+    observedThis = this;
+    return Promise.resolve(new Response(JSON.stringify({ ok: true }), {
+      headers: { "content-type": "application/json" },
+    }));
+  };
+  try {
+    const client = new SyncClient({ deviceId: "test-device" });
+    await client.request("/api/test");
+    assert.equal(observedThis, globalThis);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("D1 migration creates one persistent guardrail row without destructive statements", async () => {
   const migration = await read("migrations/0002_sync_usage_guardrails.sql");
   assert.match(migration, /CREATE TABLE IF NOT EXISTS app_usage/);
@@ -137,6 +155,8 @@ test("the visible application has one guarded sync controller with local-only fa
   assert.match(controller, /Local only · sync paused/);
   assert.match(controller, /Local study data is safe/);
   assert.match(controller, /syncButton\.onclick/);
+  assert.match(controller, /clearSyncSuspension/);
+  assert.match(publicClient, /globalThis\.fetch\.bind\(globalThis\)/);
   assert.doesNotMatch(app, /syncBtn\.onclick/);
   assert.match(publicClient, /FAILURE_SUSPENSION_THRESHOLD = 3/);
   assert.match(publicClient, /MIN_BACKGROUND_INTERVAL_MS = 15 \* 60 \* 1000/);
