@@ -90,7 +90,7 @@ await patch("public/github-question-bank-controller.js", (source) => {
     .replace(/const protectedBankIds = \(\) =>[^;]+;\n/, "")
     .replaceAll("parseQuestionBankPackageFile(file, { reservedIds: protectedBankIds() })", "parseQuestionBankPackageFile(file)")
     .replaceAll("installQuestionBankPackage(prepared, { reservedIds: protectedBankIds() })", "installQuestionBankPackage(prepared)")
-    .replace("Import from GitHub", "Add deck from GitHub")
+    .replaceAll("Import from GitHub", "Add deck from GitHub")
     .replace("Question content is stored locally in its own versioned package store. Progress and completed tests remain separate.",
       "The deck is saved to your protected Cloudflare Deck Library and cached locally for offline study. Progress and completed tests remain separate by deck.")
     .replace("This material will remain separate from K&S, the validation bank, and assistant supplemental content.",
