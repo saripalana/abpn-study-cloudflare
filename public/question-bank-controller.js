@@ -37,33 +37,26 @@ function classificationLabel(bank) {
   return "User-imported source question bank";
 }
 
-function importControlFromEvent(event) {
-  const target = event.target;
-  if (!(target instanceof Element)) return null;
-  const control = target.closest("#importBankBtn");
-  return control && app.contains(control) ? control : null;
+function ensureNativeImportControl() {
+  const current = document.getElementById("importBankBtn");
+  if (!current) return null;
+  if (current instanceof HTMLLabelElement && current.htmlFor === importInput.id) return current;
+
+  const label = document.createElement("label");
+  label.id = "importBankBtn";
+  label.className = `${current.className || "secondary"} native-file-picker-control`.trim();
+  label.htmlFor = importInput.id;
+  label.setAttribute("role", "button");
+  label.tabIndex = 0;
+  label.textContent = "Import question bank";
+  label.addEventListener("keydown", (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    importInput.click();
+  });
+  current.replaceWith(label);
+  return label;
 }
-
-function openImportPicker(event) {
-  const control = importControlFromEvent(event);
-  if (!control) return false;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  importInput.click();
-  return true;
-}
-
-// The dashboard is redrawn whenever banks or study state change. Capture-phase
-// delegation keeps the import action attached to the stable app root and stops
-// any obsolete placeholder handler on a newly rendered button from running.
-app.addEventListener("click", (event) => {
-  openImportPicker(event);
-}, true);
-
-app.addEventListener("keydown", (event) => {
-  if (!["Enter", " "].includes(event.key)) return;
-  openImportPicker(event);
-}, true);
 
 async function seedBankMetadata() {
   const signature = QUESTION_BANKS
@@ -187,6 +180,7 @@ async function attachControls() {
     const bank = bankDefinition(bankId);
     if (!bank) return;
 
+    ensureNativeImportControl();
     appendOriginNote(app.querySelector(".hero > div:first-child"), bank);
 
     const protection = sectionByHeading("Data protection");
