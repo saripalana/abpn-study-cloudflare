@@ -76,17 +76,21 @@ function openImportPicker() {
   importInput.value = "";
 
   try {
-    if (typeof importInput.showPicker === "function") {
-      importInput.showPicker();
-      return;
-    }
+    // Direct click is supported by both Chromium and WebKit when it occurs
+    // synchronously inside the user's button or keyboard activation.
     importInput.click();
+    return;
   } catch (primaryError) {
     try {
-      importInput.click();
+      if (typeof importInput.showPicker === "function") {
+        importInput.showPicker();
+        return;
+      }
     } catch (fallbackError) {
       reportPickerFailure(fallbackError || primaryError);
+      return;
     }
+    reportPickerFailure(primaryError);
   }
 }
 
