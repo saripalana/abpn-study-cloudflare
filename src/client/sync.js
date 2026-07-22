@@ -229,7 +229,16 @@ export class SyncClient {
 
     try {
       const cursorRecord = await getRecord(STORES.META, "syncCursor");
-      const push = await this.pushPending();
+      let pushed = 0;
+      let pendingCount = 0;
+      const conflicts = [];
+      for (let batch = 0; batch < 5; batch += 1) {
+        const result = await this.pushPending();
+        pushed += result.pushed;
+        pendingCount = result.pending;
+        conflicts.push(...(result.conflicts ?? []));
+        if (!pendingCount) break;
+      }
       const pull = await this.pullRemote({ cursor: cursorRecord?.value ?? null });
       const nextState = await saveSyncState({
         mode: "cloud-ready",
@@ -241,9 +250,9 @@ export class SyncClient {
       return {
         status: "success",
         localOnly: false,
-        pushed: push.pushed,
-        pending: push.pending,
-        conflicts: push.conflicts,
+        pushed,
+        pending: pendingCount,
+        conflicts,
         pulled: (pull.changes ?? []).length,
         nextCursor: pull.nextCursor ?? null,
         state: nextState,

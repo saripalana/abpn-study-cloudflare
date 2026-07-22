@@ -1,4 +1,4 @@
-import { SyncClient, getSyncState } from "./client/sync.js";
+import { SYNC_CLIENT_LIMITS, SyncClient, getSyncState } from "./client/sync.js";
 
 const syncButton = document.getElementById("syncBtn");
 const syncStatus = document.getElementById("syncStatus");
@@ -6,6 +6,7 @@ const deviceId = localStorage.getItem("abpn-study:device-id") || crypto.randomUU
 localStorage.setItem("abpn-study:device-id", deviceId);
 
 const client = new SyncClient({ deviceId });
+let syncing = false;
 
 function showStatus(text, detail = text) {
   syncStatus.textContent = text;
@@ -26,11 +27,13 @@ async function renderStoredSyncState() {
   showStatus("Local only", "Progress is saved locally. Cloud synchronization has not completed yet.");
 }
 
-syncButton.onclick = async () => {
+async function runSync({ background = false } = {}) {
+  if (syncing) return;
+  syncing = true;
   syncButton.disabled = true;
-  showStatus("Syncing…", "Checking the protected Cloudflare synchronization service.");
+  if (!background) showStatus("Syncing…", "Checking the protected Cloudflare synchronization service.");
   try {
-    const result = await client.synchronize();
+    const result = await client.synchronize({ background });
     if (result.status === "suspended") {
       showStatus("Local only · sync paused", `Cloud synchronization is paused: ${result.reason}. Local study data remains available.`);
     } else if (result.status === "skipped") {
@@ -50,8 +53,14 @@ syncButton.onclick = async () => {
       showStatus("Sync failed · local data safe", error.message || "Cloud synchronization failed. Local study data remains available.");
     }
   } finally {
+    syncing = false;
     syncButton.disabled = false;
   }
-};
+}
+
+syncButton.onclick = () => runSync();
+window.addEventListener("online", () => void runSync({ background: true }), { passive: true });
+window.addEventListener("load", () => void runSync({ background: true }), { once: true });
+setInterval(() => void runSync({ background: true }), SYNC_CLIENT_LIMITS.minimumBackgroundIntervalMs);
 
 void renderStoredSyncState();
