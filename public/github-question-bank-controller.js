@@ -35,7 +35,7 @@ function setStatus(message, type = "info") {
   status.dataset.type = type;
 }
 
-async function installFetchedPackage(file, sourceUrl) {
+async function installFetchedPackage(file, sourceUrl, { convertedFromLegacy = false } = {}) {
   const prepared = await parseQuestionBankPackageFile(file, { reservedIds: protectedBankIds() });
   const incoming = prepared.bank;
   const [existing, progress, sets] = await Promise.all([
@@ -53,6 +53,7 @@ async function installFetchedPackage(file, sourceUrl) {
   }
 
   const action = analysis.status === "new" ? "Import" : "Update";
+  const multiSelectCount = incoming.questions.filter((question) => question.isMultiSelect).length;
   const details = [
     `${action} this question bank from GitHub?`,
     "",
@@ -60,10 +61,12 @@ async function installFetchedPackage(file, sourceUrl) {
     `Bank id: ${incoming.id}`,
     `Version: ${incoming.version}`,
     `Questions: ${incoming.questions.length}`,
+    multiSelectCount ? `Select-all-that-apply questions: ${multiSelectCount}` : null,
     `Classification: ${classificationLabel(incoming)}`,
     incoming.sourceLabel ? `Source label: ${incoming.sourceLabel}` : null,
     analysis.status === "update" ? `New questions added: ${analysis.addedQuestions}` : null,
-    `Resolved package: ${sourceUrl}`,
+    convertedFromLegacy ? "Source format: legacy Spiegel data.js converted locally in this browser" : null,
+    `Resolved source: ${sourceUrl}`,
     "",
     incoming.contentClass === "assistant-supplemental"
       ? "This material will remain separate from source question banks and will be labeled as assistant supplemental content."
@@ -82,8 +85,9 @@ async function installFetchedPackage(file, sourceUrl) {
     result.status === "new" ? "Question bank imported from GitHub." : "Question bank updated from GitHub.",
     `${result.bank.title} · version ${result.bank.version}`,
     `${result.bank.questions.length} questions`,
+    convertedFromLegacy ? "The legacy Spiegel format was converted locally; its source content was not copied into this repository." : null,
     "K&S and all other question banks were left unchanged.",
-  ].join("\n"));
+  ].filter(Boolean).join("\n"));
   location.reload();
 }
 
@@ -93,7 +97,7 @@ async function importFromGithub() {
   const button = document.getElementById("githubBankImportBtn");
   const address = String(input?.value || "").trim();
   if (!address) {
-    setStatus("Paste a GitHub repository or JSON-file address first.", "error");
+    setStatus("Paste a GitHub repository, GitHub Pages site, or supported data-file address first.", "error");
     input?.focus();
     return;
   }
@@ -101,12 +105,14 @@ async function importFromGithub() {
   localStorage.setItem(LAST_GITHUB_ADDRESS_KEY, address);
   importBusy = true;
   if (button) button.disabled = true;
-  setStatus("Checking GitHub for a compatible question-bank package…");
+  setStatus("Checking the GitHub source for a compatible package or Spiegel data.js file…");
 
   try {
-    const { file, sourceUrl } = await fetchGithubQuestionBankFile(address);
-    setStatus("Package found. Validating its format and protected-bank rules…");
-    await installFetchedPackage(file, sourceUrl);
+    const { file, sourceUrl, convertedFromLegacy } = await fetchGithubQuestionBankFile(address);
+    setStatus(convertedFromLegacy
+      ? "Legacy Spiegel source found. Validating the converted  question bank and protected-bank rules…"
+      : "Package found. Validating its format and protected-bank rules…");
+    await installFetchedPackage(file, sourceUrl, { convertedFromLegacy });
   } catch (error) {
     console.error("GitHub question-bank import failed", error);
     setStatus(error?.message || "The GitHub question bank could not be imported.", "error");
@@ -129,7 +135,7 @@ function ensureGithubPanel() {
 
   const explanation = document.createElement("p");
   explanation.className = "muted";
-  explanation.textContent = "Paste a direct GitHub JSON-file link or a repository address. Repository links look for abpn-question-bank.json, question-bank.json, or bank.json on the main or master branch.";
+  explanation.textContent = "Paste a direct GitHub JSON/data.js link, a repository address, or a github.io study-site address. The Spiegel Test Prep legacy site is converted locally in your browser.";
 
   const row = document.createElement("div");
   row.className = "github-bank-import-row";
@@ -140,7 +146,7 @@ function ensureGithubPanel() {
   input.inputMode = "url";
   input.autocomplete = "off";
   input.spellcheck = false;
-  input.placeholder = "https://github.com/owner/repository";
+  input.placeholder = "https://dancingremote.github.io/spiegel-test-prep/";
   input.setAttribute("aria-label", "GitHub question-bank address");
   input.value = localStorage.getItem(LAST_GITHUB_ADDRESS_KEY) || "";
 
@@ -159,7 +165,7 @@ function ensureGithubPanel() {
 
   const help = document.createElement("p");
   help.className = "muted github-bank-import-help";
-  help.textContent = "When a repository is not packaged yet, keep the address here and bring it back to ChatGPT so it can be reviewed and integrated safely.";
+  help.textContent = "Other legacy sites may still need to be brought back to ChatGPT when their question data uses a different structure.";
 
   const status = document.createElement("p");
   status.id = "githubBankImportStatus";
