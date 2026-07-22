@@ -111,13 +111,31 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
   }
 
   if (request.method === "PUT") {
-    const existingCount = await env.DB.prepare(
-      "SELECT chunk_count FROM deck_packages WHERE user_id = ? AND deck_id = ?"
+    const existing = await env.DB.prepare(
+      "SELECT chunk_count, version, checksum FROM deck_packages WHERE user_id = ? AND deck_id = ?"
     ).bind(userId, deckId).first();
     const body = await readBoundedText(request);
     let parsed;
     try { parsed = JSON.parse(body.text); } catch { throw new Error("Deck package is not valid JSON"); }
     const bank = validatePackage(parsed, deckId);
+
+    if (existing?.checksum === bank.checksum) {
+      return json({ ok: true, unchanged: true, deck: { ...bank, chunkCount: Number(existing.chunk_count) } });
+    }
+    if (existing && String(existing.version) === bank.version) {
+      return json({
+        error: "Deck content changed without a new version. Increase the deck version before updating it.",
+      }, 409);
+    }
+    if (!existing) {
+      const count = await env.DB.prepare(
+        "SELECT COUNT(*) AS deck_count FROM deck_packages WHERE user_id = ?"
+      ).bind(userId).first();
+      if (Number(count?.deck_count || 0) >= MAX_DECKS) {
+        return json({ error: `The Deck Library may contain at most ${MAX_DECKS} user-added decks.` }, 409);
+      }
+    }
+
     const chunks = [];
     for (let index = 0; index < body.text.length; index += CHUNK_CHARACTERS) {
       chunks.push(body.text.slice(index, index + CHUNK_CHARACTERS));
@@ -127,8 +145,8 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
     await reserveUsage(env, {
       requests: 1,
       writeActions: 1,
-      rowsRead: 2,
-      rowsWritten: chunks.length + Number(existingCount?.chunk_count || 0) + 2,
+      rowsRead: existing ? 1 : 2,
+      rowsWritten: chunks.length + Number(existing?.chunk_count || 0) + 2,
     });
     await ensureUserAndDevice(env, userId, deviceId);
     const now = new Date().toISOString();
@@ -171,7 +189,10 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
       rowsWritten: Number(existing.chunk_count) + 2,
     });
     await ensureUserAndDevice(env, userId, deviceId);
-    await env.DB.prepare("DELETE FROM deck_packages WHERE user_id = ? AND deck_id = ?").bind(userId, deckId).run();
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM deck_package_chunks WHERE user_id = ? AND deck_id = ?").bind(userId, deckId),
+      env.DB.prepare("DELETE FROM deck_packages WHERE user_id = ? AND deck_id = ?").bind(userId, deckId),
+    ]);
     return json({ ok: true, deleted: true });
   }
 
