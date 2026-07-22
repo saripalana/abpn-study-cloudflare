@@ -21,7 +21,7 @@ function helpers(overrides = {}) {
   };
 }
 
-function fakeDb({ first = async () => null, all = async () => ({ results: [] }), onBatch = async () => {} } = {}) {
+function fakeDb({ first = async () => null, all = async () => ({ results: [] }), onBatch = async () => {}, onRun = async () => ({ success: true }) } = {}) {
   return {
     prepare(query) {
       return {
@@ -31,7 +31,7 @@ function fakeDb({ first = async () => null, all = async () => ({ results: [] }),
             values,
             first: () => first(query, values),
             all: () => all(query, values),
-            run: async () => ({ success: true }),
+            run: () => onRun(query, values),
           };
         },
       };
@@ -50,7 +50,6 @@ function packageData(overrides = {}) {
     sourceType: "user-imported",
     contentClass: "source-material",
     sourceLabel: "Unit test",
-    protected: false,
     checksum: "abc123",
     questions: [{
       id: "sample-1",
@@ -142,7 +141,7 @@ test("rejects changed deck content without a new version", async () => {
   assert.match((await response.json()).error, /new version/i);
 });
 
-test("enforces the maximum number of user-added decks", async () => {
+test("enforces the maximum number of decks", async () => {
   const env = {
     DB: fakeDb({
       first: async (query) => query.includes("COUNT(*)") ? { deck_count: 50 } : null,
@@ -153,16 +152,71 @@ test("enforces the maximum number of user-added decks", async () => {
   assert.match((await response.json()).error, /at most 50/i);
 });
 
-test("rejects attempts to replace a protected built-in deck", async () => {
-  const env = { DB: fakeDb() };
-  await assert.rejects(
-    handleDeckLibraryRequest(
-      putRequest(packageData({ protected: true })),
-      env,
-      helpers(),
-    ),
-    /Protected built-in decks cannot be replaced/,
+test("stores K&S through the same ordinary deck endpoint", async () => {
+  const statements = [];
+  const env = {
+    DB: fakeDb({
+      first: async (query) => query.includes("COUNT(*)") ? { deck_count: 0 } : null,
+      onBatch: async (batch) => statements.push(...batch),
+    }),
+  };
+  const data = packageData({
+    id: "ks-psychiatry-core",
+    title: "K&S Psychiatry Question Bank",
+    shortTitle: "K&S Psychiatry",
+    version: "4d03f158c6fbfacd698796d94c213a49ac8a377d",
+  });
+  const response = await handleDeckLibraryRequest(
+    new Request("https://study.example/api/decks/ks-psychiatry-core", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-abpn-device-id": "device-test" },
+      body: JSON.stringify(data),
+    }),
+    env,
+    helpers(),
   );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).deck.id, "ks-psychiatry-core");
+  assert.equal(statements.length, 3);
+});
+
+test("reads and writes the one-time deck bootstrap marker", async () => {
+  const runs = [];
+  const env = {
+    DB: fakeDb({
+      first: async (query) => query.includes("deck_library_state")
+        ? { bootstrap_version: "unified-deck-library-v1", completed_at: "2026-07-22T00:00:00.000Z", updated_at: "2026-07-22T00:00:00.000Z" }
+        : null,
+      onRun: async (query, values) => {
+        runs.push({ query, values });
+        return { success: true };
+      },
+    }),
+  };
+
+  const getResponse = await handleDeckLibraryRequest(
+    new Request("https://study.example/api/decks/bootstrap", {
+      headers: { "x-abpn-device-id": "device-test" },
+    }),
+    env,
+    helpers(),
+  );
+  assert.equal(getResponse.status, 200);
+  assert.equal((await getResponse.json()).version, "unified-deck-library-v1");
+
+  const putResponse = await handleDeckLibraryRequest(
+    new Request("https://study.example/api/decks/bootstrap", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-abpn-device-id": "device-test" },
+      body: JSON.stringify({ version: "unified-deck-library-v1" }),
+    }),
+    env,
+    helpers(),
+  );
+  assert.equal(putResponse.status, 200);
+  assert.equal((await putResponse.json()).version, "unified-deck-library-v1");
+  assert.equal(runs.length, 1);
+  assert.match(runs[0].query, /INSERT INTO deck_library_state/);
 });
 
 test("reconstructs a stored deck package in chunk order", async () => {
