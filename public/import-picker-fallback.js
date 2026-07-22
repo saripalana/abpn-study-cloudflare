@@ -7,13 +7,13 @@
     const button = document.getElementById('importBankBtn');
     if (!button) return;
 
-    if (button.textContent?.trim() !== 'Import from file') {
-      button.textContent = 'Import from file';
+    if (button.textContent?.trim() !== 'Add deck from file') {
+      button.textContent = 'Add deck from file';
     }
     input.removeAttribute('aria-hidden');
     input.removeAttribute('tabindex');
     input.className = 'bank-import-native-input';
-    input.setAttribute('aria-label', 'Choose a question-bank JSON file');
+    input.setAttribute('aria-label', 'Choose a deck JSON file');
     Object.assign(input.style, {
       position: 'static',
       left: 'auto',
