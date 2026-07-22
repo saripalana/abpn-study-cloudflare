@@ -34,7 +34,7 @@ test("fetches the first compatible repository package as a file-like object", as
   const calls = [];
   const fetchImpl = async (url) => {
     calls.push(url);
-    if (!url.endsWith("question-bank.json")) {
+    if (!url.endsWith("/question-bank.json")) {
       return {
         ok: false,
         status: 404,
