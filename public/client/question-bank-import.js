@@ -57,16 +57,29 @@ function validateQuestionShape(question, index, bankId) {
   text(question.question, `Question ${id} text`, 50_000);
   text(question.chapterTitle || question.category || "Uncategorized", `Question ${id} category`, 500);
   text(question.explanation || "No explanation provided.", `Question ${id} explanation`, 100_000);
+  text(question.vignetteStem || "", `Question ${id} vignette stem`, 100_000, { required: false });
+  text(question.answerText || "", `Question ${id} answer text`, 20_000, { required: false });
   if (!Array.isArray(question.choices) || question.choices.length < 2 || question.choices.length > 10) {
     throw new Error(`Question ${id} must contain between 2 and 10 choices.`);
   }
   question.choices.forEach((choice, choiceIndex) => text(choice, `Question ${id} choice ${choiceIndex + 1}`, 20_000));
-  if (question.choiceLetters != null) {
-    if (!Array.isArray(question.choiceLetters) || question.choiceLetters.length !== question.choices.length) {
-      throw new Error(`Question ${id} choiceLetters must match the choices array.`);
-    }
-    const letters = question.choiceLetters.map((letter, letterIndex) => text(letter, `Question ${id} choice letter ${letterIndex + 1}`, 10));
-    if (new Set(letters).size !== letters.length) throw new Error(`Question ${id} contains duplicate choice letters.`);
+  const letters = question.choiceLetters == null
+    ? question.choices.map((_, letterIndex) => String.fromCharCode(65 + letterIndex))
+    : Array.isArray(question.choiceLetters) && question.choiceLetters.length === question.choices.length
+      ? question.choiceLetters.map((letter, letterIndex) => text(letter, `Question ${id} choice letter ${letterIndex + 1}`, 10))
+      : null;
+  if (!letters) throw new Error(`Question ${id} choiceLetters must match the choices array.`);
+  if (new Set(letters).size !== letters.length) throw new Error(`Question ${id} contains duplicate choice letters.`);
+
+  const correctLetters = Array.isArray(question.correctLetters) && question.correctLetters.length
+    ? question.correctLetters.map((letter, correctIndex) => text(letter, `Question ${id} correct letter ${correctIndex + 1}`, 10))
+    : question.correctLetter != null
+      ? [text(question.correctLetter, `Question ${id} correct letter`, 10)]
+      : [];
+  if (!correctLetters.length) throw new Error(`Question ${id} must identify at least one correct answer.`);
+  if (new Set(correctLetters).size !== correctLetters.length) throw new Error(`Question ${id} contains duplicate correct letters.`);
+  if (correctLetters.some((letter) => !letters.includes(letter))) {
+    throw new Error(`Question ${id} contains a correct letter that is not present in choiceLetters.`);
   }
 }
 
@@ -122,9 +135,13 @@ function normalizedPackageBank(bank) {
       chapter: question.chapter,
       chapterTitle: question.chapterTitle,
       question: question.question,
+      vignetteStem: question.vignetteStem,
       choices: [...question.choices],
       choiceLetters: [...question.choiceLetters],
       correctLetter: question.correctLetter,
+      correctLetters: [...question.correctLetters],
+      isMultiSelect: question.isMultiSelect,
+      answerText: question.answerText,
       explanation: question.explanation,
     })),
   };
@@ -168,9 +185,13 @@ export function questionFingerprint(question) {
     chapter: question.chapter ?? "",
     chapterTitle: question.chapterTitle,
     question: question.question,
+    vignetteStem: question.vignetteStem ?? "",
     choices: question.choices,
     choiceLetters: question.choiceLetters,
     correctLetter: question.correctLetter,
+    correctLetters: question.correctLetters ?? [question.correctLetter],
+    isMultiSelect: Boolean(question.isMultiSelect),
+    answerText: question.answerText ?? "",
     explanation: question.explanation,
   });
 }
