@@ -1,6 +1,8 @@
 import {
   installQuestionBankPackage,
   prepareQuestionBankPackage,
+  QUESTION_BANK_PACKAGE_FORMAT,
+  QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
 } from "./question-bank-import.js";
 import { STORES, deleteRecord, getAllRecords, getRecord, putRecord } from "./storage.js";
 
@@ -118,6 +120,32 @@ export async function flushPendingCloudDeckUploads(fetchImpl = globalThis.fetch.
     } catch (error) {
       results.push({ deckId: record.deckId, status: "pending", error });
     }
+  }
+  return results;
+}
+
+export async function promoteLocallyInstalledDecks({ reservedIds = [], fetchImpl = globalThis.fetch.bind(globalThis) } = {}) {
+  const [localDecks, remoteDecks] = await Promise.all([
+    getAllRecords(STORES.BANK_CONTENT),
+    listCloudDecks(fetchImpl),
+  ]);
+  const remoteById = new Map(remoteDecks.map((deck) => [deck.id, deck]));
+  const results = [];
+
+  for (const bank of localDecks) {
+    if (reservedIds.includes(bank.id)) continue;
+    if (remoteById.get(bank.id)?.checksum === bank.checksum) {
+      results.push({ deckId: bank.id, status: "current" });
+      continue;
+    }
+    const prepared = {
+      format: QUESTION_BANK_PACKAGE_FORMAT,
+      schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
+      checksum: bank.checksum,
+      bank,
+    };
+    const publication = await publishCloudDeckPackage(prepared, fetchImpl);
+    results.push({ deckId: bank.id, status: publication.queued ? "queued" : "uploaded", publication });
   }
   return results;
 }
