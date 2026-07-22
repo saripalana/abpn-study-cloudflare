@@ -1,4 +1,4 @@
-import { SYNC_CLIENT_LIMITS, SyncClient, getSyncState } from "./client/sync.js";
+import { SYNC_CLIENT_LIMITS, SyncClient, clearSyncSuspension, getSyncState } from "./client/sync.js";
 
 const syncButton = document.getElementById("syncBtn");
 const syncStatus = document.getElementById("syncStatus");
@@ -33,7 +33,8 @@ async function runSync({ background = false } = {}) {
   syncButton.disabled = true;
   if (!background) showStatus("Syncing…", "Checking the protected Cloudflare synchronization service.");
   try {
-    const result = await client.synchronize({ background });
+    if (!background) await clearSyncSuspension();
+    const result = await client.synchronize({ background, force: !background });
     if (result.status === "suspended") {
       showStatus("Local only · sync paused", `Cloud synchronization is paused: ${result.reason}. Local study data remains available.`);
     } else if (result.status === "skipped") {
