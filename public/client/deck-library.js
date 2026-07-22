@@ -35,6 +35,13 @@ async function responseDetails(response, fallback) {
   }
 }
 
+function responseFailure(response, details) {
+  const error = new Error(details.message);
+  error.status = response.status;
+  error.responseBody = details.body;
+  return error;
+}
+
 const pendingKey = (deckId) => `${PENDING_PREFIX}${deckId}`;
 
 async function queuePendingPackage(prepared, reason) {
@@ -55,10 +62,7 @@ export async function listCloudDecks(fetchImpl = globalThis.fetch.bind(globalThi
   });
   if (!response.ok) {
     const details = await responseDetails(response, "Cloud deck library could not be loaded.");
-    const error = new Error(details.message);
-    error.responseBody = details.body;
-    error.status = response.status;
-    throw error;
+    throw responseFailure(response, details);
   }
   const body = await response.json();
   return Array.isArray(body.decks) ? body.decks : [];
@@ -72,7 +76,7 @@ export async function fetchCloudDeckPackage(deckId, fetchImpl = globalThis.fetch
   });
   if (!response.ok) {
     const details = await responseDetails(response, `Deck ${deckId} could not be downloaded.`);
-    throw new Error(details.message);
+    throw responseFailure(response, details);
   }
   return response.json();
 }
@@ -96,12 +100,12 @@ export async function publishCloudDeckPackage(
         await queuePendingPackage(prepared, details.message);
         return { ok: false, queued: true, localOnly: true, reason: details.message };
       }
-      throw new Error(details.message);
+      throw responseFailure(response, details);
     }
     await deleteRecord(STORES.META, pendingKey(prepared.bank.id));
     return response.json();
   } catch (error) {
-    const permanent = /format|invalid|protected|limit|too many|must contain|required/i.test(String(error?.message || ""));
+    const permanent = Number(error?.status || 0) > 0 && Number(error.status) < 500 && Number(error.status) !== 429;
     if (queueOnTemporaryFailure && !permanent) {
       await queuePendingPackage(prepared, error.message);
       return { ok: false, queued: true, localOnly: true, reason: error.message };
@@ -118,7 +122,12 @@ export async function flushPendingCloudDeckUploads(fetchImpl = globalThis.fetch.
       const result = await publishCloudDeckPackage(record.package, fetchImpl, { queueOnTemporaryFailure: false });
       results.push({ deckId: record.deckId, status: "uploaded", result });
     } catch (error) {
-      results.push({ deckId: record.deckId, status: "pending", error });
+      if (Number(error?.status || 0) >= 400 && Number(error.status) < 500 && Number(error.status) !== 429) {
+        await deleteRecord(STORES.META, record.key);
+        results.push({ deckId: record.deckId, status: "discarded-stale", error });
+      } else {
+        results.push({ deckId: record.deckId, status: "pending", error });
+      }
     }
   }
   return results;
@@ -134,8 +143,12 @@ export async function promoteLocallyInstalledDecks({ reservedIds = [], fetchImpl
 
   for (const bank of localDecks) {
     if (reservedIds.includes(bank.id)) continue;
-    if (remoteById.get(bank.id)?.checksum === bank.checksum) {
-      results.push({ deckId: bank.id, status: "current" });
+    const remote = remoteById.get(bank.id);
+    if (remote) {
+      results.push({
+        deckId: bank.id,
+        status: remote.checksum === bank.checksum ? "current" : "remote-authoritative",
+      });
       continue;
     }
     const prepared = {
@@ -157,7 +170,7 @@ export async function removeCloudDeck(deckId, fetchImpl = globalThis.fetch.bind(
   });
   if (!response.ok) {
     const details = await responseDetails(response, "Deck could not be removed from the cloud library.");
-    throw new Error(details.message);
+    throw responseFailure(response, details);
   }
   await deleteRecord(STORES.META, pendingKey(deckId));
   return response.json();
