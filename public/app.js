@@ -1,5 +1,11 @@
 import { QUESTION_BANKS } from './banks/catalog.js';
-import { buildBankCatalog, chooseQuestionIds, calculateSetResult, categoryStatistics } from './client/study-engine.js';
+import {
+  buildBankCatalog,
+  chooseQuestionIds,
+  eligibleQuestionIds,
+  calculateSetResult,
+  categoryStatistics
+} from './client/study-engine.js';
 import {
   STORES,
   getRecord,
@@ -14,6 +20,7 @@ const homeBtn = document.getElementById('homeBtn');
 const syncBtn = document.getElementById('syncBtn');
 const syncStatus = document.getElementById('syncStatus');
 const SELECTED_BANK_KEY = 'abpn-study:selected-bank';
+const BUILDER_SETTINGS_PREFIX = 'abpn-study:builder-settings:';
 const deviceId = localStorage.getItem('abpn-study:device-id') || crypto.randomUUID();
 localStorage.setItem('abpn-study:device-id', deviceId);
 
@@ -49,6 +56,45 @@ const formatDateTime = (value) => {
     hour: 'numeric', minute: '2-digit'
   });
 };
+
+function categoryEntries(bank) {
+  const counts = new Map();
+  for (const question of bank.questions) {
+    counts.set(question.chapterTitle, Number(counts.get(question.chapterTitle) || 0) + 1);
+  }
+  return [...counts].map(([title, count]) => ({ title, count }));
+}
+
+function loadBuilderSettings(bank, categories) {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(`${BUILDER_SETTINGS_PREFIX}${bank.id}`) || '{}');
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) saved = {};
+  } catch {
+    saved = {};
+  }
+
+  const validCategories = new Set(categories);
+  const selectedCategories = saved.categories == null
+    ? categories
+    : Array.isArray(saved.categories)
+      ? saved.categories.map(String).filter((category) => validCategories.has(category))
+      : categories;
+  const requestedCount = Math.max(1, Math.trunc(Number(saved.count)) || Math.min(40, bank.questions.length));
+
+  return {
+    count: Math.min(requestedCount, bank.questions.length),
+    mode: ['test', 'tutor'].includes(saved.mode) ? saved.mode : 'test',
+    timing: ['timed', 'untimed'].includes(saved.timing) ? saved.timing : 'timed',
+    pool: ['all', 'new', 'used', 'incorrect', 'flagged'].includes(saved.pool) ? saved.pool : 'all',
+    categories: selectedCategories
+  };
+}
+
+function selectedSubjectCategories() {
+  return [...document.querySelectorAll('input[name="subjectFilter"]:checked')]
+    .map((input) => input.value);
+}
 
 async function progressMap(bankId) {
   return new Map(
@@ -199,6 +245,8 @@ async function renderDashboard() {
   const rows = categoryStatistics(activeBank, progress).filter((row) => row.answered);
   const history = await completedSetHistory(activeBank.id);
   const resumable = activeSet && activeSet.bankId === activeBank.id && !activeSet.submitted;
+  const categories = categoryEntries(activeBank);
+  const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title));
 
   app.innerHTML = `
     <section class="card hero">
@@ -239,21 +287,49 @@ async function renderDashboard() {
           <div class="form-grid">
             <div class="field">
               <label for="countInput">Questions</label>
-              <input id="countInput" type="number" min="1" max="${activeBank.questions.length}" value="${Math.min(40, activeBank.questions.length)}">
+              <input id="countInput" type="number" min="1" max="${activeBank.questions.length}" value="${builder.count}">
             </div>
             <div class="field">
               <label for="modeSelect">Mode</label>
-              <select id="modeSelect"><option value="test">Test</option><option value="tutor">Tutor</option></select>
+              <select id="modeSelect"><option value="test" ${builder.mode === 'test' ? 'selected' : ''}>Test</option><option value="tutor" ${builder.mode === 'tutor' ? 'selected' : ''}>Tutor</option></select>
             </div>
             <div class="field">
               <label for="timingSelect">Timing</label>
-              <select id="timingSelect"><option value="timed">Timed at 70.6 sec/question</option><option value="untimed">Untimed</option></select>
+              <select id="timingSelect"><option value="timed" ${builder.timing === 'timed' ? 'selected' : ''}>Timed at 70.6 sec/question</option><option value="untimed" ${builder.timing === 'untimed' ? 'selected' : ''}>Untimed</option></select>
             </div>
             <div class="field">
               <label for="poolSelect">Question status</label>
-              <select id="poolSelect"><option value="all">All</option><option value="new">New</option><option value="incorrect">Wrong</option><option value="flagged">Flagged</option></select>
+              <select id="poolSelect">
+                <option value="all" ${builder.pool === 'all' ? 'selected' : ''}>All / Random</option>
+                <option value="new" ${builder.pool === 'new' ? 'selected' : ''}>New</option>
+                <option value="used" ${builder.pool === 'used' ? 'selected' : ''}>Used</option>
+                <option value="incorrect" ${builder.pool === 'incorrect' ? 'selected' : ''}>Wrong</option>
+                <option value="flagged" ${builder.pool === 'flagged' ? 'selected' : ''}>Flagged</option>
+              </select>
             </div>
           </div>
+          <details id="subjectPicker" class="subject-picker">
+            <summary>
+              <span>Subjects</span>
+              <span id="subjectSummary" class="subject-summary"></span>
+            </summary>
+            <div class="subject-picker-body">
+              <div class="subject-toolbar">
+                <button id="selectAllSubjectsBtn" class="secondary" type="button">Select all</button>
+                <button id="clearSubjectsBtn" class="secondary" type="button">Clear</button>
+              </div>
+              <div class="subject-options">
+                ${categories.map((category, index) => `
+                  <label class="subject-option" for="subject-${index}">
+                    <input id="subject-${index}" name="subjectFilter" type="checkbox" value="${esc(category.title)}" ${builder.categories.includes(category.title) ? 'checked' : ''}>
+                    <span>${esc(category.title)}</span>
+                    <small>${category.count}</small>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+          </details>
+          <p id="eligibleCount" class="builder-availability"></p>
           <div class="actions"><button id="startBtn" class="primary" type="button">Start randomized set</button></div>
         </section>
       </div>
@@ -314,6 +390,67 @@ async function renderDashboard() {
   document.querySelectorAll('.review-history-btn').forEach((button) => {
     button.addEventListener('click', () => openCompletedSet(button.dataset.setId));
   });
+
+  const subjectInputs = [...document.querySelectorAll('input[name="subjectFilter"]')];
+  const countInput = document.getElementById('countInput');
+  const modeSelect = document.getElementById('modeSelect');
+  const timingSelect = document.getElementById('timingSelect');
+  const poolSelect = document.getElementById('poolSelect');
+  const eligibleCount = document.getElementById('eligibleCount');
+  const subjectSummary = document.getElementById('subjectSummary');
+  const startButton = document.getElementById('startBtn');
+  let preferredCount = builder.count;
+
+  const updateBuilderAvailability = ({ countChanged = false } = {}) => {
+    const selectedCategories = selectedSubjectCategories();
+    const eligible = eligibleQuestionIds(activeBank, progress, poolSelect.value, selectedCategories);
+    if (countChanged) {
+      preferredCount = Math.min(
+        activeBank.questions.length,
+        Math.max(1, Math.trunc(Number(countInput.value)) || 1)
+      );
+    }
+    const displayedCount = eligible.length ? Math.min(preferredCount, eligible.length) : preferredCount;
+    const capped = eligible.length > 0 && displayedCount < preferredCount;
+
+    countInput.value = String(displayedCount);
+    countInput.max = String(Math.max(1, eligible.length));
+    startButton.disabled = eligible.length === 0;
+
+    subjectSummary.textContent = selectedCategories.length === categories.length
+      ? `All ${categories.length} selected`
+      : selectedCategories.length
+        ? `${selectedCategories.length} of ${categories.length} selected`
+        : 'No subjects selected';
+    eligibleCount.textContent = eligible.length
+      ? `${eligible.length} question${eligible.length === 1 ? '' : 's'} available${capped ? '; requested set size adjusted to match.' : '.'}`
+      : 'No questions match the selected subjects and question status.';
+    eligibleCount.dataset.empty = eligible.length ? 'false' : 'true';
+
+    localStorage.setItem(`${BUILDER_SETTINGS_PREFIX}${activeBank.id}`, JSON.stringify({
+      schemaVersion: 1,
+      count: preferredCount,
+      mode: modeSelect.value,
+      timing: timingSelect.value,
+      pool: poolSelect.value,
+      categories: selectedCategories.length === categories.length ? null : selectedCategories
+    }));
+  };
+
+  document.getElementById('selectAllSubjectsBtn').onclick = () => {
+    subjectInputs.forEach((input) => { input.checked = true; });
+    updateBuilderAvailability();
+  };
+  document.getElementById('clearSubjectsBtn').onclick = () => {
+    subjectInputs.forEach((input) => { input.checked = false; });
+    updateBuilderAvailability();
+  };
+  subjectInputs.forEach((input) => input.addEventListener('change', updateBuilderAvailability));
+  countInput.addEventListener('change', () => updateBuilderAvailability({ countChanged: true }));
+  modeSelect.addEventListener('change', updateBuilderAvailability);
+  timingSelect.addEventListener('change', updateBuilderAvailability);
+  poolSelect.addEventListener('change', updateBuilderAvailability);
+  updateBuilderAvailability();
 }
 
 async function startSet() {
@@ -324,11 +461,15 @@ async function startSet() {
   if (activeSet && !activeSet.submitted) await saveActiveSet('abandoned');
 
   const progress = await progressMap(activeBank.id);
+  const categories = selectedSubjectCategories();
+  if (!categories.length) return alert('Select at least one subject before starting a practice set.');
   const ids = chooseQuestionIds(
     activeBank,
     progress,
     document.getElementById('poolSelect').value,
-    document.getElementById('countInput').value
+    document.getElementById('countInput').value,
+    Math.random,
+    categories
   );
   if (!ids.length) return alert('No questions are available in that pool.');
 

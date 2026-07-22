@@ -120,6 +120,101 @@ select {
   color: var(--navy);
 }
 
+.subject-picker {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfcfd;
+  overflow: hidden;
+}
+
+.subject-picker summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  min-height: 46px;
+  color: var(--navy);
+  font-weight: 850;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.subject-summary {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.subject-picker-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.subject-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.subject-toolbar button {
+  min-height: 44px;
+  padding: 8px 12px;
+}
+
+.subject-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.subject-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.subject-option input {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+.subject-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.subject-option small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.builder-availability {
+  margin: 11px 0 0;
+  color: var(--good);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.builder-availability[data-empty="true"] { color: var(--bad); }
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -429,6 +524,8 @@ footer {
   }
 
   .form-grid { grid-template-columns: 1fr; }
+  .subject-options { grid-template-columns: 1fr; max-height: 360px; }
+  .subject-picker summary { align-items: flex-start; }
   .stats { grid-template-columns: 1fr 1fr; }
   .exam-head { align-items: flex-start; flex-direction: column; }
   .exam-nav { flex-wrap: wrap; }
