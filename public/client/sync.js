@@ -1,6 +1,6 @@
 import { STORES, deleteRecord, getAllRecords, getRecord, putRecord } from "./storage.js";
 
-const DEFAULT_BATCH_SIZE = 5;
+const DEFAULT_BATCH_SIZE = 100;
 const MAX_AUTOMATIC_RETRIES = 3;
 const MIN_BACKGROUND_INTERVAL_MS = 15 * 60 * 1000;
 const FAILURE_SUSPENSION_THRESHOLD = 3;
@@ -86,6 +86,7 @@ export class SyncClient {
 
   async request(path, options = {}) {
     let lastError;
+
     for (let attempt = 0; attempt <= MAX_AUTOMATIC_RETRIES; attempt += 1) {
       try {
         const response = await this.fetchImpl(`${this.apiBase}${path}`, {
@@ -96,7 +97,9 @@ export class SyncClient {
             ...(options.headers ?? {}),
           },
         });
+
         if (response.ok) return response.status === 204 ? null : response.json();
+
         const details = await parseErrorResponse(response);
         const error = new SyncRequestError(
           `Sync request failed (${response.status}): ${details.message}`,
@@ -109,60 +112,161 @@ export class SyncClient {
         lastError = error;
         if (attempt === MAX_AUTOMATIC_RETRIES) break;
       }
+
       await sleep(retryDelay(attempt));
     }
+
     if (lastError instanceof SyncRequestError) throw lastError;
-    throw new SyncRequestError(`Sync request failed after ${MAX_AUTOMATIC_RETRIES} retries: ${lastError?.message || "network error"}`, { localOnly: true });
+    throw new SyncRequestError(`Sync request failed after ${MAX_AUTOMATIC_RETRIES} retries: ${lastError?.message || "network error"}`, {
+      localOnly: true,
+    });
   }
 
   async pushPending({ batchSize = DEFAULT_BATCH_SIZE } = {}) {
     const safeBatchSize = Math.max(1, Math.min(DEFAULT_BATCH_SIZE, Number(batchSize) || DEFAULT_BATCH_SIZE));
-    const pending = (await getAllRecords(STORES.OUTBOX))
-      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
-      .slice(0, safeBatchSize);
-    if (pending.length === 0) return { pushed: 0, pending: 0 };
+    const allPending = await getAllRecords(STORES.OUTBOX);
+    const latestByEntity = new Map();
+    for (const item of allPending) {
+      const key = `${item.entityType}:${item.entityKey}`;
+      const current = latestByEntity.get(key);
+      const itemRevision = Number(item.payload?.revision || 0);
+      const currentRevision = Number(current?.payload?.revision || 0);
+      if (!current || itemRevision > currentRevision || (
+        itemRevision === currentRevision && String(item.createdAt) > String(current.createdAt)
+      )) latestByEntity.set(key, item);
+    }
+    const priority = { practiceSet: 0, practiceSetAnswer: 1, questionProgress: 2 };
+    const compacted = [...latestByEntity.values()].sort((a, b) => {
+      const entityOrder = (priority[a.entityType] ?? 9) - (priority[b.entityType] ?? 9);
+      return entityOrder || String(a.createdAt).localeCompare(String(b.createdAt));
+    });
+    const keepIds = new Set(compacted.map((item) => item.id));
+    await Promise.all(allPending.filter((item) => !keepIds.has(item.id)).map((item) => deleteRecord(STORES.OUTBOX, item.id)));
+    const pending = compacted.slice(0, safeBatchSize);
+
+    if (pending.length === 0) return { pushed: 0, pending: 0, conflicts: [] };
+
     const result = await this.request("/api/sync/push", {
       method: "POST",
       body: JSON.stringify({ changes: pending }),
     });
+
     const acceptedIds = new Set(result.acceptedIds ?? []);
-    await Promise.all(pending.filter((item) => acceptedIds.has(item.id)).map((item) => deleteRecord(STORES.OUTBOX, item.id)));
-    return { pushed: acceptedIds.size, pending: Math.max(0, pending.length - acceptedIds.size), conflicts: result.conflicts ?? [] };
+    const resolvedConflictIds = new Set((result.conflicts ?? [])
+      .filter((conflict) => conflict.remoteWins)
+      .map((conflict) => conflict.id));
+    await Promise.all(
+      pending
+        .filter((item) => acceptedIds.has(item.id) || resolvedConflictIds.has(item.id))
+        .map((item) => deleteRecord(STORES.OUTBOX, item.id))
+    );
+    return {
+      pushed: acceptedIds.size,
+      pending: Math.max(0, compacted.length - acceptedIds.size - resolvedConflictIds.size),
+      conflicts: result.conflicts ?? [],
+    };
+  }
+
+  async applyRemoteRecord(storeName, key, incoming) {
+    const local = await getRecord(storeName, key);
+    if (local) {
+      const localRevision = Number(local.revision || 0);
+      const incomingRevision = Number(incoming.revision || 0);
+      const localTime = Date.parse(local.updatedAt || 0) || 0;
+      const incomingTime = Date.parse(incoming.updatedAt || 0) || 0;
+      if (localRevision > incomingRevision || (localRevision === incomingRevision && localTime >= incomingTime)) return false;
+    }
+    await putRecord(storeName, incoming);
+    return true;
   }
 
   async pullRemote({ cursor = null } = {}) {
     const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
     const result = await this.request(`/api/sync/pull${query}`, { method: "GET" });
+
     for (const change of result.changes ?? []) {
-      if (change.entityType === "questionProgress" && change.operation === "upsert") await putRecord(STORES.PROGRESS, change.payload);
-      if (change.entityType === "practiceSet" && change.operation === "upsert") await putRecord(STORES.SETS, change.payload);
-      if (change.entityType === "practiceSetAnswer" && change.operation === "upsert") await putRecord(STORES.ANSWERS, change.payload);
+      if (change.entityType === "questionProgress" && change.operation === "upsert") {
+        await this.applyRemoteRecord(STORES.PROGRESS, [change.payload.bankId, change.payload.questionId], change.payload);
+      }
+      if (change.entityType === "practiceSet" && change.operation === "upsert") {
+        await this.applyRemoteRecord(STORES.SETS, change.payload.id, change.payload);
+      }
+      if (change.entityType === "practiceSetAnswer" && change.operation === "upsert") {
+        await this.applyRemoteRecord(STORES.ANSWERS, [change.payload.setId, change.payload.questionId], change.payload);
+      }
     }
-    if (result.nextCursor) await putRecord(STORES.META, { key: "syncCursor", value: result.nextCursor });
+
+    if (result.nextCursor) {
+      await putRecord(STORES.META, { key: "syncCursor", value: result.nextCursor });
+    }
     return result;
   }
 
   async synchronize({ background = false, force = false } = {}) {
     const state = await getSyncState();
-    if (state.suspended) return { status: "suspended", localOnly: true, reason: state.suspensionReason || "three-consecutive-failures", state };
+    if (state.suspended) {
+      return {
+        status: "suspended",
+        localOnly: true,
+        reason: state.suspensionReason || "three-consecutive-failures",
+        state,
+      };
+    }
+
     const pending = await getAllRecords(STORES.OUTBOX);
     const lastAttemptTime = state.lastAttemptAt ? Date.parse(state.lastAttemptAt) : 0;
     if (background && !force) {
-      if (pending.length === 0) return { status: "skipped", localOnly: true, reason: "no-meaningful-local-changes", state };
-      if (lastAttemptTime && Date.now() - lastAttemptTime < MIN_BACKGROUND_INTERVAL_MS) return { status: "skipped", localOnly: true, reason: "background-interval", state };
+      if (pending.length === 0) {
+        return { status: "skipped", localOnly: true, reason: "no-meaningful-local-changes", state };
+      }
+      if (lastAttemptTime && Date.now() - lastAttemptTime < MIN_BACKGROUND_INTERVAL_MS) {
+        return { status: "skipped", localOnly: true, reason: "background-interval", state };
+      }
     }
-    await saveSyncState({ lastAttemptAt: new Date().toISOString() });
+
+    const attemptAt = new Date().toISOString();
+    await saveSyncState({ lastAttemptAt: attemptAt });
+
     try {
       const cursorRecord = await getRecord(STORES.META, "syncCursor");
-      const push = await this.pushPending();
+      let pushed = 0;
+      let pendingCount = 0;
+      const conflicts = [];
+      for (let batch = 0; batch < 5; batch += 1) {
+        const result = await this.pushPending();
+        pushed += result.pushed;
+        pendingCount = result.pending;
+        conflicts.push(...(result.conflicts ?? []));
+        if (!pendingCount) break;
+      }
       const pull = await this.pullRemote({ cursor: cursorRecord?.value ?? null });
-      const nextState = await saveSyncState({ mode: "cloud-ready", suspended: false, suspensionReason: null, consecutiveFailures: 0, lastSuccessAt: new Date().toISOString() });
-      return { status: "success", localOnly: false, pushed: push.pushed, conflicts: push.conflicts, pulled: (pull.changes ?? []).length, nextCursor: pull.nextCursor ?? null, state: nextState };
+      const nextState = await saveSyncState({
+        mode: "cloud-ready",
+        suspended: false,
+        suspensionReason: null,
+        consecutiveFailures: 0,
+        lastSuccessAt: new Date().toISOString(),
+      });
+      return {
+        status: "success",
+        localOnly: false,
+        pushed,
+        pending: pendingCount,
+        conflicts,
+        pulled: (pull.changes ?? []).length,
+        nextCursor: pull.nextCursor ?? null,
+        state: nextState,
+      };
     } catch (error) {
       const failures = Number(state.consecutiveFailures || 0) + 1;
       const serverReason = error?.responseBody?.reason || null;
       const suspended = Boolean(error?.localOnly || serverReason || failures >= FAILURE_SUSPENSION_THRESHOLD);
-      const nextState = await saveSyncState({ mode: "local-only", suspended, suspensionReason: suspended ? (serverReason || error.message || "three-consecutive-failures") : null, consecutiveFailures: failures });
+      const nextState = await saveSyncState({
+        mode: "local-only",
+        suspended,
+        suspensionReason: suspended ? (serverReason || error.message || "three-consecutive-failures") : null,
+        consecutiveFailures: failures,
+      });
       error.syncState = nextState;
       throw error;
     }

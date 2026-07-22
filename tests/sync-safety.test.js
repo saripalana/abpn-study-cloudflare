@@ -20,7 +20,7 @@ test("server quotas remain far below Cloudflare free-plan allowances", () => {
 });
 
 test("client synchronization has bounded batches, retries, background timing, and failure suspension", () => {
-  assert.equal(SYNC_CLIENT_LIMITS.batchSize, 5);
+  assert.equal(SYNC_CLIENT_LIMITS.batchSize, 100);
   assert.equal(SYNC_CLIENT_LIMITS.maximumAutomaticRetries, 3);
   assert.equal(SYNC_CLIENT_LIMITS.minimumBackgroundIntervalMs, 15 * 60 * 1000);
   assert.equal(SYNC_CLIENT_LIMITS.failureSuspensionThreshold, 3);
@@ -75,10 +75,20 @@ test("D1 migration creates one persistent guardrail row without destructive stat
   assert.doesNotMatch(migration, /\bDELETE\s+FROM\b/i);
 });
 
-test("production serves the protected app while cloud synchronization remains disabled", async () => {
+test("D1 migration adds resumable practice-set fields without destructive statements", async () => {
+  const migration = await read("migrations/0003_complete_study_sync.sql");
+  assert.match(migration, /ADD COLUMN timed/);
+  assert.match(migration, /ADD COLUMN current_index/);
+  assert.match(migration, /ADD COLUMN remaining_seconds/);
+  assert.match(migration, /ADD COLUMN submitted/);
+  assert.doesNotMatch(migration, /\bDROP\b/i);
+  assert.doesNotMatch(migration, /\bDELETE\s+FROM\b/i);
+});
+
+test("production enables protected sync while the server kill switch remains enforceable", async () => {
   const wrangler = await read("wrangler.toml");
   assert.match(wrangler, /APP_RELEASE_MODE\s*=\s*"full"/);
-  assert.match(wrangler, /CLOUD_SYNC_ENABLED\s*=\s*"false"/);
+  assert.match(wrangler, /CLOUD_SYNC_ENABLED\s*=\s*"true"/);
   assert.match(wrangler, /ACCESS_JWT_REQUIRED\s*=\s*"true"/);
   assert.match(wrangler, /STUDY_USER_ID\s*=\s*"[a-f0-9-]+"/);
 
@@ -116,7 +126,7 @@ test("production serves the protected app while cloud synchronization remains di
   });
 });
 
-test("the visible application includes the guarded local-only synchronization controller", async () => {
+test("the visible application includes guarded cloud synchronization with local-only fallback", async () => {
   const [index, controller, publicClient] = await Promise.all([
     read("public/index.html"),
     read("public/sync-controller.js"),
@@ -127,4 +137,6 @@ test("the visible application includes the guarded local-only synchronization co
   assert.match(controller, /Local study data is safe/);
   assert.match(publicClient, /FAILURE_SUSPENSION_THRESHOLD = 3/);
   assert.match(publicClient, /MIN_BACKGROUND_INTERVAL_MS = 15 \* 60 \* 1000/);
+  assert.match(publicClient, /applyRemoteRecord/);
+  assert.match(publicClient, /practiceSetAnswer/);
 });

@@ -12,6 +12,8 @@ import {
   putRecord,
   recordsByIndex,
   updateQuestionProgress,
+  updatePracticeSet,
+  updatePracticeSetAnswer,
   createRecoverySnapshot
 } from './client/storage.js';
 
@@ -498,7 +500,7 @@ async function startSet() {
 
 async function saveActiveSet(status = activeSet?.submitted ? 'completed' : 'active') {
   if (!activeSet) return;
-  await putRecord(STORES.SETS, {
+  await updatePracticeSet({ deviceId, record: {
     id: activeSet.id,
     bankId: activeSet.bankId,
     status,
@@ -511,7 +513,7 @@ async function saveActiveSet(status = activeSet?.submitted ? 'completed' : 'acti
     startedAt: activeSet.startedAt,
     completedAt: activeSet.completedAt ?? null,
     updatedAt: new Date().toISOString()
-  });
+  }});
 }
 
 function submissionConfirmation() {
@@ -694,11 +696,11 @@ async function answerQuestion(question, selectedAnswer) {
   };
 
   activeSet.answers.set(question.id, entry);
-  await putRecord(STORES.ANSWERS, {
+  await updatePracticeSetAnswer({ deviceId, record: {
     setId: activeSet.id,
     questionId: question.id,
     ...entry
-  });
+  }});
 
   if (activeSet.mode === 'tutor') await saveProgress(question, entry);
   await saveActiveSet();

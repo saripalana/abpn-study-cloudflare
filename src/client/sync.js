@@ -1,6 +1,6 @@
 import { STORES, deleteRecord, getAllRecords, getRecord, putRecord } from "./storage.js";
 
-const DEFAULT_BATCH_SIZE = 5;
+const DEFAULT_BATCH_SIZE = 100;
 const MAX_AUTOMATIC_RETRIES = 3;
 const MIN_BACKGROUND_INTERVAL_MS = 15 * 60 * 1000;
 const FAILURE_SUSPENSION_THRESHOLD = 3;
@@ -124,11 +124,27 @@ export class SyncClient {
 
   async pushPending({ batchSize = DEFAULT_BATCH_SIZE } = {}) {
     const safeBatchSize = Math.max(1, Math.min(DEFAULT_BATCH_SIZE, Number(batchSize) || DEFAULT_BATCH_SIZE));
-    const pending = (await getAllRecords(STORES.OUTBOX))
-      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
-      .slice(0, safeBatchSize);
+    const allPending = await getAllRecords(STORES.OUTBOX);
+    const latestByEntity = new Map();
+    for (const item of allPending) {
+      const key = `${item.entityType}:${item.entityKey}`;
+      const current = latestByEntity.get(key);
+      const itemRevision = Number(item.payload?.revision || 0);
+      const currentRevision = Number(current?.payload?.revision || 0);
+      if (!current || itemRevision > currentRevision || (
+        itemRevision === currentRevision && String(item.createdAt) > String(current.createdAt)
+      )) latestByEntity.set(key, item);
+    }
+    const priority = { practiceSet: 0, practiceSetAnswer: 1, questionProgress: 2 };
+    const compacted = [...latestByEntity.values()].sort((a, b) => {
+      const entityOrder = (priority[a.entityType] ?? 9) - (priority[b.entityType] ?? 9);
+      return entityOrder || String(a.createdAt).localeCompare(String(b.createdAt));
+    });
+    const keepIds = new Set(compacted.map((item) => item.id));
+    await Promise.all(allPending.filter((item) => !keepIds.has(item.id)).map((item) => deleteRecord(STORES.OUTBOX, item.id)));
+    const pending = compacted.slice(0, safeBatchSize);
 
-    if (pending.length === 0) return { pushed: 0, pending: 0 };
+    if (pending.length === 0) return { pushed: 0, pending: 0, conflicts: [] };
 
     const result = await this.request("/api/sync/push", {
       method: "POST",
@@ -136,16 +152,32 @@ export class SyncClient {
     });
 
     const acceptedIds = new Set(result.acceptedIds ?? []);
+    const resolvedConflictIds = new Set((result.conflicts ?? [])
+      .filter((conflict) => conflict.remoteWins)
+      .map((conflict) => conflict.id));
     await Promise.all(
       pending
-        .filter((item) => acceptedIds.has(item.id))
+        .filter((item) => acceptedIds.has(item.id) || resolvedConflictIds.has(item.id))
         .map((item) => deleteRecord(STORES.OUTBOX, item.id))
     );
     return {
       pushed: acceptedIds.size,
-      pending: Math.max(0, pending.length - acceptedIds.size),
+      pending: Math.max(0, compacted.length - acceptedIds.size - resolvedConflictIds.size),
       conflicts: result.conflicts ?? [],
     };
+  }
+
+  async applyRemoteRecord(storeName, key, incoming) {
+    const local = await getRecord(storeName, key);
+    if (local) {
+      const localRevision = Number(local.revision || 0);
+      const incomingRevision = Number(incoming.revision || 0);
+      const localTime = Date.parse(local.updatedAt || 0) || 0;
+      const incomingTime = Date.parse(incoming.updatedAt || 0) || 0;
+      if (localRevision > incomingRevision || (localRevision === incomingRevision && localTime >= incomingTime)) return false;
+    }
+    await putRecord(storeName, incoming);
+    return true;
   }
 
   async pullRemote({ cursor = null } = {}) {
@@ -154,13 +186,13 @@ export class SyncClient {
 
     for (const change of result.changes ?? []) {
       if (change.entityType === "questionProgress" && change.operation === "upsert") {
-        await putRecord(STORES.PROGRESS, change.payload);
+        await this.applyRemoteRecord(STORES.PROGRESS, [change.payload.bankId, change.payload.questionId], change.payload);
       }
       if (change.entityType === "practiceSet" && change.operation === "upsert") {
-        await putRecord(STORES.SETS, change.payload);
+        await this.applyRemoteRecord(STORES.SETS, change.payload.id, change.payload);
       }
       if (change.entityType === "practiceSetAnswer" && change.operation === "upsert") {
-        await putRecord(STORES.ANSWERS, change.payload);
+        await this.applyRemoteRecord(STORES.ANSWERS, [change.payload.setId, change.payload.questionId], change.payload);
       }
     }
 
@@ -197,7 +229,16 @@ export class SyncClient {
 
     try {
       const cursorRecord = await getRecord(STORES.META, "syncCursor");
-      const push = await this.pushPending();
+      let pushed = 0;
+      let pendingCount = 0;
+      const conflicts = [];
+      for (let batch = 0; batch < 5; batch += 1) {
+        const result = await this.pushPending();
+        pushed += result.pushed;
+        pendingCount = result.pending;
+        conflicts.push(...(result.conflicts ?? []));
+        if (!pendingCount) break;
+      }
       const pull = await this.pullRemote({ cursor: cursorRecord?.value ?? null });
       const nextState = await saveSyncState({
         mode: "cloud-ready",
@@ -209,8 +250,9 @@ export class SyncClient {
       return {
         status: "success",
         localOnly: false,
-        pushed: push.pushed,
-        conflicts: push.conflicts,
+        pushed,
+        pending: pendingCount,
+        conflicts,
         pulled: (pull.changes ?? []).length,
         nextCursor: pull.nextCursor ?? null,
         state: nextState,

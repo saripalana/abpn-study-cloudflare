@@ -325,6 +325,30 @@ function boundedString(value, field, maxLength = 200) {
   return result;
 }
 
+function revisionDecision(current, incomingRevision, updatedAt) {
+  if (!current) return { accept: true };
+  const remoteRevision = Number(current.revision);
+  const remoteUpdatedAt = current.updated_at;
+  const incomingTime = Date.parse(updatedAt);
+  const remoteTime = Date.parse(remoteUpdatedAt);
+  if (incomingRevision < remoteRevision || (incomingRevision === remoteRevision && incomingTime < remoteTime)) {
+    return { accept: false, conflict: true, remoteWins: true, remoteRevision, remoteUpdatedAt };
+  }
+  if (incomingRevision === remoteRevision && incomingTime === remoteTime) {
+    return { accept: false, conflict: false, idempotent: true, remoteRevision, remoteUpdatedAt };
+  }
+  return { accept: true };
+}
+
+async function ensureQuestionBank(env, bankId) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT INTO question_banks (id, slug, name, version, question_count, created_at, updated_at)
+    VALUES (?, ?, ?, 'synced', 0, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at
+  `).bind(bankId, bankId, bankId, now, now).run();
+}
+
 async function upsertQuestionProgress(env, userId, deviceId, payload) {
   const bankId = boundedString(payload.bankId, "bankId");
   const questionId = boundedString(payload.questionId, "questionId");
@@ -338,22 +362,10 @@ async function upsertQuestionProgress(env, userId, deviceId, payload) {
   const current = await env.DB.prepare(
     "SELECT revision, updated_at FROM question_progress WHERE user_id = ? AND bank_id = ? AND question_id = ?"
   ).bind(userId, bankId, questionId).first();
+  const decision = revisionDecision(current, incomingRevision, updatedAt);
+  if (!decision.accept) return { ...decision, entityType: "questionProgress", entityKey: `${bankId}:${questionId}`, changeId: null };
 
-  if (current) {
-    const remoteRevision = Number(current.revision);
-    if (incomingRevision < remoteRevision || (incomingRevision === remoteRevision && updatedAt !== current.updated_at)) {
-      return {
-        conflict: true,
-        entityType: "questionProgress",
-        entityKey: `${bankId}:${questionId}`,
-        remoteRevision,
-        remoteUpdatedAt: current.updated_at,
-      };
-    }
-    if (incomingRevision === remoteRevision && updatedAt === current.updated_at) {
-      return { conflict: false, idempotent: true, changeId: null };
-    }
-  }
+  await ensureQuestionBank(env, bankId);
 
   await env.DB.prepare(`
     INSERT INTO question_progress (
@@ -394,6 +406,92 @@ async function upsertQuestionProgress(env, userId, deviceId, payload) {
   return { conflict: false, changeId: change.id };
 }
 
+async function upsertPracticeSet(env, userId, deviceId, payload) {
+  const id = boundedString(payload.id, "practiceSet id");
+  const bankId = boundedString(payload.bankId, "practiceSet bankId");
+  const incomingRevision = Number(payload.revision || 1);
+  if (!Number.isSafeInteger(incomingRevision) || incomingRevision < 1) throw new Error("practiceSet revision is invalid");
+  const updatedAt = String(payload.updatedAt || new Date().toISOString());
+  if (!Number.isFinite(Date.parse(updatedAt))) throw new Error("practiceSet updatedAt is invalid");
+  const questionIds = Array.isArray(payload.questionIds) ? payload.questionIds.map((value) => boundedString(value, "questionId")) : [];
+  if (!questionIds.length || questionIds.length > 5_000) throw new Error("practiceSet questionIds are invalid");
+
+  const current = await env.DB.prepare(
+    "SELECT revision, updated_at FROM practice_sets WHERE id = ? AND user_id = ?"
+  ).bind(id, userId).first();
+  const decision = revisionDecision(current, incomingRevision, updatedAt);
+  if (!decision.accept) return { ...decision, entityType: "practiceSet", entityKey: id, changeId: null };
+  await ensureQuestionBank(env, bankId);
+
+  await env.DB.prepare(`
+    INSERT INTO practice_sets (
+      id, user_id, bank_id, name, mode, status, started_at, completed_at, elapsed_ms,
+      question_ids_json, timed, current_index, remaining_seconds, submitted,
+      revision, updated_at, updated_by_device
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      bank_id = excluded.bank_id, name = excluded.name, mode = excluded.mode,
+      status = excluded.status, started_at = excluded.started_at, completed_at = excluded.completed_at,
+      elapsed_ms = excluded.elapsed_ms, question_ids_json = excluded.question_ids_json,
+      timed = excluded.timed, current_index = excluded.current_index,
+      remaining_seconds = excluded.remaining_seconds, submitted = excluded.submitted,
+      revision = excluded.revision, updated_at = excluded.updated_at,
+      updated_by_device = excluded.updated_by_device
+  `).bind(
+    id, userId, bankId, payload.name == null ? null : String(payload.name).slice(0, 200),
+    boundedString(payload.mode, "practiceSet mode", 20), boundedString(payload.status, "practiceSet status", 40),
+    String(payload.startedAt || updatedAt), payload.completedAt || null, Math.max(0, Number(payload.elapsedMs || 0)),
+    JSON.stringify(questionIds), Number(Boolean(payload.timed)), Math.max(0, Number(payload.index || 0)),
+    Math.max(0, Number(payload.remainingSeconds || 0)), Number(Boolean(payload.submitted)),
+    incomingRevision, updatedAt, deviceId
+  ).run();
+
+  const change = await env.DB.prepare(`
+    INSERT INTO sync_changes (user_id, device_id, entity_type, entity_id, operation, revision, changed_at)
+    VALUES (?, ?, 'practiceSet', ?, 'upsert', ?, ?) RETURNING id
+  `).bind(userId, deviceId, id, incomingRevision, updatedAt).first();
+  return { conflict: false, changeId: change.id };
+}
+
+async function upsertPracticeSetAnswer(env, userId, deviceId, payload) {
+  const setId = boundedString(payload.setId, "practiceSetAnswer setId");
+  const questionId = boundedString(payload.questionId, "practiceSetAnswer questionId");
+  const incomingRevision = Number(payload.revision || 1);
+  if (!Number.isSafeInteger(incomingRevision) || incomingRevision < 1) throw new Error("practiceSetAnswer revision is invalid");
+  const updatedAt = String(payload.updatedAt || new Date().toISOString());
+  if (!Number.isFinite(Date.parse(updatedAt))) throw new Error("practiceSetAnswer updatedAt is invalid");
+  const parent = await env.DB.prepare("SELECT id FROM practice_sets WHERE id = ? AND user_id = ?").bind(setId, userId).first();
+  if (!parent) throw new Error("practiceSetAnswer parent set is missing");
+  const current = await env.DB.prepare(
+    "SELECT revision, updated_at FROM practice_set_answers WHERE set_id = ? AND question_id = ?"
+  ).bind(setId, questionId).first();
+  const decision = revisionDecision(current, incomingRevision, updatedAt);
+  if (!decision.accept) return { ...decision, entityType: "practiceSetAnswer", entityKey: `${setId}:${questionId}`, changeId: null };
+
+  await env.DB.prepare(`
+    INSERT INTO practice_set_answers (
+      set_id, question_id, selected_answer, is_correct, is_flagged, time_ms,
+      answered_at, revision, updated_at, updated_by_device
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(set_id, question_id) DO UPDATE SET
+      selected_answer = excluded.selected_answer, is_correct = excluded.is_correct,
+      is_flagged = excluded.is_flagged, time_ms = excluded.time_ms,
+      answered_at = excluded.answered_at, revision = excluded.revision,
+      updated_at = excluded.updated_at, updated_by_device = excluded.updated_by_device
+  `).bind(
+    setId, questionId, payload.selectedAnswer == null ? null : String(payload.selectedAnswer).slice(0, 20),
+    payload.isCorrect == null ? null : Number(Boolean(payload.isCorrect)), Number(Boolean(payload.isFlagged)),
+    Math.max(0, Number(payload.timeMs || 0)), payload.answeredAt || updatedAt,
+    incomingRevision, updatedAt, deviceId
+  ).run();
+
+  const change = await env.DB.prepare(`
+    INSERT INTO sync_changes (user_id, device_id, entity_type, entity_id, operation, revision, changed_at)
+    VALUES (?, ?, 'practiceSetAnswer', ?, 'upsert', ?, ?) RETURNING id
+  `).bind(userId, deviceId, `${setId}:${questionId}`, incomingRevision, updatedAt).first();
+  return { conflict: false, changeId: change.id };
+}
+
 async function handleSyncPush(request, env) {
   requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
@@ -405,9 +503,9 @@ async function handleSyncPush(request, env) {
   const changes = body.changes;
   await reserveUsage(env, {
     requests: 1,
-    writeActions: changes.length,
+    writeActions: changes.length ? 1 : 0,
     rowsRead: changes.length + (changes.length ? 1 : 0),
-    rowsWritten: changes.length * 2 + (changes.length ? 2 : 0),
+    rowsWritten: changes.length * 3 + (changes.length ? 2 : 0),
   });
 
   if (!changes.length) return json({ acceptedIds: [], conflicts: [] });
@@ -417,11 +515,21 @@ async function handleSyncPush(request, env) {
 
   for (const change of changes) {
     try {
-      if (change.entityType !== "questionProgress" || change.operation !== "upsert") {
+      if (change.operation !== "upsert") {
         conflicts.push({ id: change.id, reason: "unsupported-change-type" });
         continue;
       }
-      const result = await upsertQuestionProgress(env, userId, deviceId, change.payload || {});
+      const handlers = {
+        questionProgress: upsertQuestionProgress,
+        practiceSet: upsertPracticeSet,
+        practiceSetAnswer: upsertPracticeSetAnswer,
+      };
+      const handler = handlers[change.entityType];
+      if (!handler) {
+        conflicts.push({ id: change.id, reason: "unsupported-change-type" });
+        continue;
+      }
+      const result = await handler(env, userId, deviceId, change.payload || {});
       if (result.conflict) conflicts.push({ id: change.id, ...result });
       else acceptedIds.push(change.id);
     } catch (error) {
@@ -449,24 +557,39 @@ async function handleSyncPull(request, env) {
     SELECT sc.id, sc.entity_type, sc.entity_id, sc.operation, sc.revision, sc.changed_at,
            qp.bank_id, qp.question_id, qp.selected_answer, qp.is_correct, qp.is_flagged,
            qp.times_used, qp.total_time_ms, qp.last_used_at, qp.updated_at, qp.updated_by_device
+           ,ps.id AS ps_id, ps.bank_id AS ps_bank_id, ps.name AS ps_name, ps.mode AS ps_mode,
+           ps.status AS ps_status, ps.started_at AS ps_started_at, ps.completed_at AS ps_completed_at,
+           ps.elapsed_ms AS ps_elapsed_ms, ps.question_ids_json AS ps_question_ids_json,
+           ps.timed AS ps_timed, ps.current_index AS ps_current_index,
+           ps.remaining_seconds AS ps_remaining_seconds, ps.submitted AS ps_submitted,
+           ps.updated_at AS ps_updated_at, ps.updated_by_device AS ps_updated_by_device,
+           pa.set_id AS pa_set_id, pa.question_id AS pa_question_id,
+           pa.selected_answer AS pa_selected_answer, pa.is_correct AS pa_is_correct,
+           pa.is_flagged AS pa_is_flagged, pa.time_ms AS pa_time_ms,
+           pa.answered_at AS pa_answered_at, pa.updated_at AS pa_updated_at,
+           pa.updated_by_device AS pa_updated_by_device
     FROM sync_changes sc
     LEFT JOIN question_progress qp
       ON sc.user_id = qp.user_id
       AND sc.entity_type = 'questionProgress'
       AND sc.entity_id = qp.bank_id || ':' || qp.question_id
+    LEFT JOIN practice_sets ps
+      ON sc.user_id = ps.user_id
+      AND sc.entity_type = 'practiceSet'
+      AND sc.entity_id = ps.id
+    LEFT JOIN practice_set_answers pa
+      ON sc.entity_type = 'practiceSetAnswer'
+      AND sc.entity_id = pa.set_id || ':' || pa.question_id
+    LEFT JOIN practice_sets pa_owner
+      ON pa_owner.id = pa.set_id AND pa_owner.user_id = sc.user_id
     WHERE sc.user_id = ? AND sc.id > ? AND (sc.device_id IS NULL OR sc.device_id != ?)
     ORDER BY sc.id ASC
     LIMIT ${SYNC_LIMITS.maxPullRows}
   `).bind(userId, cursor, deviceId).all();
 
-  const changes = rows.results.map((row) => ({
-    id: row.id,
-    entityType: row.entity_type,
-    entityKey: row.entity_id,
-    operation: row.operation,
-    revision: row.revision,
-    changedAt: row.changed_at,
-    payload: row.entity_type === "questionProgress" ? {
+  const changes = rows.results.map((row) => {
+    let payload = null;
+    if (row.entity_type === "questionProgress") payload = {
       bankId: row.bank_id,
       questionId: row.question_id,
       selectedAnswer: row.selected_answer,
@@ -478,8 +601,47 @@ async function handleSyncPull(request, env) {
       revision: row.revision,
       updatedAt: row.updated_at,
       deviceId: row.updated_by_device,
-    } : null,
-  }));
+    };
+    if (row.entity_type === "practiceSet") payload = {
+      id: row.ps_id,
+      bankId: row.ps_bank_id,
+      name: row.ps_name,
+      mode: row.ps_mode,
+      status: row.ps_status,
+      startedAt: row.ps_started_at,
+      completedAt: row.ps_completed_at,
+      elapsedMs: row.ps_elapsed_ms,
+      questionIds: JSON.parse(row.ps_question_ids_json || "[]"),
+      timed: Boolean(row.ps_timed),
+      index: row.ps_current_index,
+      remainingSeconds: row.ps_remaining_seconds,
+      submitted: Boolean(row.ps_submitted),
+      revision: row.revision,
+      updatedAt: row.ps_updated_at,
+      deviceId: row.ps_updated_by_device,
+    };
+    if (row.entity_type === "practiceSetAnswer" && row.pa_set_id) payload = {
+      setId: row.pa_set_id,
+      questionId: row.pa_question_id,
+      selectedAnswer: row.pa_selected_answer,
+      isCorrect: row.pa_is_correct == null ? null : Boolean(row.pa_is_correct),
+      isFlagged: Boolean(row.pa_is_flagged),
+      timeMs: row.pa_time_ms,
+      answeredAt: row.pa_answered_at,
+      revision: row.revision,
+      updatedAt: row.pa_updated_at,
+      deviceId: row.pa_updated_by_device,
+    };
+    return {
+      id: row.id,
+      entityType: row.entity_type,
+      entityKey: row.entity_id,
+      operation: row.operation,
+      revision: row.revision,
+      changedAt: row.changed_at,
+      payload,
+    };
+  }).filter((change) => change.payload);
 
   return json({
     changes,
