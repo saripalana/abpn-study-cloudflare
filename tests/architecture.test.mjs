@@ -50,6 +50,30 @@ test("worker exposes health and bidirectional sync endpoints behind release cont
   assert.match(worker, /ensureQuestionBank/);
 });
 
+test("all imported banks use the protected persistent deck library", async () => {
+  const [worker, api, browserClient, bootstrap, migration, packageJson] = await Promise.all([
+    read("src/worker.js"),
+    read("src/deck-library-api.js"),
+    read("public/client/deck-library.js"),
+    read("public/bootstrap.js"),
+    read("migrations/0004_cloud_deck_library.sql"),
+    read("package.json"),
+  ]);
+  assert.match(worker, /handleDeckLibraryRequest/);
+  assert.match(api, /\/api\/decks/);
+  assert.match(api, /MAX_DECK_PACKAGE_BYTES/);
+  assert.match(api, /deck_package_chunks/);
+  assert.match(browserClient, /publishCloudDeckPackage/);
+  assert.match(browserClient, /refreshCloudDeckLibrary/);
+  assert.match(browserClient, /pendingDeckUpload/);
+  assert.match(bootstrap, /flushPendingCloudDeckUploads/);
+  assert.match(bootstrap, /refreshCloudDeckLibrary/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_packages/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_package_chunks/);
+  assert.match(packageJson, /patch-deck-library-worker\.mjs/);
+  assert.match(packageJson, /patch-cloud-deck-imports\.mjs/);
+});
+
 test("Cloudflare Access JWT validation is the outer request gateway", async () => {
   const [accessWorker, wrangler, packageJson] = await Promise.all([
     read("src/access-worker.js"),
