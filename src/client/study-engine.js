@@ -1,11 +1,40 @@
+export function selectedAnswerLetters(value) {
+  const values = Array.isArray(value) ? value : value == null || value === "" ? [] : [value];
+  return [...new Set(values.map(String).filter(Boolean))];
+}
+
+export function isQuestionAnswerCorrect(question, selectedAnswer) {
+  const selected = selectedAnswerLetters(selectedAnswer);
+  const correct = selectedAnswerLetters(question?.correctLetters?.length ? question.correctLetters : question?.correctLetter);
+  if (!selected.length || selected.length !== correct.length) return false;
+  const selectedSet = new Set(selected);
+  return correct.every((letter) => selectedSet.has(letter));
+}
+
+export function hasQuestionAnswer(answer) {
+  return selectedAnswerLetters(answer?.selectedAnswer).length > 0;
+}
+
 export function normalizeQuestion(question, index, bankId) {
   const choices = Array.isArray(question?.choices) ? question.choices.map(String) : [];
   const letters = Array.isArray(question?.choiceLetters) && question.choiceLetters.length === choices.length
     ? question.choiceLetters.map(String)
     : choices.map((_, i) => String.fromCharCode(65 + i));
   const id = String(question?.id || `${bankId}-${index + 1}`);
-  const correctLetter = String(question?.correctLetter || "");
-  if (!question || !String(question.question || "").trim() || choices.length < 2 || !letters.includes(correctLetter)) {
+  const correctLetters = selectedAnswerLetters(
+    Array.isArray(question?.correctLetters) && question.correctLetters.length
+      ? question.correctLetters
+      : question?.correctLetter
+  );
+  const isMultiSelect = Boolean(question?.isMultiSelect || correctLetters.length > 1);
+  if (
+    !question
+    || !String(question.question || "").trim()
+    || choices.length < 2
+    || !correctLetters.length
+    || correctLetters.some((letter) => !letters.includes(letter))
+    || new Set(correctLetters).size !== correctLetters.length
+  ) {
     throw new Error(`Invalid question ${id} in ${bankId}.`);
   }
   return Object.freeze({
@@ -13,9 +42,13 @@ export function normalizeQuestion(question, index, bankId) {
     chapter: question.chapter ?? "",
     chapterTitle: String(question.chapterTitle || question.category || "Uncategorized").trim() || "Uncategorized",
     question: String(question.question),
+    vignetteStem: String(question.vignetteStem || ""),
     choices,
     choiceLetters: letters,
-    correctLetter,
+    correctLetter: correctLetters[0],
+    correctLetters: Object.freeze(correctLetters),
+    isMultiSelect,
+    answerText: String(question.answerText || ""),
     explanation: String(question.explanation || "No explanation provided.")
   });
 }
@@ -95,9 +128,9 @@ export function calculateSetResult(questionIds, answers, bank) {
   let correct = 0;
   let answered = 0;
   for (const id of questionIds) {
-    const selected = answers.get(id)?.selectedAnswer;
-    if (selected) answered += 1;
-    if (selected && selected === bank.byId.get(id)?.correctLetter) correct += 1;
+    const answer = answers.get(id);
+    if (hasQuestionAnswer(answer)) answered += 1;
+    if (hasQuestionAnswer(answer) && isQuestionAnswerCorrect(bank.byId.get(id), answer.selectedAnswer)) correct += 1;
   }
   return { total: questionIds.length, answered, omitted: questionIds.length - answered, correct, incorrect: answered - correct };
 }
