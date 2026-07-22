@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 function question(id, text, correctLetter = 'B') {
   return {
     id,
-    chapterTitle: 'Imported Bank Validation',
+    chapterTitle: 'Imported Deck Validation',
     question: text,
     choices: ['First option', 'Second option', 'Third option', 'Fourth option'],
     choiceLetters: ['A', 'B', 'C', 'D'],
@@ -26,9 +26,9 @@ function packageData({
     schemaVersion: 1,
     bank: {
       id,
-      title: 'Browser Imported Question Bank',
-      shortTitle: 'Imported Bank',
-      description: 'A local package used to validate safe additional-bank support.',
+      title: 'Browser Imported Deck',
+      shortTitle: 'Imported Deck',
+      description: 'A package used to validate persistent additional-deck support.',
       version,
       sourceType: 'user-imported',
       contentClass: 'source-material',
@@ -38,9 +38,9 @@ function packageData({
   };
 }
 
-async function importPackageThroughButton(page, data, filename = 'question-bank.json') {
+async function importPackageThroughButton(page, data, filename = 'deck.json') {
   const fileChooserPromise = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Import from file' }).click();
+  await page.getByRole('button', { name: 'Add deck from file' }).click();
   const chooser = await fileChooserPromise;
   const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded' });
   await chooser.setFiles({
@@ -51,7 +51,7 @@ async function importPackageThroughButton(page, data, filename = 'question-bank.
   await navigation;
 }
 
-test('imports, studies, updates, exports, and reloads a separate question bank', async ({ page }) => {
+test('adds, studies, updates, exports, and reloads a separate deck', async ({ page }) => {
   const dialogs = [];
   page.on('dialog', async (dialog) => {
     dialogs.push(dialog.message());
@@ -66,12 +66,12 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
   await importPackageThroughButton(page, packageData());
 
   await expect(page.locator('#bankSelect')).toHaveValue('browser-import-bank');
-  await expect(page.getByRole('heading', { name: 'Browser Imported Question Bank' })).toBeVisible();
-  await expect(page.getByText('User-imported source question bank')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Browser Imported Deck' })).toBeVisible();
+  await expect(page.getByText('Source deck')).toBeVisible();
   await expect(page.getByText('Playwright import fixture')).toBeVisible();
   await expect(page.getByText('2 questions loaded.', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Download bank package' })).toBeVisible();
-  expect(dialogs.some((message) => message.includes('This material will remain separate from K&S'))).toBe(true);
+  await expect(page.getByRole('button', { name: 'Download deck package' })).toBeVisible();
+  expect(dialogs.some((message) => message.includes('separate from every other deck'))).toBe(true);
 
   await page.locator('#countInput').fill('1');
   await page.selectOption('#modeSelect', 'tutor');
@@ -90,14 +90,14 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
       question('browser-import-3', 'Which option validates an additive update?', 'A')
     ]
   });
-  await importPackageThroughButton(page, additive, 'question-bank-v1.1.json');
+  await importPackageThroughButton(page, additive, 'deck-v1.1.json');
   await expect(page.locator('#bankSelect')).toHaveValue('browser-import-bank');
   await expect(page.getByText('3 questions loaded.', { exact: false })).toBeVisible();
   await expect(page.locator('.history-item')).toHaveCount(1);
   expect(dialogs.some((message) => message.includes('New questions added: 1'))).toBe(true);
 
   const packageDownload = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download bank package' }).click();
+  await page.getByRole('button', { name: 'Download deck package' }).click();
   const downloadedPackage = await packageDownload;
   const packagePath = await downloadedPackage.path();
   const exported = JSON.parse(await readFile(packagePath, 'utf8'));
@@ -122,11 +122,11 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
   await expect(page.locator('.history-item')).toHaveCount(1);
   await page.selectOption('#bankSelect', 'ks-psychiatry-core');
   await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
-  await expect(page.getByText('Protected source question bank')).toBeVisible();
+  await expect(page.getByText('Source deck')).toBeVisible();
   await expect(page.locator('.history-item')).toHaveCount(0);
 });
 
-test('rejects a package that attempts to overwrite a protected built-in bank', async ({ page }) => {
+test('prevents same-version content from silently replacing an existing deck', async ({ page }) => {
   const dialogs = [];
   page.on('dialog', async (dialog) => {
     dialogs.push(dialog.message());
@@ -134,25 +134,25 @@ test('rejects a package that attempts to overwrite a protected built-in bank', a
   });
 
   await page.goto('/');
-  const protectedCollision = packageData({ id: 'validation-bank' });
+  const collision = packageData({ id: 'validation-bank', version: '1.0.0' });
   const chooserPromise = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Import from file' }).click();
+  await page.getByRole('button', { name: 'Add deck from file' }).click();
   const chooser = await chooserPromise;
   await chooser.setFiles({
-    name: 'protected-collision.json',
+    name: 'same-version-collision.json',
     mimeType: 'application/json',
-    buffer: Buffer.from(JSON.stringify(protectedCollision))
+    buffer: Buffer.from(JSON.stringify(collision))
   });
 
   await expect.poll(() => dialogs.length).toBeGreaterThan(0);
-  expect(dialogs.some((message) => /reserved by a protected built-in/i.test(message))).toBe(true);
+  expect(dialogs.some((message) => /content changed without a new bank version/i.test(message))).toBe(true);
   await expect(page.locator('#bankSelect option')).toHaveCount(2);
   await page.selectOption('#bankSelect', 'validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
   await expect(page.getByText('3 questions loaded.', { exact: false })).toBeVisible();
 });
 
-test('real import button survives dashboard replacement and opens the native picker', async ({ page }) => {
+test('real add-deck button survives dashboard replacement and opens the native picker', async ({ page }) => {
   const dialogs = [];
   page.on('dialog', async (dialog) => {
     dialogs.push(dialog.message());
@@ -169,16 +169,16 @@ test('real import button survives dashboard replacement and opens the native pic
     replacement.id = 'importBankBtn';
     replacement.className = 'secondary';
     replacement.type = 'button';
-    replacement.textContent = 'Import question bank';
+    replacement.textContent = 'Add deck from file';
     replacement.onclick = () => alert('stale placeholder handler');
     current.replaceWith(replacement);
   });
 
   await expect(page.locator('#importBankBtn')).toHaveAttribute('aria-controls', 'bankImportInput');
   await expect(page.locator('#importBankBtn')).toHaveAttribute('aria-haspopup', 'dialog');
-  await expect(page.getByRole('button', { name: 'Import from file' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add deck from file' })).toBeVisible();
   const chooserPromise = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Import from file' }).click();
+  await page.getByRole('button', { name: 'Add deck from file' }).click();
   const chooser = await chooserPromise;
   await chooser.setFiles([]);
   expect(dialogs).toHaveLength(0);
