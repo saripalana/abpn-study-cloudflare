@@ -52,7 +52,7 @@ await patch("public/question-bank-controller.js", (source) => {
   if (source.includes(alertNeedle) && !source.includes("cloudPublication.queued ?")) {
     source = source.replace(
       alertNeedle,
-      "      `${result.bank.questions.length} questions`,\n      cloudPublication.queued ? \"Saved locally and queued for Cloudflare when connectivity is restored.\" : \"Saved in your protected Cloudflare Deck Library and cached locally.\",\n      \"The original K&S package and all other decks were left unchanged.\",";
+      '      `${result.bank.questions.length} questions`,\n      cloudPublication.queued ? "Saved locally and queued for Cloudflare when connectivity is restored." : "Saved in your protected Cloudflare Deck Library and cached locally.",\n      "The original K&S package and all other decks were left unchanged.",',
     );
   }
   return source;
@@ -89,7 +89,7 @@ await patch("public/github-question-bank-controller.js", (source) => {
   if (source.includes(alertNeedle) && !source.includes("cloudPublication.queued ?")) {
     source = source.replace(
       alertNeedle,
-      "    `${result.bank.questions.length} questions`,\n    cloudPublication.queued ? \"Saved locally and queued for Cloudflare when connectivity is restored.\" : \"Saved in your protected Cloudflare Deck Library and cached locally.\",\n    convertedFromLegacy ? \"The legacy Spiegel format was converted locally before being stored as this deck.\" : null,";
+      '    `${result.bank.questions.length} questions`,\n    cloudPublication.queued ? "Saved locally and queued for Cloudflare when connectivity is restored." : "Saved in your protected Cloudflare Deck Library and cached locally.",\n    convertedFromLegacy ? "The legacy Spiegel format was converted locally before being stored as this deck." : null,',
     );
   }
   return source;
