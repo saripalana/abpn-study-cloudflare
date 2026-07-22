@@ -54,6 +54,32 @@ async function queuePendingPackage(prepared, reason) {
   });
 }
 
+export async function getCloudDeckBootstrapState(fetchImpl = globalThis.fetch.bind(globalThis)) {
+  const response = await fetchImpl("/api/decks/bootstrap", {
+    method: "GET",
+    cache: "no-store",
+    headers: requestHeaders(),
+  });
+  if (!response.ok) {
+    const details = await responseDetails(response, "Deck bootstrap state could not be loaded.");
+    throw responseFailure(response, details);
+  }
+  return response.json();
+}
+
+export async function setCloudDeckBootstrapState(version, fetchImpl = globalThis.fetch.bind(globalThis)) {
+  const response = await fetchImpl("/api/decks/bootstrap", {
+    method: "PUT",
+    headers: requestHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({ version }),
+  });
+  if (!response.ok) {
+    const details = await responseDetails(response, "Deck bootstrap state could not be saved.");
+    throw responseFailure(response, details);
+  }
+  return response.json();
+}
+
 export async function listCloudDecks(fetchImpl = globalThis.fetch.bind(globalThis)) {
   const response = await fetchImpl("/api/decks", {
     method: "GET",
@@ -133,7 +159,7 @@ export async function flushPendingCloudDeckUploads(fetchImpl = globalThis.fetch.
   return results;
 }
 
-export async function promoteLocallyInstalledDecks({ reservedIds = [], fetchImpl = globalThis.fetch.bind(globalThis) } = {}) {
+export async function promoteLocallyInstalledDecks({ fetchImpl = globalThis.fetch.bind(globalThis) } = {}) {
   const [localDecks, remoteDecks] = await Promise.all([
     getAllRecords(STORES.BANK_CONTENT),
     listCloudDecks(fetchImpl),
@@ -142,7 +168,6 @@ export async function promoteLocallyInstalledDecks({ reservedIds = [], fetchImpl
   const results = [];
 
   for (const bank of localDecks) {
-    if (reservedIds.includes(bank.id)) continue;
     const remote = remoteById.get(bank.id);
     if (remote) {
       results.push({
@@ -176,15 +201,11 @@ export async function removeCloudDeck(deckId, fetchImpl = globalThis.fetch.bind(
   return response.json();
 }
 
-export async function refreshCloudDeckLibrary({ reservedIds = [], fetchImpl = globalThis.fetch.bind(globalThis) } = {}) {
+export async function refreshCloudDeckLibrary({ fetchImpl = globalThis.fetch.bind(globalThis) } = {}) {
   const metadata = await listCloudDecks(fetchImpl);
   const results = [];
 
   for (const deck of metadata) {
-    if (reservedIds.includes(deck.id)) {
-      results.push({ id: deck.id, status: "reserved-skipped" });
-      continue;
-    }
     try {
       const local = await getRecord(STORES.BANK_CONTENT, deck.id);
       if (local?.checksum === deck.checksum) {
@@ -192,8 +213,8 @@ export async function refreshCloudDeckLibrary({ reservedIds = [], fetchImpl = gl
         continue;
       }
       const rawPackage = await fetchCloudDeckPackage(deck.id, fetchImpl);
-      const prepared = await prepareQuestionBankPackage(rawPackage, { reservedIds });
-      const installed = await installQuestionBankPackage(prepared, { reservedIds });
+      const prepared = await prepareQuestionBankPackage(rawPackage);
+      const installed = await installQuestionBankPackage(prepared);
       results.push({ id: deck.id, status: installed.status, bank: installed.bank });
     } catch (error) {
       console.error(`Cloud deck ${deck.id} could not be refreshed`, error);
