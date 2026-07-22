@@ -30,6 +30,9 @@ test("local storage uses separate bank-bound progress keys", async () => {
   assert.match(storage, /keyPath:\s*\["bankId",\s*"questionId"\]/);
   assert.match(storage, /syncOutbox/);
   assert.match(storage, /snapshots/);
+  assert.match(storage, /updatePracticeSet/);
+  assert.match(storage, /updatePracticeSetAnswer/);
+  assert.match(storage, /id: `\$\{entityType\}:\$\{entityKey\}`/);
 });
 
 test("worker exposes health and bidirectional sync endpoints behind release controls", async () => {
@@ -42,6 +45,9 @@ test("worker exposes health and bidirectional sync endpoints behind release cont
   assert.match(worker, /APP_RELEASE_MODE/);
   assert.match(worker, /CLOUD_SYNC_ENABLED/);
   assert.match(worker, /requireSyncReady/);
+  assert.match(worker, /upsertPracticeSet/);
+  assert.match(worker, /upsertPracticeSetAnswer/);
+  assert.match(worker, /ensureQuestionBank/);
 });
 
 test("Cloudflare Access JWT validation is the outer request gateway", async () => {
@@ -63,7 +69,7 @@ test("Cloudflare Access JWT validation is the outer request gateway", async () =
   assert.match(packageJson, /"jose"\s*:\s*"6\.2\.3"/);
 });
 
-test("verified D1 remains bound while the protected application is released local-only", async () => {
+test("verified D1 remains bound while protected cloud synchronization is enabled", async () => {
   const wrangler = await read("wrangler.toml");
   assert.match(wrangler, /run_worker_first\s*=\s*true/);
   assert.match(wrangler, /\[\[d1_databases\]\]/);
@@ -72,7 +78,7 @@ test("verified D1 remains bound while the protected application is released loca
   assert.match(wrangler, /database_id\s*=\s*"356b5061-81c2-4327-bdec-27127e03319d"/);
   assert.match(wrangler, /migrations_dir\s*=\s*"\.\/migrations"/);
   assert.match(wrangler, /APP_RELEASE_MODE\s*=\s*"full"/);
-  assert.match(wrangler, /CLOUD_SYNC_ENABLED\s*=\s*"false"/);
+  assert.match(wrangler, /CLOUD_SYNC_ENABLED\s*=\s*"true"/);
   assert.match(wrangler, /ACCESS_JWT_REQUIRED\s*=\s*"true"/);
   assert.doesNotMatch(wrangler, /00000000-0000-0000-0000-000000000000/);
 });

@@ -39,7 +39,7 @@ syncButton.onclick = async () => {
       const conflicts = result.conflicts?.length || 0;
       showStatus(
         conflicts ? "Synced · review needed" : "Cloud ready",
-        `${result.pushed || 0} local change(s) uploaded, ${result.pulled || 0} remote change(s) received, ${conflicts} conflict(s).`
+        `${result.pushed || 0} local change(s) uploaded, ${result.pulled || 0} remote change(s) received, ${result.pending || 0} still waiting, ${conflicts} conflict(s).`
       );
     }
   } catch (error) {

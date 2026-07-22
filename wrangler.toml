@@ -9,8 +9,8 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-# D1 remains bound for schema and connectivity validation. The cloud-sync kill
-# switch below prevents all study-data reads and writes during local-only release.
+# D1 stores only the signed-in user's synchronized study records. Local
+# IndexedDB remains primary, and server/client guardrails fail back to local-only.
 [[d1_databases]]
 binding = "DB"
 database_name = "abpn-study-db"
@@ -20,7 +20,7 @@ migrations_dir = "./migrations"
 [vars]
 APP_ENV = "development"
 APP_RELEASE_MODE = "full"
-CLOUD_SYNC_ENABLED = "false"
+CLOUD_SYNC_ENABLED = "true"
 STUDY_USER_ID = "f0ac0ac0-4fdd-4c36-a305-29c3182fc9b0"
 ACCESS_JWT_REQUIRED = "true"
 ACCESS_TEAM_DOMAIN = "https://falling-snow-6183.cloudflareaccess.com"

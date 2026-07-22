@@ -50,12 +50,12 @@ test("confirmed destructive reloads cannot be undone by the ordinary active-set 
   assert.match(controller, /SUPPRESS_ACTIVE_AUTOSAVE_KEY/);
 });
 
-test("the application loads data management controls without enabling cloud sync", async () => {
+test("the application loads data management controls with protected cloud sync enabled", async () => {
   const [index, wrangler] = await Promise.all([
     read("public/index.html"),
     read("wrangler.toml"),
   ]);
   assert.match(index, /data-management-controller\.js/);
   assert.match(index, /data-management\.css/);
-  assert.match(wrangler, /CLOUD_SYNC_ENABLED\s*=\s*"false"/);
+  assert.match(wrangler, /CLOUD_SYNC_ENABLED\s*=\s*"true"/);
 });

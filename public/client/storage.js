@@ -130,44 +130,71 @@ export async function recordsByIndex(storeName, indexName, key) {
   }
 }
 
-export async function updateQuestionProgress({ bankId, questionId, patch, deviceId }) {
-  if (!bankId || !questionId) throw new Error("bankId and questionId are required");
-
-  const current = (await getRecord(STORES.PROGRESS, [bankId, questionId])) ?? {
-    bankId,
-    questionId,
-    revision: 0
-  };
+async function putSyncedRecord({ storeName, key, value, entityType, entityKey, deviceId }) {
+  const current = (await getRecord(storeName, key)) ?? { revision: 0 };
   const updatedAt = new Date().toISOString();
   const next = {
     ...current,
-    ...patch,
-    bankId,
-    questionId,
+    ...value,
     deviceId,
     revision: Number(current.revision ?? 0) + 1,
-    updatedAt
+    updatedAt,
   };
-
   const outboxEntry = {
-    id: crypto.randomUUID(),
-    entityType: "questionProgress",
-    entityKey: `${bankId}:${questionId}`,
+    id: `${entityType}:${entityKey}`,
+    entityType,
+    entityKey,
     operation: "upsert",
     payload: next,
-    createdAt: updatedAt
+    createdAt: updatedAt,
   };
 
   const db = await openStudyDatabase();
   try {
-    const tx = db.transaction([STORES.PROGRESS, STORES.OUTBOX], "readwrite");
-    tx.objectStore(STORES.PROGRESS).put(next);
+    const tx = db.transaction([storeName, STORES.OUTBOX], "readwrite");
+    tx.objectStore(storeName).put(next);
     tx.objectStore(STORES.OUTBOX).put(outboxEntry);
     await transactionDone(tx);
     return next;
   } finally {
     db.close();
   }
+}
+
+export async function updateQuestionProgress({ bankId, questionId, patch, deviceId }) {
+  if (!bankId || !questionId) throw new Error("bankId and questionId are required");
+  return putSyncedRecord({
+    storeName: STORES.PROGRESS,
+    key: [bankId, questionId],
+    value: { ...patch, bankId, questionId },
+    entityType: "questionProgress",
+    entityKey: `${bankId}:${questionId}`,
+    deviceId,
+  });
+}
+
+export async function updatePracticeSet({ record, deviceId }) {
+  if (!record?.id || !record?.bankId) throw new Error("practice set id and bankId are required");
+  return putSyncedRecord({
+    storeName: STORES.SETS,
+    key: record.id,
+    value: record,
+    entityType: "practiceSet",
+    entityKey: record.id,
+    deviceId,
+  });
+}
+
+export async function updatePracticeSetAnswer({ record, deviceId }) {
+  if (!record?.setId || !record?.questionId) throw new Error("setId and questionId are required");
+  return putSyncedRecord({
+    storeName: STORES.ANSWERS,
+    key: [record.setId, record.questionId],
+    value: record,
+    entityType: "practiceSetAnswer",
+    entityKey: `${record.setId}:${record.questionId}`,
+    deviceId,
+  });
 }
 
 export async function createRecoverySnapshot(reason = "automatic") {

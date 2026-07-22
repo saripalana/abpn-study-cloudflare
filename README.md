@@ -4,7 +4,7 @@ Private, local-first ABPN Psychiatry study application with optional Cloudflare 
 
 ## Project status
 
-Active development in a protected local-only release. Cloudflare Access and D1 are configured, the full study application is available only to the approved Access identity, and all cloud synchronization remains disabled pending controlled validation. This repository is separate from and does not modify:
+Protected production release. Cloudflare Access restricts the application to the approved identity, IndexedDB remains the primary local store, and bounded record-level synchronization uses the verified D1 database with an immediate server-side kill switch and automatic local-only fallback. This repository is separate from and does not modify:
 
 - `saripalana/ks-study-guide`
 - `saripalana/abpn-study-lite`
@@ -34,7 +34,7 @@ Active development in a protected local-only release. Cloudflare Access and D1 a
 
 This project is restricted to Cloudflare Zero Trust Free, Workers Free, D1 Free, and static assets. Paid Workers and additional metered Cloudflare products are prohibited. Repository CI blocks prohibited bindings and paid-plan configuration.
 
-The controlling requirements are in [`docs/COST_AND_USAGE_POLICY.md`](docs/COST_AND_USAGE_POLICY.md). Cloud synchronization must not be enabled until the application quotas, kill switch, fail-closed routing, local-only fallback, billing alerts, and usage checks in that policy are implemented and tested.
+The controlling requirements are in [`docs/COST_AND_USAGE_POLICY.md`](docs/COST_AND_USAGE_POLICY.md). The application quotas, kill switch, fail-closed routing, local-only fallback, billing alerts, and usage checks in that policy are release-blocking.
 
 Backup, restore, Worker rollback, and D1 migration recovery are controlled by [`docs/BACKUP_RESTORE_AND_ROLLBACK.md`](docs/BACKUP_RESTORE_AND_ROLLBACK.md).
 
