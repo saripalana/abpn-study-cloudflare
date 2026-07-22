@@ -28,10 +28,10 @@ await patch("public/question-bank-controller.js", (source) => {
       'import { publishCloudDeckPackage } from "./client/deck-library.js";\nimport { STORES, getRecord, putRecord, recordsByIndex } from "./client/storage.js";',
     );
   }
-  source = source
-    .replace("Import question bank", "Add deck from file")
-    .replace("Question content is stored locally in its own versioned package store. Progress and completed tests remain in separate stores.",
-      "The deck is saved to your protected Cloudflare Deck Library and cached locally for offline study. Progress and completed tests remain separate by deck.");
+  source = source.replace(
+    "Question content is stored locally in its own versioned package store. Progress and completed tests remain in separate stores.",
+    "The deck is saved to your protected Cloudflare Deck Library and cached locally for offline study. Progress and completed tests remain separate by deck.",
+  );
 
   const installNeedle = "    const result = await installQuestionBankPackage(prepared, { reservedIds: protectedBankIds() });";
   if (!source.includes("const cloudPublication = await publishCloudDeckPackage(prepared);")) {
@@ -65,10 +65,10 @@ await patch("public/github-question-bank-controller.js", (source) => {
       'import { publishCloudDeckPackage } from "./client/deck-library.js";\nimport { fetchGithubQuestionBankFile } from "./client/github-question-bank-source.js";',
     );
   }
-  source = source
-    .replace("Import from GitHub", "Add deck from GitHub")
-    .replace("Question content is stored locally in its own versioned package store. Progress and completed tests remain separate.",
-      "The deck is saved to your protected Cloudflare Deck Library and cached locally for offline study. Progress and completed tests remain separate by deck.");
+  source = source.replace(
+    "Question content is stored locally in its own versioned package store. Progress and completed tests remain separate.",
+    "The deck is saved to your protected Cloudflare Deck Library and cached locally for offline study. Progress and completed tests remain separate by deck.",
+  );
 
   const installNeedle = "  const result = await installQuestionBankPackage(prepared, { reservedIds: protectedBankIds() });";
   if (!source.includes("const cloudPublication = await publishCloudDeckPackage(prepared);")) {
