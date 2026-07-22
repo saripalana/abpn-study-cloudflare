@@ -76,7 +76,7 @@ async function restoreFromFile(file) {
     `Practice sets quarantined for invalid references: ${result.quarantinedSets}`,
     "A pre-restore recovery snapshot was created.",
   ].join("\n"));
-  location.reload();
+  setTimeout(() => location.reload(), 0);
 }
 
 importInput.addEventListener("change", async () => {
