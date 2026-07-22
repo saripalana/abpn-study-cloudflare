@@ -42,18 +42,22 @@ function extractJsonArray(source) {
   throw new Error("The legacy QUESTIONS array is incomplete.");
 }
 
-export function parseLegacySpiegelQuestions(source) {
+export function parseLegacyQuestionsArray(source, label = "legacy data.js") {
   const text = String(source || "").replace(/\uFEFF/g, "");
   let parsed;
   try {
     parsed = JSON.parse(extractJsonArray(text));
   } catch (error) {
-    throw new Error(`The Spiegel data.js QUESTIONS array is not valid JSON: ${error.message}`);
+    throw new Error(`The ${label} QUESTIONS array is not valid JSON: ${error.message}`);
   }
   if (!Array.isArray(parsed) || !parsed.length) {
-    throw new Error("The Spiegel data.js file contains no questions.");
+    throw new Error(`The ${label} file contains no questions.`);
   }
   return parsed;
+}
+
+export function parseLegacySpiegelQuestions(source) {
+  return parseLegacyQuestionsArray(source, "Spiegel data.js");
 }
 
 function sourceQuestionId(question, index) {
