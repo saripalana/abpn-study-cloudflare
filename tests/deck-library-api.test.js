@@ -66,6 +66,14 @@ function packageData(overrides = {}) {
   return { format: "abpn-question-bank", schemaVersion: 1, checksum: bank.checksum, bank };
 }
 
+function putRequest(data = packageData()) {
+  return new Request("https://study.example/api/decks/sample-deck", {
+    method: "PUT",
+    headers: { "content-type": "application/json", "x-abpn-device-id": "device-test" },
+    body: JSON.stringify(data),
+  });
+}
+
 test("ignores non-deck API routes", async () => {
   const response = await handleDeckLibraryRequest(
     new Request("https://study.example/api/health"),
@@ -80,15 +88,12 @@ test("stores a validated deck as bounded package chunks", async () => {
   const reservations = [];
   const env = {
     DB: fakeDb({
+      first: async (query) => query.includes("COUNT(*)") ? { deck_count: 0 } : null,
       onBatch: async (batch) => statements.push(...batch),
     }),
   };
   const response = await handleDeckLibraryRequest(
-    new Request("https://study.example/api/decks/sample-deck", {
-      method: "PUT",
-      headers: { "content-type": "application/json", "x-abpn-device-id": "device-test" },
-      body: JSON.stringify(packageData()),
-    }),
+    putRequest(),
     env,
     helpers({ reserveUsage: async (_env, delta) => reservations.push(delta) }),
   );
@@ -104,15 +109,55 @@ test("stores a validated deck as bounded package chunks", async () => {
   assert.ok(reservations[0].rowsWritten >= 3);
 });
 
+test("treats an identical deck upload as idempotent", async () => {
+  let batches = 0;
+  const env = {
+    DB: fakeDb({
+      first: async (query) => query.includes("version, checksum")
+        ? { chunk_count: 4, version: "1.0.0", checksum: "abc123" }
+        : null,
+      onBatch: async () => { batches += 1; },
+    }),
+  };
+  const response = await handleDeckLibraryRequest(putRequest(), env, helpers());
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).unchanged, true);
+  assert.equal(batches, 0);
+});
+
+test("rejects changed deck content without a new version", async () => {
+  const env = {
+    DB: fakeDb({
+      first: async (query) => query.includes("version, checksum")
+        ? { chunk_count: 1, version: "1.0.0", checksum: "old-checksum" }
+        : null,
+    }),
+  };
+  const response = await handleDeckLibraryRequest(
+    putRequest(packageData({ checksum: "new-checksum" })),
+    env,
+    helpers(),
+  );
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /new version/i);
+});
+
+test("enforces the maximum number of user-added decks", async () => {
+  const env = {
+    DB: fakeDb({
+      first: async (query) => query.includes("COUNT(*)") ? { deck_count: 50 } : null,
+    }),
+  };
+  const response = await handleDeckLibraryRequest(putRequest(), env, helpers());
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /at most 50/i);
+});
+
 test("rejects attempts to replace a protected built-in deck", async () => {
   const env = { DB: fakeDb() };
   await assert.rejects(
     handleDeckLibraryRequest(
-      new Request("https://study.example/api/decks/sample-deck", {
-        method: "PUT",
-        headers: { "content-type": "application/json", "x-abpn-device-id": "device-test" },
-        body: JSON.stringify(packageData({ protected: true })),
-      }),
+      putRequest(packageData({ protected: true })),
       env,
       helpers(),
     ),
@@ -138,6 +183,29 @@ test("reconstructs a stored deck package in chunk order", async () => {
   );
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { hello: "world" });
+});
+
+test("explicitly deletes deck chunks and metadata", async () => {
+  const statements = [];
+  const env = {
+    DB: fakeDb({
+      first: async () => ({ chunk_count: 3 }),
+      onBatch: async (batch) => statements.push(...batch),
+    }),
+  };
+  const response = await handleDeckLibraryRequest(
+    new Request("https://study.example/api/decks/sample-deck", {
+      method: "DELETE",
+      headers: { "x-abpn-device-id": "device-test" },
+    }),
+    env,
+    helpers(),
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).deleted, true);
+  assert.equal(statements.length, 2);
+  assert.match(statements[0].query, /deck_package_chunks/);
+  assert.match(statements[1].query, /deck_packages/);
 });
 
 test("deck library limits remain bounded", () => {
