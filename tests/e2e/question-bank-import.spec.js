@@ -60,7 +60,9 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
 
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
-  await expect(page.locator('#importBankBtn')).toHaveAttribute('for', 'bankImportInput');
+  await expect(page.locator('#importBankBtn')).toHaveJSProperty('tagName', 'BUTTON');
+  await expect(page.locator('#importBankBtn')).toHaveAttribute('aria-controls', 'bankImportInput');
+  await expect(page.locator('#bankImportInput')).not.toHaveAttribute('hidden', '');
   await importPackageThroughButton(page, packageData());
 
   await expect(page.locator('#bankSelect')).toHaveValue('browser-import-bank');
@@ -150,9 +152,16 @@ test('rejects a package that attempts to overwrite a protected built-in bank', a
   await expect(page.getByText('3 questions loaded.', { exact: false })).toBeVisible();
 });
 
-test('native import control survives replacement of the dashboard button', async ({ page }) => {
+test('real import button survives dashboard replacement and opens the native picker', async ({ page }) => {
+  const dialogs = [];
+  page.on('dialog', async (dialog) => {
+    dialogs.push(dialog.message());
+    await dialog.dismiss();
+  });
+
   await page.goto('/');
-  await expect(page.locator('#importBankBtn')).toHaveAttribute('for', 'bankImportInput');
+  await expect(page.locator('#importBankBtn')).toHaveJSProperty('tagName', 'BUTTON');
+  await expect(page.locator('#importBankBtn')).toHaveAttribute('aria-controls', 'bankImportInput');
 
   await page.evaluate(() => {
     const current = document.getElementById('importBankBtn');
@@ -165,9 +174,11 @@ test('native import control survives replacement of the dashboard button', async
     current.replaceWith(replacement);
   });
 
-  await expect(page.locator('#importBankBtn')).toHaveAttribute('for', 'bankImportInput');
+  await expect(page.locator('#importBankBtn')).toHaveAttribute('aria-controls', 'bankImportInput');
+  await expect(page.locator('#importBankBtn')).toHaveAttribute('aria-haspopup', 'dialog');
   const chooserPromise = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Import question bank' }).click();
   const chooser = await chooserPromise;
   await chooser.setFiles([]);
+  expect(dialogs).toHaveLength(0);
 });
