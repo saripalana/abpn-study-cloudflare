@@ -19,6 +19,9 @@ require_file() {
 
 require_file "docs/COST_AND_USAGE_POLICY.md"
 require_file ".github/workflows/cost-guardrails.yml"
+require_file "public/client/starter-decks.js"
+require_file "migrations/0004_cloud_deck_library.sql"
+require_file "migrations/0005_unified_deck_bootstrap.sql"
 
 mapfile -t wrangler_files < <(
   find . -type f \
@@ -70,6 +73,21 @@ for file in "${deployment_files[@]}"; do
   fi
 done
 
+# Every deck, including K&S, must use the bounded D1 Deck Library. K&S content
+# must not be emitted as a generated application asset.
+if [[ -e "public/banks/generated/ks-psychiatry-core.js" || -e "public/banks/generated/ks-psychiatry-core.manifest.json" ]]; then
+  fail "K&S deck content must not be bundled into application assets"
+fi
+if ! grep -Eq 'MAX_DECK_PACKAGE_BYTES = 20 \* 1024 \* 1024' src/deck-library-api.js; then
+  fail "The 20 MiB Deck Library package limit is missing"
+fi
+if ! grep -Eq 'MAX_DECKS = 50' src/deck-library-api.js; then
+  fail "The 50-deck library limit is missing"
+fi
+if ! grep -Eq 'KS_STARTER_SOURCE' public/client/starter-decks.js; then
+  fail "The external pinned K&S starter descriptor is missing"
+fi
+
 # A production configuration must declare the emergency sync kill switch.
 if (( ${#wrangler_files[@]} > 0 )); then
   kill_switch_found=0
@@ -89,4 +107,4 @@ if (( failures > 0 )); then
   exit 1
 fi
 
-printf 'Cost guardrails passed. No prohibited Cloudflare products or paid-plan configuration detected.\n'
+printf 'Cost guardrails passed. Free-only Cloudflare configuration and bounded uniform Deck Library storage are enforced.\n'
