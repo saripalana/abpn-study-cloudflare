@@ -7,6 +7,119 @@ async function useValidationBank(page) {
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
 }
 
+test('filters a practice set by subjects and remembers builder choices per bank', async ({ page }) => {
+  await useValidationBank(page);
+  await expect(page.locator('#eligibleCount')).toContainText('3 questions available');
+
+  await page.locator('#subjectPicker summary').click();
+  await page.getByRole('button', { name: 'Clear' }).click();
+  await expect(page.locator('#eligibleCount')).toContainText('No questions match');
+  await expect(page.getByRole('button', { name: 'Start randomized set' })).toBeDisabled();
+
+  await page.locator('input[name="subjectFilter"][value="Question Banks"]').check();
+  await expect(page.locator('#eligibleCount')).toContainText('1 question available');
+  await expect(page.locator('#countInput')).toHaveValue('1');
+  await page.getByRole('button', { name: 'Select all' }).click();
+  await expect(page.locator('#countInput')).toHaveValue('3');
+  await page.getByRole('button', { name: 'Clear' }).click();
+  await page.locator('input[name="subjectFilter"][value="Question Banks"]').check();
+  await page.locator('#countInput').fill('1');
+  await page.locator('#modeSelect').selectOption('tutor');
+  await page.locator('#timingSelect').selectOption('untimed');
+  await page.locator('#poolSelect').selectOption('new');
+
+  await page.reload();
+  await expect(page.locator('#bankSelect')).toHaveValue('validation-bank');
+  await expect(page.locator('#countInput')).toHaveValue('1');
+  await expect(page.locator('#modeSelect')).toHaveValue('tutor');
+  await expect(page.locator('#timingSelect')).toHaveValue('untimed');
+  await expect(page.locator('#poolSelect')).toHaveValue('new');
+  await expect(page.locator('input[name="subjectFilter"][value="Application Safety"]')).not.toBeChecked();
+  await expect(page.locator('input[name="subjectFilter"][value="Question Banks"]')).toBeChecked();
+
+  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await expect(page.getByText('How should progress from two different question banks be stored?')).toBeVisible();
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+
+  await page.locator('#bankSelect').selectOption('ks-psychiatry-core');
+  await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
+  await expect(page.locator('#modeSelect')).toHaveValue('test');
+  await expect(page.locator('#timingSelect')).toHaveValue('timed');
+  await expect(page.locator('#poolSelect')).toHaveValue('all');
+  await expect(page.locator('input[name="subjectFilter"]:checked')).toHaveCount(34);
+  await page.locator('#poolSelect').selectOption('flagged');
+  await page.locator('#subjectPicker summary').click();
+  await page.getByRole('button', { name: 'Clear' }).click();
+  await page.locator('input[name="subjectFilter"]').first().check();
+
+  await page.locator('#bankSelect').selectOption('validation-bank');
+  await expect(page.locator('#poolSelect')).toHaveValue('new');
+  await expect(page.locator('input[name="subjectFilter"][value="Question Banks"]')).toBeChecked();
+  await page.locator('#bankSelect').selectOption('ks-psychiatry-core');
+  await expect(page.locator('#poolSelect')).toHaveValue('flagged');
+  await expect(page.locator('input[name="subjectFilter"]:checked')).toHaveCount(1);
+});
+
+test('ignores malformed builder settings instead of blocking dashboard startup', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('abpn-study:builder-settings:validation-bank', 'null'));
+  await page.locator('#bankSelect').selectOption('validation-bank');
+  await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
+  await expect(page.locator('#poolSelect')).toHaveValue('all');
+  await expect(page.locator('input[name="subjectFilter"]:checked')).toHaveCount(2);
+
+  await page.locator('#countInput').fill('0');
+  await page.locator('#countInput').press('Tab');
+  await expect(page.locator('#countInput')).toHaveValue('1');
+  await page.locator('#countInput').fill('2.5');
+  await page.locator('#countInput').press('Tab');
+  await expect(page.locator('#countInput')).toHaveValue('2');
+});
+
+test('combines subject selection with wrong and flagged pools in the live builder', async ({ page }) => {
+  await useValidationBank(page);
+  await page.locator('#subjectPicker summary').click();
+  await page.getByRole('button', { name: 'Clear' }).click();
+  await page.locator('input[name="subjectFilter"][value="Application Safety"]').check();
+  await page.locator('#countInput').fill('2');
+  await page.locator('#modeSelect').selectOption('tutor');
+  await page.locator('#timingSelect').selectOption('untimed');
+  await page.getByRole('button', { name: 'Start randomized set' }).click();
+
+  await page.locator('.choice').first().click();
+  await page.getByRole('button', { name: 'Flag question' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.locator('.choice').first().click();
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Submit set' }).click();
+  await page.getByRole('button', { name: 'Back to dashboard' }).click();
+
+  await page.locator('#poolSelect').selectOption('incorrect');
+  await expect(page.locator('#eligibleCount')).toContainText('2 questions available');
+  await page.locator('#poolSelect').selectOption('flagged');
+  await expect(page.locator('#eligibleCount')).toContainText('1 question available');
+  await page.locator('#subjectPicker summary').click();
+  await page.getByRole('button', { name: 'Clear' }).click();
+  await page.locator('input[name="subjectFilter"][value="Question Banks"]').check();
+  await expect(page.locator('#eligibleCount')).toContainText('No questions match');
+  await expect(page.getByRole('button', { name: 'Start randomized set' })).toBeDisabled();
+});
+
+test('offers a Used pool after a question has been completed', async ({ page }) => {
+  await useValidationBank(page);
+  await page.locator('#countInput').fill('1');
+  await page.locator('#modeSelect').selectOption('tutor');
+  await page.locator('#timingSelect').selectOption('untimed');
+  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.locator('.choice').first().click();
+
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Submit set' }).click();
+  await page.getByRole('button', { name: 'Back to dashboard' }).click();
+  await page.locator('#poolSelect').selectOption('used');
+  await expect(page.locator('#eligibleCount')).toContainText('1 question available');
+});
+
 test('test-mode set restores question, answers, and results after reload', async ({ page }) => {
   await useValidationBank(page);
   await page.locator('#countInput').fill('2');
@@ -96,6 +209,7 @@ test('bank switching does not expose another bank active set', async ({ page }) 
 test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'iphone-13-safari', 'iPhone-specific WebKit validation');
   await useValidationBank(page);
+  await page.locator('#subjectPicker summary').click();
 
   const dashboard = await page.evaluate(() => {
     const countInput = document.querySelector('#countInput');
@@ -109,6 +223,10 @@ test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page },
       inputHeight: countInput.getBoundingClientRect().height,
       selectHeight: bankSelect.getBoundingClientRect().height,
       startHeight: startButton.getBoundingClientRect().height,
+      subjectOptionHeights: [...document.querySelectorAll('.subject-option')]
+        .map((option) => option.getBoundingClientRect().height),
+      subjectToolbarHeights: [...document.querySelectorAll('.subject-toolbar button')]
+        .map((button) => button.getBoundingClientRect().height),
       viewportMeta: document.querySelector('meta[name="viewport"]')?.content || ''
     };
   });
@@ -121,6 +239,8 @@ test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page },
   expect(dashboard.inputHeight).toBeGreaterThanOrEqual(44);
   expect(dashboard.selectHeight).toBeGreaterThanOrEqual(44);
   expect(dashboard.startHeight).toBeGreaterThanOrEqual(44);
+  expect(Math.min(...dashboard.subjectOptionHeights)).toBeGreaterThanOrEqual(44);
+  expect(Math.min(...dashboard.subjectToolbarHeights)).toBeGreaterThanOrEqual(44);
   expect(dashboard.viewportMeta).toContain('viewport-fit=cover');
 
   await page.locator('#countInput').fill('1');

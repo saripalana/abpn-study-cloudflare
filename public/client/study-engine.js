@@ -57,14 +57,31 @@ export function buildBankCatalog(definitions) {
   });
 }
 
-export function chooseQuestionIds(bank, progress, pool = "all", count = 40, random = Math.random) {
-  const eligible = bank.questions.filter((question) => {
+export function eligibleQuestionIds(bank, progress, pool = "all", categories = null) {
+  const selectedCategories = categories == null
+    ? null
+    : new Set(Array.from(categories, (category) => String(category)));
+
+  return bank.questions.filter((question) => {
+    if (selectedCategories && !selectedCategories.has(question.chapterTitle)) return false;
     const record = progress.get(question.id);
     if (pool === "new") return !record || !record.timesUsed;
+    if (pool === "used") return Number(record?.timesUsed || 0) > 0;
     if (pool === "incorrect") return record?.isCorrect === false;
     if (pool === "flagged") return record?.isFlagged === true;
     return true;
   }).map((question) => question.id);
+}
+
+export function chooseQuestionIds(
+  bank,
+  progress,
+  pool = "all",
+  count = 40,
+  random = Math.random,
+  categories = null,
+) {
+  const eligible = eligibleQuestionIds(bank, progress, pool, categories);
   if (!eligible.length) return [];
   const shuffled = eligible.slice();
   for (let i = shuffled.length - 1; i > 0; i -= 1) {

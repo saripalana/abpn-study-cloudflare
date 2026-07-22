@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBankCatalog, chooseQuestionIds, calculateSetResult, categoryStatistics } from '../src/client/study-engine.js';
+import {
+  buildBankCatalog,
+  chooseQuestionIds,
+  eligibleQuestionIds,
+  calculateSetResult,
+  categoryStatistics
+} from '../src/client/study-engine.js';
 
 const definition={id:'bank-one',title:'Bank One',questions:[
   {id:'q1',chapterTitle:'Mood',question:'One?',choices:['A1','B1'],choiceLetters:['A','B'],correctLetter:'A',explanation:'x'},
@@ -15,6 +21,10 @@ test('rejects duplicate bank and question ids',()=>{assert.throws(()=>buildBankC
 test('rejects malformed questions before the app starts',()=>{assert.throws(()=>buildBankCatalog([{id:'bad',questions:[{id:'x',question:'Broken',choices:['Only one'],correctLetter:'A'}]}]),/Invalid question/)});
 
 test('filters new incorrect and flagged pools without crossing bank state',()=>{const [bank]=buildBankCatalog([definition]);const progress=new Map([['q1',{timesUsed:1,isCorrect:false}],['q2',{timesUsed:1,isCorrect:true,isFlagged:true}]]);assert.deepEqual(chooseQuestionIds(bank,progress,'new',10,()=>0),['q3']);assert.deepEqual(chooseQuestionIds(bank,progress,'incorrect',10,()=>0),['q1']);assert.deepEqual(chooseQuestionIds(bank,progress,'flagged',10,()=>0),['q2'])});
+
+test('combines subject filters with all new used wrong and flagged pools',()=>{const [bank]=buildBankCatalog([definition]);const progress=new Map([['q1',{timesUsed:1,isCorrect:false}],['q2',{timesUsed:2,isCorrect:true,isFlagged:true}]]);assert.deepEqual(eligibleQuestionIds(bank,progress,'all',['Mood']),['q1','q2']);assert.deepEqual(eligibleQuestionIds(bank,progress,'used',['Mood']),['q1','q2']);assert.deepEqual(eligibleQuestionIds(bank,progress,'new',['Mood']),[]);assert.deepEqual(eligibleQuestionIds(bank,progress,'incorrect',['Mood']),['q1']);assert.deepEqual(eligibleQuestionIds(bank,progress,'flagged',['Mood']),['q2']);assert.deepEqual(eligibleQuestionIds(bank,progress,'new',['Psychosis']),['q3']);assert.deepEqual(eligibleQuestionIds(bank,progress,'all',[]),[])});
+
+test('random selection never leaves the selected subjects',()=>{const [bank]=buildBankCatalog([definition]);const ids=chooseQuestionIds(bank,new Map(),'all',10,()=>0,['Psychosis']);assert.deepEqual(ids,['q3'])});
 
 test('calculates answered omitted correct and incorrect totals',()=>{const [bank]=buildBankCatalog([definition]);const answers=new Map([['q1',{selectedAnswer:'A'}],['q2',{selectedAnswer:'A'}]]);assert.deepEqual(calculateSetResult(['q1','q2','q3'],answers,bank),{total:3,answered:2,omitted:1,correct:1,incorrect:1})});
 
