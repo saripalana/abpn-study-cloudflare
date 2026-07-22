@@ -19,8 +19,6 @@ import {
 
 const app = document.getElementById('app');
 const homeBtn = document.getElementById('homeBtn');
-const syncBtn = document.getElementById('syncBtn');
-const syncStatus = document.getElementById('syncStatus');
 const SELECTED_BANK_KEY = 'abpn-study:selected-bank';
 const BUILDER_SETTINGS_PREFIX = 'abpn-study:builder-settings:';
 const deviceId = localStorage.getItem('abpn-study:device-id') || crypto.randomUUID();
@@ -798,18 +796,6 @@ async function openCompletedSet(setId) {
   activeSet.submitted = true;
   renderResults();
 }
-
-syncBtn.onclick = async () => {
-  syncStatus.textContent = 'Checking…';
-  try {
-    const response = await fetch('/api/health');
-    if (!response.ok) throw new Error('Cloud service unavailable');
-    const data = await response.json();
-    syncStatus.textContent = data.database === 'connected' ? 'Cloud ready' : 'Cloud not configured';
-  } catch {
-    syncStatus.textContent = 'Local only';
-  }
-};
 
 homeBtn.onclick = async () => {
   if (activeSet && !activeSet.submitted) await saveActiveSet();
