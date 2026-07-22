@@ -8,9 +8,9 @@ function githubPackage() {
     schemaVersion: 1,
     bank: {
       id: "github-browser-bank",
-      title: "GitHub Browser Question Bank",
-      shortTitle: "GitHub Bank",
-      description: "A test bank imported from a GitHub repository address.",
+      title: "GitHub Browser Deck",
+      shortTitle: "GitHub Deck",
+      description: "A test deck imported from a GitHub repository address.",
       version: "1.0.0",
       sourceType: "user-imported",
       contentClass: "source-material",
@@ -18,7 +18,7 @@ function githubPackage() {
       questions: [{
         id: "github-browser-1",
         chapterTitle: "GitHub Import",
-        question: "Which choice confirms GitHub question-bank importing?",
+        question: "Which choice confirms GitHub deck importing?",
         choices: ["Incorrect", "Correct", "Incorrect", "Incorrect"],
         choiceLetters: ["A", "B", "C", "D"],
         correctLetter: "B",
@@ -44,7 +44,7 @@ function legacySpiegelSource() {
   }])};`;
 }
 
-test("imports a compatible question bank from a GitHub repository address", async ({ page }) => {
+test("adds a compatible deck from a GitHub repository address", async ({ page }) => {
   page.on("dialog", async (dialog) => dialog.accept());
   await page.route("https://raw.githubusercontent.com/example/abpn-bank/**", async (route) => {
     if (route.request().url().endsWith("/main/abpn-question-bank.json")) {
@@ -60,17 +60,17 @@ test("imports a compatible question bank from a GitHub repository address", asyn
   });
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Import from GitHub" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add deck from GitHub" })).toBeVisible();
   await page.locator("#githubBankUrlInput").fill("https://github.com/example/abpn-bank");
-  await page.getByRole("button", { name: "Import from GitHub" }).click();
+  await page.getByRole("button", { name: "Add deck from GitHub" }).click();
 
   await expect(page.locator("#bankSelect")).toHaveValue("github-browser-bank");
-  await expect(page.getByRole("heading", { name: "GitHub Browser Question Bank" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "GitHub Browser Deck" })).toBeVisible();
   await expect(page.getByText("GitHub browser fixture")).toBeVisible();
   await expect(page.getByText("1 questions loaded.", { exact: false })).toBeVisible();
 });
 
-test("imports the legacy Spiegel GitHub Pages site and preserves multi-select behavior", async ({ page }) => {
+test("adds the legacy Spiegel GitHub Pages site and preserves multi-select behavior", async ({ page }) => {
   page.on("dialog", async (dialog) => dialog.accept());
   await page.route("https://raw.githubusercontent.com/dancingremote/spiegel-test-prep/**", async (route) => {
     if (route.request().url().endsWith("/main/data.js")) {
@@ -87,7 +87,7 @@ test("imports the legacy Spiegel GitHub Pages site and preserves multi-select be
 
   await page.goto("/");
   await page.locator("#githubBankUrlInput").fill("https://dancingremote.github.io/spiegel-test-prep/");
-  await page.getByRole("button", { name: "Import from GitHub" }).click();
+  await page.getByRole("button", { name: "Add deck from GitHub" }).click();
 
   await expect(page.locator("#bankSelect")).toHaveValue("spiegel-test-prep");
   await expect(page.getByRole("heading", { name: "Spiegel Test Prep Question Bank" })).toBeVisible();
@@ -118,10 +118,10 @@ test("preserves an unpackaged repository address and gives manual integration gu
 
   await page.goto("/");
   await page.locator("#githubBankUrlInput").fill("https://github.com/example/unpackaged");
-  await page.getByRole("button", { name: "Import from GitHub" }).click();
+  await page.getByRole("button", { name: "Add deck from GitHub" }).click();
 
   await expect(page.locator("#githubBankImportStatus")).toContainText("different structure");
   await page.reload();
   await expect(page.locator("#githubBankUrlInput")).toHaveValue("https://github.com/example/unpackaged");
-  await expect(page.getByRole("button", { name: "Import from file" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add deck from file" })).toBeVisible();
 });
