@@ -28,6 +28,22 @@ function githubPackage() {
   };
 }
 
+function legacySpiegelSource() {
+  return `const QUESTIONS = \uFEFF${JSON.stringify([{
+    id: "vignette1-q1",
+    section: "Vignette 1",
+    sectionType: "vignette",
+    vignetteStem: "A patient presents with two characteristic findings.",
+    question: "Select both characteristic findings.",
+    choices: ["Finding A", "Distractor", "Finding C"],
+    choiceLetters: ["A", "B", "C"],
+    correctLetters: ["A", "C"],
+    isMultiSelect: true,
+    answerText: "A and C",
+    explanation: "Both A and C are required.",
+  }])};`;
+}
+
 test("imports a compatible question bank from a GitHub repository address", async ({ page }) => {
   page.on("dialog", async (dialog) => dialog.accept());
   await page.route("https://raw.githubusercontent.com/example/abpn-bank/**", async (route) => {
@@ -54,6 +70,47 @@ test("imports a compatible question bank from a GitHub repository address", asyn
   await expect(page.getByText("1 questions loaded.", { exact: false })).toBeVisible();
 });
 
+test("imports the legacy Spiegel GitHub Pages site and preserves multi-select behavior", async ({ page }) => {
+  page.on("dialog", async (dialog) => dialog.accept());
+  await page.route("https://raw.githubusercontent.com/dancingremote/spiegel-test-prep/**", async (route) => {
+    if (route.request().url().endsWith("/main/data.js")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/javascript",
+        headers: corsHeaders,
+        body: legacySpiegelSource(),
+      });
+      return;
+    }
+    await route.fulfill({ status: 404, headers: corsHeaders, body: "not found" });
+  });
+
+  await page.goto("/");
+  await page.locator("#githubBankUrlInput").fill("https://dancingremote.github.io/spiegel-test-prep/");
+  await page.getByRole("button", { name: "Import from GitHub" }).click();
+
+  await expect(page.locator("#bankSelect")).toHaveValue("spiegel-test-prep");
+  await expect(page.getByRole("heading", { name: "Spiegel Test Prep Question Bank" })).toBeVisible();
+  await expect(page.getByText("Spiegel Test Prep · dancingremote/spiegel-test-prep")).toBeVisible();
+  await expect(page.getByText("1 questions loaded.", { exact: false })).toBeVisible();
+
+  await page.locator("#countInput").fill("1");
+  await page.selectOption("#modeSelect", "tutor");
+  await page.selectOption("#timingSelect", "untimed");
+  await page.getByRole("button", { name: "Start randomized set" }).click();
+
+  await expect(page.getByText("Clinical vignette")).toBeVisible();
+  await expect(page.getByText("Select all that apply", { exact: false })).toBeVisible();
+  await page.locator('.choice[data-answer="A"]').click();
+  await page.locator('.choice[data-answer="C"]').click();
+  await page.getByRole("button", { name: "Check answer" }).click();
+  await expect(page.locator(".explanation strong")).toHaveText("Correct");
+
+  await page.getByRole("button", { name: "Submit set" }).click();
+  await expect(page.getByText("SET RESULTS")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "1/1 correct (100%)" })).toBeVisible();
+});
+
 test("preserves an unpackaged repository address and gives manual integration guidance", async ({ page }) => {
   await page.route("https://raw.githubusercontent.com/example/unpackaged/**", async (route) => {
     await route.fulfill({ status: 404, headers: corsHeaders, body: "not found" });
@@ -63,7 +120,7 @@ test("preserves an unpackaged repository address and gives manual integration gu
   await page.locator("#githubBankUrlInput").fill("https://github.com/example/unpackaged");
   await page.getByRole("button", { name: "Import from GitHub" }).click();
 
-  await expect(page.locator("#githubBankImportStatus")).toContainText("bring the GitHub address back to ChatGPT");
+  await expect(page.locator("#githubBankImportStatus")).toContainText("different structure");
   await page.reload();
   await expect(page.locator("#githubBankUrlInput")).toHaveValue("https://github.com/example/unpackaged");
   await expect(page.getByRole("button", { name: "Import from file" })).toBeVisible();
