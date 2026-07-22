@@ -5,12 +5,18 @@ import {
   parsePortableBackupFile,
   restorePortableBackup,
 } from "./client/backup.js";
+import { STORES, getAllRecords } from "./client/storage.js";
 
 const app = document.getElementById("app");
 
-function knownQuestionIdsByBank() {
+async function knownQuestionIdsByBank() {
+  const installed = await getAllRecords(STORES.BANK_CONTENT);
+  const definitions = new Map();
+  for (const bank of [...QUESTION_BANKS, ...installed]) {
+    if (bank?.id && Array.isArray(bank.questions)) definitions.set(bank.id, bank);
+  }
   return Object.fromEntries(
-    QUESTION_BANKS.map((bank) => [bank.id, bank.questions.map((question) => question.id)])
+    [...definitions.values()].map((bank) => [bank.id, bank.questions.map((question) => question.id)])
   );
 }
 
@@ -66,7 +72,7 @@ async function exportBackup(button) {
 async function restoreFromFile(file) {
   const backup = await parsePortableBackupFile(file);
   if (!confirm(restoreConfirmation(backup))) return;
-  const result = await restorePortableBackup(backup, { knownQuestionIdsByBank: knownQuestionIdsByBank() });
+  const result = await restorePortableBackup(backup, { knownQuestionIdsByBank: await knownQuestionIdsByBank() });
   alert([
     "Restore completed safely.",
     `Imported records: ${result.imported}`,
