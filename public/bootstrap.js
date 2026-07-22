@@ -4,30 +4,50 @@ import {
   promoteLocallyInstalledDecks,
   refreshCloudDeckLibrary,
 } from "./client/deck-library.js";
+import { ensureUnifiedStarterDecks } from "./client/starter-decks.js";
 import { loadInstalledQuestionBanks } from "./client/question-bank-import.js";
 
 const app = document.getElementById("app");
 
 try {
-  const reservedIds = QUESTION_BANKS.filter((bank) => bank.protected).map((bank) => bank.id);
   try {
     await flushPendingCloudDeckUploads();
-    await promoteLocallyInstalledDecks({ reservedIds });
-    await refreshCloudDeckLibrary({ reservedIds });
   } catch (error) {
-    console.warn("Cloud deck library is unavailable; continuing with bundled and locally cached decks.", error);
+    console.warn("Pending deck uploads could not be flushed yet.", error);
   }
-  const definitions = await loadInstalledQuestionBanks(QUESTION_BANKS);
+
+  try {
+    await ensureUnifiedStarterDecks();
+  } catch (error) {
+    console.warn("Initial decks could not be prepared completely.", error);
+  }
+
+  try {
+    await promoteLocallyInstalledDecks();
+  } catch (error) {
+    console.warn("Locally cached decks could not be promoted yet.", error);
+  }
+
+  try {
+    await refreshCloudDeckLibrary();
+  } catch (error) {
+    console.warn("Cloud deck library is unavailable; continuing with locally cached decks.", error);
+  }
+
+  const definitions = await loadInstalledQuestionBanks();
+  if (!definitions.length) {
+    throw new Error("No decks are available. Reconnect and reload, or add a deck from a file or GitHub address.");
+  }
   QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...definitions);
   await import("./app.js");
 } catch (error) {
-  console.error("Question-bank bootstrap failed", error);
+  console.error("Deck bootstrap failed", error);
   app.innerHTML = `
     <section class="card">
       <h2>Decks could not be loaded</h2>
       <p class="notice">${String(error.message || error).replace(/[&<>"']/g, (character) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
       }[character]))}</p>
-      <p class="muted">Protected built-in content has not been changed. Restore or re-add the affected deck before continuing.</p>
+      <p class="muted">Your locally saved progress has not been changed.</p>
     </section>`;
 }
