@@ -20,7 +20,7 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --silent
-      - name: Verify pinned K&S source, unit tests, and Worker build
+      - name: Verify external K&S source, unit tests, and Worker build
         id: verify
         continue-on-error: true
         run: npm run verify > verify.log 2>&1
@@ -35,11 +35,12 @@ jobs:
       - name: Fail when verification fails
         if: steps.verify.outcome == 'failure'
         run: exit 1
-      - name: Confirm generated K&S manifest
+      - name: Confirm K&S content is not bundled
         run: |
-          test -f public/banks/generated/ks-psychiatry-core.js
-          test -f public/banks/generated/ks-psychiatry-core.manifest.json
-          grep -q '"questionCount": 602' public/banks/generated/ks-psychiatry-core.manifest.json
+          test ! -e public/banks/generated/ks-psychiatry-core.js
+          test ! -e public/banks/generated/ks-psychiatry-core.manifest.json
+          grep -q 'KS_STARTER_SOURCE' public/client/starter-decks.js
+          grep -q 'no K&S content was generated into this repository' scripts/import-ks-bank.mjs
       - name: Install Chromium and WebKit
         run: npx playwright install --with-deps chromium webkit >/tmp/playwright-install.log 2>&1 || { tail -n 200 /tmp/playwright-install.log; exit 1; }
       - name: Run desktop Chrome flows
