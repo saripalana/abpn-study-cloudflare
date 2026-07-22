@@ -24,7 +24,14 @@
   <main id="app" class="shell" aria-live="polite">
     <section class="loading-card">Loading question banks…</section>
   </main>
-  <input id="bankImportInput" type="file" accept="application/json,.json" hidden>
+  <input
+    id="bankImportInput"
+    type="file"
+    accept="application/json,.json"
+    tabindex="-1"
+    aria-hidden="true"
+    style="position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none"
+  >
   <footer>Unofficial personal study tool. Not produced or endorsed by ABPN.</footer>
   <script src="/active-autosave-guard.js"></script>
   <script type="module" src="/bootstrap.js"></script>
