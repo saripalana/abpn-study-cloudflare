@@ -4,8 +4,23 @@ import {
 } from "./question-bank-import.js";
 import { STORES, deleteRecord, getAllRecords, getRecord, putRecord } from "./storage.js";
 
-const JSON_HEADERS = { "content-type": "application/json" };
 const PENDING_PREFIX = "pendingDeckUpload:";
+const DEVICE_KEY = "abpn-study:device-id";
+
+function deviceId() {
+  const existing = globalThis.localStorage?.getItem(DEVICE_KEY);
+  if (existing) return existing;
+  const created = crypto.randomUUID();
+  globalThis.localStorage?.setItem(DEVICE_KEY, created);
+  return created;
+}
+
+function requestHeaders(extra = {}) {
+  return {
+    "x-abpn-device-id": deviceId(),
+    ...extra,
+  };
+}
 
 async function responseDetails(response, fallback) {
   const text = await response.text();
@@ -31,7 +46,11 @@ async function queuePendingPackage(prepared, reason) {
 }
 
 export async function listCloudDecks(fetchImpl = globalThis.fetch.bind(globalThis)) {
-  const response = await fetchImpl("/api/decks", { method: "GET", cache: "no-store" });
+  const response = await fetchImpl("/api/decks", {
+    method: "GET",
+    cache: "no-store",
+    headers: requestHeaders(),
+  });
   if (!response.ok) {
     const details = await responseDetails(response, "Cloud deck library could not be loaded.");
     const error = new Error(details.message);
@@ -44,7 +63,11 @@ export async function listCloudDecks(fetchImpl = globalThis.fetch.bind(globalThi
 }
 
 export async function fetchCloudDeckPackage(deckId, fetchImpl = globalThis.fetch.bind(globalThis)) {
-  const response = await fetchImpl(`/api/decks/${encodeURIComponent(deckId)}`, { method: "GET", cache: "no-store" });
+  const response = await fetchImpl(`/api/decks/${encodeURIComponent(deckId)}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: requestHeaders(),
+  });
   if (!response.ok) {
     const details = await responseDetails(response, `Deck ${deckId} could not be downloaded.`);
     throw new Error(details.message);
@@ -61,7 +84,7 @@ export async function publishCloudDeckPackage(
   try {
     const response = await fetchImpl(`/api/decks/${encodeURIComponent(prepared.bank.id)}`, {
       method: "PUT",
-      headers: JSON_HEADERS,
+      headers: requestHeaders({ "content-type": "application/json" }),
       body: JSON.stringify(prepared),
     });
     if (!response.ok) {
@@ -100,7 +123,10 @@ export async function flushPendingCloudDeckUploads(fetchImpl = globalThis.fetch.
 }
 
 export async function removeCloudDeck(deckId, fetchImpl = globalThis.fetch.bind(globalThis)) {
-  const response = await fetchImpl(`/api/decks/${encodeURIComponent(deckId)}`, { method: "DELETE" });
+  const response = await fetchImpl(`/api/decks/${encodeURIComponent(deckId)}`, {
+    method: "DELETE",
+    headers: requestHeaders(),
+  });
   if (!response.ok) {
     const details = await responseDetails(response, "Deck could not be removed from the cloud library.");
     throw new Error(details.message);
