@@ -12,7 +12,7 @@ Only the following services may be used in production:
 
 1. **Cloudflare Zero Trust Free** for one authorized user.
 2. **Cloudflare Workers Free** for the application API and static assets.
-3. **Cloudflare D1 on Workers Free** for bounded synchronization records and versioned user-added deck packages.
+3. **Cloudflare D1 on Workers Free** for bounded synchronization records and every versioned deck package.
 4. **Cloudflare Access** policies that restrict the application and API to the repository owner's approved identity.
 
 Everything else is prohibited unless this policy is explicitly revised in a reviewed pull request after current pricing and billing behavior are re-verified.
@@ -82,7 +82,7 @@ The production application must implement all of the following before cloud sync
 - Maximum authorized user count: **1**
 - Maximum accepted record-synchronization request body: **2 MiB**
 - Maximum accepted deck-package request body: **20 MiB**
-- Maximum persistent user-added decks: **50**
+- Maximum persistent decks: **50**
 - Maximum questions per deck: **5,000**
 - Maximum storage chunks per deck: **96**
 - Maximum synchronization write actions: **5 per minute**
@@ -98,9 +98,9 @@ The production application must implement all of the following before cloud sync
 - No public write endpoint
 - No unauthenticated read endpoint containing study data or deck content
 - Record-level progress synchronization only; never replace the complete database blindly
-- Deck updates must replace only the matching versioned deck package and must never overwrite a protected built-in deck
+- A changed deck package must use a new version before replacing the matching deck ID
 
-Deck packages are chunked into bounded D1 rows. K&S remains repository-bundled and is never uploaded through the user-added Deck Library route.
+Every deck package, including K&S, is chunked into the same bounded D1 tables and cached through the same IndexedDB stores. No deck receives a separate repository-only runtime path.
 
 If an internal limit is reached, the app must stop cloud operations and continue in local-only mode. A deck added during a temporary outage is cached locally and queued for later publication.
 
@@ -147,7 +147,8 @@ A production deployment is blocked unless all of the following are true:
 - Worker routes are fail closed
 - D1 schema and queries have bounded row access
 - API payload and rate limits are tested
-- imported decks are isolated by deck ID and cannot replace protected built-in decks
+- every deck is isolated by deck ID and uses the same package API
+- K&S content is not bundled into the application repository or runtime assets
 - a clean second browser profile can retrieve a previously added deck
 - kill switch is tested
 - local-only operation is tested
