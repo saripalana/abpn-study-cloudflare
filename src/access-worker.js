@@ -24,6 +24,25 @@ const withSecurityHeaders = (response) => {
   return new Response(response.body, { status: response.status, headers });
 };
 
+const withGithubPackageImportAccess = (response) => {
+  const headers = new Headers(response.headers);
+  const policy = headers.get("content-security-policy");
+  if (policy && !policy.includes("https://raw.githubusercontent.com")) {
+    headers.set(
+      "content-security-policy",
+      policy.replace(
+        "connect-src 'self'",
+        "connect-src 'self' https://raw.githubusercontent.com"
+      )
+    );
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
 const accessValidationRequired = (env) => env.ACCESS_JWT_REQUIRED !== "false";
 
 function normalizeTeamDomain(value) {
@@ -74,7 +93,8 @@ export default {
   async fetch(request, env, ctx) {
     try {
       await requireCloudflareAccess(request, env);
-      return applicationWorker.fetch(request, env, ctx);
+      const response = await applicationWorker.fetch(request, env, ctx);
+      return withGithubPackageImportAccess(response);
     } catch (error) {
       if (error instanceof Response) return withSecurityHeaders(error);
       console.error("Cloudflare Access validation failure", error);

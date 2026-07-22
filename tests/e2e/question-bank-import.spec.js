@@ -40,7 +40,7 @@ function packageData({
 
 async function importPackageThroughButton(page, data, filename = 'question-bank.json') {
   const fileChooserPromise = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Import question bank' }).click();
+  await page.getByRole('button', { name: 'Import from file' }).click();
   const chooser = await fileChooserPromise;
   const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded' });
   await chooser.setFiles({
@@ -136,7 +136,7 @@ test('rejects a package that attempts to overwrite a protected built-in bank', a
   await page.goto('/');
   const protectedCollision = packageData({ id: 'validation-bank' });
   const chooserPromise = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Import question bank' }).click();
+  await page.getByRole('button', { name: 'Import from file' }).click();
   const chooser = await chooserPromise;
   await chooser.setFiles({
     name: 'protected-collision.json',
@@ -176,8 +176,9 @@ test('real import button survives dashboard replacement and opens the native pic
 
   await expect(page.locator('#importBankBtn')).toHaveAttribute('aria-controls', 'bankImportInput');
   await expect(page.locator('#importBankBtn')).toHaveAttribute('aria-haspopup', 'dialog');
+  await expect(page.getByRole('button', { name: 'Import from file' })).toBeVisible();
   const chooserPromise = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Import question bank' }).click();
+  await page.getByRole('button', { name: 'Import from file' }).click();
   const chooser = await chooserPromise;
   await chooser.setFiles([]);
   expect(dialogs).toHaveLength(0);
