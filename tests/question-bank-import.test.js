@@ -18,8 +18,8 @@ const packageDefinition = ({
   schemaVersion: 1,
   bank: {
     id,
-    title: "Import Test Bank",
-    shortTitle: "Import Bank",
+    title: "Import Test Deck",
+    shortTitle: "Import Deck",
     description: "Used only by automated validation.",
     version,
     sourceType,
@@ -49,13 +49,11 @@ test("prepares a normalized package with a deterministic checksum", async () => 
   assert.equal(first.bank.contentClass, "source-material");
 });
 
-test("protected built-in bank ids cannot be imported", async () => {
-  await assert.rejects(
-    () => prepareQuestionBankPackage(packageDefinition({ id: "ks-psychiatry-core" }), {
-      reservedIds: ["ks-psychiatry-core", "validation-bank"],
-    }),
-    /reserved by a protected built-in/i
-  );
+test("K&S uses the same ordinary package contract as every other deck", async () => {
+  const prepared = await prepareQuestionBankPackage(packageDefinition({ id: "ks-psychiatry-core" }));
+  assert.equal(prepared.bank.id, "ks-psychiatry-core");
+  assert.equal(prepared.bank.sourceType, "user-imported");
+  assert.equal(prepared.bank.protected, false);
 });
 
 test("assistant content cannot be mislabeled as source material", async () => {
@@ -68,7 +66,7 @@ test("assistant content cannot be mislabeled as source material", async () => {
   );
 });
 
-test("question bank size is capped at five thousand questions", async () => {
+test("deck size is capped at five thousand questions", async () => {
   const questions = Array.from({ length: MAX_QUESTIONS_PER_BANK + 1 }, (_, index) => ({
     id: `oversized-${index + 1}`,
     chapterTitle: "Capacity",
