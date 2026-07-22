@@ -7,7 +7,9 @@
     const button = document.getElementById('importBankBtn');
     if (!button) return;
 
-    button.textContent = 'Import from file';
+    if (button.textContent?.trim() !== 'Import from file') {
+      button.textContent = 'Import from file';
+    }
     input.removeAttribute('aria-hidden');
     input.removeAttribute('tabindex');
     input.className = 'bank-import-native-input';
