@@ -446,6 +446,12 @@ async function renderDashboard() {
     updateBuilderAvailability();
   };
   subjectInputs.forEach((input) => input.addEventListener('change', updateBuilderAvailability));
+  countInput.addEventListener('input', () => {
+    const nextCount = Number(countInput.value);
+    if (Number.isFinite(nextCount) && nextCount >= 1) {
+      preferredCount = Math.min(activeBank.questions.length, Math.trunc(nextCount));
+    }
+  });
   countInput.addEventListener('change', () => updateBuilderAvailability({ countChanged: true }));
   modeSelect.addEventListener('change', updateBuilderAvailability);
   timingSelect.addEventListener('change', updateBuilderAvailability);

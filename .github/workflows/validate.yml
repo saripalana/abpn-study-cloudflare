@@ -45,7 +45,7 @@ jobs:
       - name: Run desktop Chrome flows
         id: desktop
         continue-on-error: true
-        run: npx playwright test --project=chromium-desktop --reporter=line
+        run: npx playwright test --project=chromium-desktop --reporter=json > desktop-chrome-report.json
       - name: Upload desktop Chrome report
         if: always()
         uses: actions/upload-artifact@v4
