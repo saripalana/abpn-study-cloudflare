@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+const corsHeaders = { "access-control-allow-origin": "*" };
+
 function githubPackage() {
   return {
     format: "abpn-question-bank",
@@ -33,11 +35,12 @@ test("imports a compatible question bank from a GitHub repository address", asyn
       await route.fulfill({
         status: 200,
         contentType: "application/json",
+        headers: corsHeaders,
         body: JSON.stringify(githubPackage()),
       });
       return;
     }
-    await route.fulfill({ status: 404, body: "not found" });
+    await route.fulfill({ status: 404, headers: corsHeaders, body: "not found" });
   });
 
   await page.goto("/");
@@ -53,7 +56,7 @@ test("imports a compatible question bank from a GitHub repository address", asyn
 
 test("preserves an unpackaged repository address and gives manual integration guidance", async ({ page }) => {
   await page.route("https://raw.githubusercontent.com/example/unpackaged/**", async (route) => {
-    await route.fulfill({ status: 404, body: "not found" });
+    await route.fulfill({ status: 404, headers: corsHeaders, body: "not found" });
   });
 
   await page.goto("/");
