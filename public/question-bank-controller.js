@@ -37,42 +37,77 @@ function classificationLabel(bank) {
   return "User-imported source question bank";
 }
 
-function upgradeImportControl() {
+function ensureImportControl() {
   const current = document.getElementById("importBankBtn");
-  if (!current) return;
-  if (current instanceof HTMLLabelElement && current.htmlFor === importInput.id) return;
+  if (!current) return null;
 
-  const label = document.createElement("label");
-  label.id = "importBankBtn";
-  label.className = current.className || "secondary";
-  label.htmlFor = importInput.id;
-  label.setAttribute("role", "button");
-  label.tabIndex = 0;
-  label.textContent = current.textContent?.trim() || "Import question bank";
-  Object.assign(label.style, {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    boxSizing: "border-box",
-    borderRadius: "10px",
-    padding: "10px 14px",
-    minHeight: "44px",
-    font: "inherit",
-    fontWeight: "800",
-    cursor: "pointer",
-    touchAction: "manipulation",
-  });
-  current.replaceWith(label);
+  let button = current;
+  if (!(current instanceof HTMLButtonElement)) {
+    button = document.createElement("button");
+    button.id = "importBankBtn";
+    button.className = current.className || "secondary";
+    button.textContent = current.textContent?.trim() || "Import question bank";
+    current.replaceWith(button);
+  }
+
+  button.type = "button";
+  button.className ||= "secondary";
+  button.removeAttribute("for");
+  button.removeAttribute("role");
+  button.removeAttribute("tabindex");
+  button.setAttribute("aria-controls", importInput.id);
+  button.setAttribute("aria-haspopup", "dialog");
+  button.onclick = null;
+  return button;
 }
 
-// The native label-to-file-input activation path works in Chrome and Safari and
-// remains valid whenever the dashboard redraws and replaces its visible controls.
+function reportPickerFailure(error) {
+  console.error("Question-bank file picker could not open", error);
+  alert([
+    "The question-bank file picker could not open.",
+    "",
+    "Refresh the page once and try Import question bank again.",
+    "Your existing question banks and study progress were not changed.",
+  ].join("\n"));
+}
+
+function openImportPicker() {
+  if (importBusy) return;
+  importInput.value = "";
+
+  try {
+    if (typeof importInput.showPicker === "function") {
+      importInput.showPicker();
+      return;
+    }
+    importInput.click();
+  } catch (primaryError) {
+    try {
+      importInput.click();
+    } catch (fallbackError) {
+      reportPickerFailure(fallbackError || primaryError);
+    }
+  }
+}
+
+// Capture the action before the dashboard's former placeholder onclick handler can
+// run. The listener survives every dashboard redraw because it is delegated from
+// the stable app container.
+app.addEventListener("click", (event) => {
+  const control = event.target instanceof Element ? event.target.closest("#importBankBtn") : null;
+  if (!control || !app.contains(control)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  openImportPicker();
+}, true);
+
 app.addEventListener("keydown", (event) => {
   const control = event.target instanceof Element ? event.target.closest("#importBankBtn") : null;
   if (!control || !app.contains(control) || !["Enter", " "].includes(event.key)) return;
   event.preventDefault();
-  importInput.click();
-});
+  event.stopImmediatePropagation();
+  openImportPicker();
+}, true);
 
 async function seedBankMetadata() {
   const signature = QUESTION_BANKS
@@ -189,13 +224,13 @@ function appendOriginNote(hero, bank) {
 
 async function attachControls() {
   // This must run before the asynchronous metadata work so a newly rendered
-  // button is upgraded even while another attachment pass is still active.
-  upgradeImportControl();
+  // button is repaired even while another attachment pass is still active.
+  ensureImportControl();
   if (attaching) return;
   attaching = true;
   try {
     await seedBankMetadata();
-    upgradeImportControl();
+    ensureImportControl();
     const bankId = activeBankId();
     const bank = bankDefinition(bankId);
     if (!bank) return;
