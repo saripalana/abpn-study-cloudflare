@@ -1,0 +1,53 @@
+.github-bank-import-panel {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid #d9e2ea;
+}
+
+.github-bank-import-panel h4 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.github-bank-import-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.github-bank-import-row input {
+  width: 100%;
+  min-width: 0;
+}
+
+.github-bank-import-help {
+  margin: 9px 0 0;
+  font-size: 0.88rem;
+}
+
+.github-bank-import-status {
+  min-height: 1.25rem;
+  margin: 9px 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.github-bank-import-status[data-type="error"] {
+  color: #a83232;
+}
+
+.github-bank-import-status[data-type="success"] {
+  color: #176b45;
+}
+
+@media (max-width: 680px) {
+  .github-bank-import-row {
+    grid-template-columns: 1fr;
+  }
+
+  .github-bank-import-row button {
+    width: 100%;
+  }
+}
