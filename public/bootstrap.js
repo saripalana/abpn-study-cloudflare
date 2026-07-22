@@ -1,5 +1,5 @@
 import { QUESTION_BANKS } from "./banks/catalog.js";
-import { refreshCloudDeckLibrary } from "./client/deck-library.js";
+import { flushPendingCloudDeckUploads, refreshCloudDeckLibrary } from "./client/deck-library.js";
 import { loadInstalledQuestionBanks } from "./client/question-bank-import.js";
 
 const app = document.getElementById("app");
@@ -7,6 +7,7 @@ const app = document.getElementById("app");
 try {
   const reservedIds = QUESTION_BANKS.filter((bank) => bank.protected).map((bank) => bank.id);
   try {
+    await flushPendingCloudDeckUploads();
     await refreshCloudDeckLibrary({ reservedIds });
   } catch (error) {
     console.warn("Cloud deck library is unavailable; continuing with bundled and locally cached decks.", error);
