@@ -4,6 +4,16 @@ import { readFile } from "node:fs/promises";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
+async function exists(path) {
+  try {
+    await read(path);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 test("Cloudflare version contains no Google service dependencies", async () => {
   const files = await Promise.all([
     read("src/access-worker.js"),
@@ -25,7 +35,7 @@ test("Cloudflare version contains no Google service dependencies", async () => {
   }
 });
 
-test("local storage uses separate bank-bound progress keys", async () => {
+test("local storage uses separate deck-bound progress keys", async () => {
   const storage = await read("src/client/storage.js");
   assert.match(storage, /keyPath:\s*\["bankId",\s*"questionId"\]/);
   assert.match(storage, /syncOutbox/);
@@ -50,26 +60,40 @@ test("worker exposes health and bidirectional sync endpoints behind release cont
   assert.match(worker, /ensureQuestionBank/);
 });
 
-test("all imported banks use the protected persistent deck library", async () => {
-  const [worker, api, browserClient, bootstrap, migration, packageJson] = await Promise.all([
+test("K&S and every other deck use the same protected persistent library", async () => {
+  const [worker, api, browserClient, starterDecks, bootstrap, migration, stateMigration, catalog, packageJson] = await Promise.all([
     read("src/worker.js"),
     read("src/deck-library-api.js"),
     read("public/client/deck-library.js"),
+    read("public/client/starter-decks.js"),
     read("public/bootstrap.js"),
     read("migrations/0004_cloud_deck_library.sql"),
+    read("migrations/0005_unified_deck_bootstrap.sql"),
+    read("public/banks/catalog.js"),
     read("package.json"),
   ]);
   assert.match(worker, /handleDeckLibraryRequest/);
   assert.match(api, /\/api\/decks/);
+  assert.match(api, /\/api\/decks\/bootstrap/);
   assert.match(api, /MAX_DECK_PACKAGE_BYTES/);
   assert.match(api, /deck_package_chunks/);
+  assert.doesNotMatch(api, /Protected built-in decks/);
   assert.match(browserClient, /publishCloudDeckPackage/);
   assert.match(browserClient, /refreshCloudDeckLibrary/);
   assert.match(browserClient, /pendingDeckUpload/);
-  assert.match(bootstrap, /flushPendingCloudDeckUploads/);
+  assert.doesNotMatch(browserClient, /reservedIds/);
+  assert.match(starterDecks, /ks-psychiatry-core/);
+  assert.match(starterDecks, /sourceType:\s*"user-imported"/);
+  assert.match(starterDecks, /publishCloudDeckPackage/);
+  assert.match(starterDecks, /installQuestionBankPackage/);
+  assert.match(bootstrap, /ensureUnifiedStarterDecks/);
   assert.match(bootstrap, /refreshCloudDeckLibrary/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_packages/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_package_chunks/);
+  assert.match(stateMigration, /CREATE TABLE IF NOT EXISTS deck_library_state/);
+  assert.match(catalog, /QUESTION_BANKS = \[\]/);
+  assert.equal(await exists("public/banks/generated/ks-psychiatry-core.js"), false);
+  assert.equal(await exists("public/banks/generated/ks-psychiatry-core.manifest.json"), false);
   assert.match(packageJson, /patch-deck-library-worker\.mjs/);
   assert.match(packageJson, /patch-cloud-deck-imports\.mjs/);
 });
