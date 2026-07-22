@@ -7,9 +7,12 @@ import {
 } from "./client/backup.js";
 
 const app = document.getElementById("app");
-const knownQuestionIdsByBank = Object.fromEntries(
-  QUESTION_BANKS.map((bank) => [bank.id, bank.questions.map((question) => question.id)])
-);
+
+function knownQuestionIdsByBank() {
+  return Object.fromEntries(
+    QUESTION_BANKS.map((bank) => [bank.id, bank.questions.map((question) => question.id)])
+  );
+}
 
 const importInput = document.createElement("input");
 importInput.type = "file";
@@ -37,7 +40,7 @@ function restoreConfirmation(backup) {
     `Practice sets: ${counts.practiceSets ?? backup.data.practiceSets.length}`,
     `Answers: ${counts.practiceSetAnswers ?? backup.data.practiceSetAnswers.length}`,
     "",
-    "The restore merges records instead of clearing your device. Newer local records are kept. A recovery snapshot is created before any imported record is written. Original question-bank content is not imported or replaced.",
+    "The restore merges records instead of clearing your device. Newer local records are kept. A recovery snapshot is created before any imported record is written. Deck content is not imported or replaced.",
   ].join("\n");
 }
 
@@ -63,12 +66,12 @@ async function exportBackup(button) {
 async function restoreFromFile(file) {
   const backup = await parsePortableBackupFile(file);
   if (!confirm(restoreConfirmation(backup))) return;
-  const result = await restorePortableBackup(backup, { knownQuestionIdsByBank });
+  const result = await restorePortableBackup(backup, { knownQuestionIdsByBank: knownQuestionIdsByBank() });
   alert([
     "Restore completed safely.",
     `Imported records: ${result.imported}`,
     `Newer local records preserved: ${result.keptNewerLocal}`,
-    `Unknown-bank records skipped: ${result.skippedUnknownBank}`,
+    `Unknown-deck records skipped: ${result.skippedUnknownBank}`,
     `Unknown-question records skipped: ${result.skippedUnknownQuestion}`,
     `Practice sets quarantined for invalid references: ${result.quarantinedSets}`,
     "A pre-restore recovery snapshot was created.",
