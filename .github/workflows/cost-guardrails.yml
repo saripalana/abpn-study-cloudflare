@@ -22,5 +22,5 @@ jobs:
       - name: Make guardrail script executable
         run: chmod +x scripts/check-cost-guardrails.sh
 
-      - name: Reject paid or prohibited Cloudflare configuration
+      - name: Reject paid products and unbounded deck storage
         run: ./scripts/check-cost-guardrails.sh
