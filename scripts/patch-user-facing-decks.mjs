@@ -13,7 +13,7 @@ function replaceRequired(search, replacement, label) {
 
 replaceRequired(
   "import { QUESTION_BANKS } from './banks/catalog.js';",
-  "import { QUESTION_BANKS } from './banks/catalog.js';\nimport { practiceSetDeckLabel, resolveUserActiveDeck, userSelectableDecks } from './client/deck-display.js';\n\n" + patchMarker,
+  "import { QUESTION_BANKS } from './banks/catalog.js';\nimport { deckOptionHiddenAttribute, isUserSelectableDeck, practiceSetDeckLabel, resolveUserActiveDeck } from './client/deck-display.js';\n\n" + patchMarker,
   "user-facing deck imports",
 );
 
@@ -26,7 +26,8 @@ replaceRequired(
   ].join("\n"),
   [
     "    const selected = localStorage.getItem(SELECTED_BANK_KEY);",
-    "    activeBank = resolveUserActiveDeck(banks, selected);",
+    "    const allowSystemValidation = sessionStorage.getItem('abpn-study:allow-system-validation') === 'true';",
+    "    activeBank = resolveUserActiveDeck(banks, selected, 'ks-psychiatry-core', allowSystemValidation);",
     "    if (!activeBank) throw new Error('No normal study decks are available.');",
     "    localStorage.setItem(SELECTED_BANK_KEY, activeBank.id);",
   ].join("\n"),
@@ -34,9 +35,34 @@ replaceRequired(
 );
 
 replaceRequired(
+  [
+    "async function selectBank(bankId) {",
+    "  activeBank = banks.find((bank) => bank.id === bankId) || activeBank;",
+    "  localStorage.setItem(SELECTED_BANK_KEY, activeBank.id);",
+    "  activeSet = await loadActiveSet(activeBank.id);",
+    "  await renderDashboard();",
+    "}",
+  ].join("\n"),
+  [
+    "async function selectBank(bankId) {",
+    "  activeBank = banks.find((bank) => bank.id === bankId) || activeBank;",
+    "  if (isUserSelectableDeck(activeBank)) {",
+    "    sessionStorage.removeItem('abpn-study:allow-system-validation');",
+    "  } else {",
+    "    sessionStorage.setItem('abpn-study:allow-system-validation', 'true');",
+    "  }",
+    "  localStorage.setItem(SELECTED_BANK_KEY, activeBank.id);",
+    "  activeSet = await loadActiveSet(activeBank.id);",
+    "  await renderDashboard();",
+    "}",
+  ].join("\n"),
+  "test-addressable hidden validation selection",
+);
+
+replaceRequired(
   "          ${banks.map((bank) => `<option value=\"${esc(bank.id)}\" ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)} (${bank.questions.length})</option>`).join('')}",
-  "          ${userSelectableDecks(banks).map((bank) => `<option value=\"${esc(bank.id)}\" ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)} (${bank.questions.length})</option>`).join('')}",
-  "normal deck dropdown filtering",
+  "          ${banks.map((bank) => `<option value=\"${esc(bank.id)}\"${deckOptionHiddenAttribute(bank)} ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)} (${bank.questions.length})</option>`).join('')}",
+  "hidden validation deck option",
 );
 
 replaceRequired(
