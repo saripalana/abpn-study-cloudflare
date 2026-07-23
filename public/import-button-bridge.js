@@ -13,6 +13,30 @@
     return button;
   }
 
+  function ensureStartupControl() {
+    if (document.getElementById("importBankBtn")) return;
+    const loadingCard = app.querySelector(".loading-card");
+    if (!(loadingCard instanceof HTMLElement)) return;
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.setAttribute("data-startup-import", "true");
+
+    const button = document.createElement("button");
+    button.id = "importBankBtn";
+    button.className = "secondary";
+    button.type = "button";
+    button.textContent = "Import from file";
+
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "You can choose a saved question-bank file while the deck library finishes loading.";
+
+    actions.append(button);
+    loadingCard.append(note, actions);
+    normalizeControl();
+  }
+
   function openPicker() {
     input.value = "";
     try {
@@ -29,7 +53,7 @@
   }
 
   // Register immediately, before asynchronous module initialization. This is the
-  // single delegated activation path for the dashboard import button.
+  // single delegated activation path for both the startup and dashboard controls.
   app.addEventListener("click", (event) => {
     const button = event.target instanceof Element
       ? event.target.closest("#importBankBtn")
@@ -40,11 +64,15 @@
     openPicker();
   }, true);
 
-  // The dashboard is rendered repeatedly. Normalize the newly rendered button
-  // each time so the visible label and accessibility contract remain stable.
-  const observer = new MutationObserver(normalizeControl);
+  // The dashboard is rendered repeatedly. Normalize each newly rendered control.
+  // During startup, keep file import available without changing the protected app.
+  const observer = new MutationObserver(() => {
+    normalizeControl();
+    ensureStartupControl();
+  });
   observer.observe(app, { childList: true, subtree: true });
   normalizeControl();
+  ensureStartupControl();
 
   // Native buttons already translate Enter/Space into click. No competing
   // keydown handler is needed.
