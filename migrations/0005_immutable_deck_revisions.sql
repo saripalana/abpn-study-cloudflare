@@ -53,9 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_deck_revisions_user_deck_created
 CREATE INDEX IF NOT EXISTS idx_deck_heads_user_updated
   ON deck_package_heads(user_id, updated_at DESC);
 
--- Backfill revision metadata from the existing current-package tables. Chunk
--- backfill is performed by the application because D1 SQL cannot reliably
--- derive the current package checksum relationship across all deployed states.
+-- Preserve every currently stored package as the first immutable revision.
 INSERT OR IGNORE INTO deck_package_revisions (
   user_id, deck_id, checksum, version, title, short_title, description,
   source_type, content_class, source_label, question_count, package_bytes,
@@ -65,4 +63,22 @@ SELECT
   user_id, deck_id, checksum, version, title, short_title, description,
   source_type, content_class, source_label, question_count, package_bytes,
   chunk_count, created_at, created_at
+FROM deck_packages;
+
+INSERT OR IGNORE INTO deck_package_revision_chunks (
+  user_id, deck_id, checksum, chunk_index, chunk_text
+)
+SELECT
+  chunks.user_id,
+  chunks.deck_id,
+  packages.checksum,
+  chunks.chunk_index,
+  chunks.chunk_text
+FROM deck_package_chunks AS chunks
+JOIN deck_packages AS packages
+  ON packages.user_id = chunks.user_id
+ AND packages.deck_id = chunks.deck_id;
+
+INSERT OR IGNORE INTO deck_package_heads (user_id, deck_id, checksum, updated_at)
+SELECT user_id, deck_id, checksum, updated_at
 FROM deck_packages;
