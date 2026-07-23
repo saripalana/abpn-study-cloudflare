@@ -42,10 +42,27 @@ jobs:
           grep -q '"questionCount": 602' public/banks/generated/ks-psychiatry-core.manifest.json
       - name: Install Chromium and WebKit
         run: npx playwright install --with-deps chromium webkit >/tmp/playwright-install.log 2>&1 || { tail -n 200 /tmp/playwright-install.log; exit 1; }
-      - name: Run desktop Chrome flows
+      - name: Verify import button smoke flow
+        id: import_smoke
+        continue-on-error: true
+        run: timeout --signal=TERM --kill-after=10s 90s npx playwright test tests/e2e/import-button.spec.js --project=chromium-desktop --workers=1 --retries=0 --reporter=json > import-button-report.json
+      - name: Upload import smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: import-button-report
+          path: |
+            import-button-report.json
+            test-results/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Fail when import smoke validation fails
+        if: steps.import_smoke.outcome == 'failure'
+        run: exit 1
+      - name: Run remaining desktop Chrome flows
         id: desktop
         continue-on-error: true
-        run: timeout --signal=TERM --kill-after=30s 12m npx playwright test --project=chromium-desktop --reporter=json > desktop-chrome-report.json
+        run: timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=chromium-desktop --grep-invert='Import question bank opens' --reporter=json > desktop-chrome-report.json
       - name: Upload desktop Chrome report
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,7 +79,7 @@ jobs:
       - name: Run iPhone 13 Safari flows
         id: iphone
         continue-on-error: true
-        run: timeout --signal=TERM --kill-after=30s 12m npx playwright test --project=iphone-13-safari --reporter=json > iphone-safari-report.json
+        run: timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=iphone-13-safari --reporter=json > iphone-safari-report.json
       - name: Upload iPhone Safari report
         if: always()
         uses: actions/upload-artifact@v4
