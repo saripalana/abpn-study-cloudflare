@@ -40,6 +40,28 @@ function fakeDb({ first = async () => null, all = async () => ({ results: [] }),
   };
 }
 
+function revisionRow(overrides = {}) {
+  return {
+    user_id: "user-test",
+    deck_id: "sample-deck",
+    checksum: "abc123",
+    version: "1.0.0",
+    title: "Sample Deck",
+    short_title: "Sample",
+    description: "Persistent deck fixture",
+    source_type: "user-imported",
+    content_class: "source-material",
+    source_label: "Unit test",
+    question_count: 1,
+    package_bytes: 400,
+    chunk_count: 1,
+    imported_at: "2026-07-22T12:00:00.000Z",
+    created_at: "2026-07-22T12:00:00.000Z",
+    head_updated_at: "2026-07-22T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
 function packageData(overrides = {}) {
   const bank = {
     id: "sample-deck",
@@ -52,6 +74,7 @@ function packageData(overrides = {}) {
     sourceLabel: "Unit test",
     protected: false,
     checksum: "abc123",
+    importedAt: "2026-07-22T12:00:00.000Z",
     questions: [{
       id: "sample-1",
       chapterTitle: "Deck Library",
@@ -66,10 +89,16 @@ function packageData(overrides = {}) {
   return { format: "abpn-question-bank", schemaVersion: 1, checksum: bank.checksum, bank };
 }
 
+function request(path = "/api/decks/sample-deck", options = {}) {
+  return new Request(`https://study.example${path}`, {
+    headers: { "content-type": "application/json", "x-abpn-device-id": "device-test", ...(options.headers || {}) },
+    ...options,
+  });
+}
+
 function putRequest(data = packageData()) {
-  return new Request("https://study.example/api/decks/sample-deck", {
+  return request("/api/decks/sample-deck", {
     method: "PUT",
-    headers: { "content-type": "application/json", "x-abpn-device-id": "device-test" },
     body: JSON.stringify(data),
   });
 }
@@ -83,7 +112,7 @@ test("ignores non-deck API routes", async () => {
   assert.equal(response, null);
 });
 
-test("stores a validated deck as bounded package chunks", async () => {
+test("stores a validated deck as an immutable revision and active head", async () => {
   const statements = [];
   const reservations = [];
   const env = {
@@ -100,22 +129,23 @@ test("stores a validated deck as bounded package chunks", async () => {
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.ok, true);
+  assert.equal(body.revisionCreated, true);
   assert.equal(body.deck.id, "sample-deck");
   assert.equal(body.deck.questionCount, 1);
   assert.equal(body.deck.chunkCount, 1);
-  assert.equal(statements.length, 3);
+  assert.equal(statements.length, 6);
+  assert.match(statements[0].query, /deck_package_revisions/);
+  assert.match(statements[1].query, /deck_package_revision_chunks/);
+  assert.match(statements[2].query, /deck_package_heads/);
   assert.equal(reservations.length, 1);
   assert.equal(reservations[0].writeActions, 1);
-  assert.ok(reservations[0].rowsWritten >= 3);
 });
 
-test("treats an identical deck upload as idempotent", async () => {
+test("treats an identical active revision upload as idempotent", async () => {
   let batches = 0;
   const env = {
     DB: fakeDb({
-      first: async (query) => query.includes("version, checksum")
-        ? { chunk_count: 4, version: "1.0.0", checksum: "abc123" }
-        : null,
+      first: async (query) => query.includes("FROM deck_package_heads AS h") ? revisionRow() : null,
       onBatch: async () => { batches += 1; },
     }),
   };
@@ -128,8 +158,8 @@ test("treats an identical deck upload as idempotent", async () => {
 test("rejects changed deck content without a new version", async () => {
   const env = {
     DB: fakeDb({
-      first: async (query) => query.includes("version, checksum")
-        ? { chunk_count: 1, version: "1.0.0", checksum: "old-checksum" }
+      first: async (query) => query.includes("FROM deck_package_heads AS h")
+        ? revisionRow({ checksum: "old-checksum" })
         : null,
     }),
   };
@@ -165,19 +195,19 @@ test("rejects attempts to replace a protected built-in deck", async () => {
   );
 });
 
-test("reconstructs a stored deck package in chunk order", async () => {
+test("reconstructs the active revision in chunk order", async () => {
   const env = {
     DB: fakeDb({
-      first: async (query) => query.includes("SELECT chunk_count") ? { chunk_count: 2 } : null,
-      all: async (query) => query.includes("deck_package_chunks")
+      first: async (query) => query.includes("FROM deck_package_heads AS h")
+        ? revisionRow({ chunk_count: 2 })
+        : null,
+      all: async (query) => query.includes("deck_package_revision_chunks")
         ? { results: [{ chunk_text: '{"hello":' }, { chunk_text: '"world"}' }] }
         : { results: [] },
     }),
   };
   const response = await handleDeckLibraryRequest(
-    new Request("https://study.example/api/decks/sample-deck", {
-      headers: { "x-abpn-device-id": "device-test" },
-    }),
+    request("/api/decks/sample-deck"),
     env,
     helpers(),
   );
@@ -185,31 +215,126 @@ test("reconstructs a stored deck package in chunk order", async () => {
   assert.deepEqual(await response.json(), { hello: "world" });
 });
 
-test("explicitly deletes deck chunks and metadata", async () => {
-  const statements = [];
+test("fails closed when an immutable revision is missing chunks", async () => {
   const env = {
     DB: fakeDb({
-      first: async () => ({ chunk_count: 3 }),
+      first: async (query) => query.includes("FROM deck_package_heads AS h")
+        ? revisionRow({ chunk_count: 2 })
+        : null,
+      all: async () => ({ results: [{ chunk_text: "{}" }] }),
+    }),
+  };
+  const response = await handleDeckLibraryRequest(request("/api/decks/sample-deck"), env, helpers());
+  assert.equal(response.status, 500);
+  assert.match((await response.json()).error, /incomplete/i);
+});
+
+test("lists immutable revisions and identifies the active checksum", async () => {
+  const current = revisionRow();
+  const older = revisionRow({
+    checksum: "older123",
+    version: "0.9.0",
+    created_at: "2026-07-20T12:00:00.000Z",
+  });
+  const env = {
+    DB: fakeDb({
+      first: async (query) => query.includes("SELECT checksum FROM deck_package_heads")
+        ? { checksum: "abc123" }
+        : null,
+      all: async (query) => query.includes("FROM deck_package_revisions")
+        ? { results: [current, older] }
+        : { results: [] },
+    }),
+  };
+  const response = await handleDeckLibraryRequest(
+    request("/api/decks/sample-deck/revisions"),
+    env,
+    helpers(),
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.activeChecksum, "abc123");
+  assert.equal(body.revisions.length, 2);
+  assert.equal(body.revisions[0].active, true);
+  assert.equal(body.revisions[1].active, false);
+});
+
+test("downloads a specifically selected immutable revision", async () => {
+  const env = {
+    DB: fakeDb({
+      first: async (query) => query.includes("FROM deck_package_revisions")
+        ? revisionRow({ checksum: "older123" })
+        : null,
+      all: async () => ({ results: [{ chunk_text: '{"revision":"older"}' }] }),
+    }),
+  };
+  const response = await handleDeckLibraryRequest(
+    request("/api/decks/sample-deck/revisions/older123"),
+    env,
+    helpers(),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { revision: "older" });
+});
+
+test("restores a prior revision by moving only the active head", async () => {
+  const statements = [];
+  const reservations = [];
+  const env = {
+    DB: fakeDb({
+      first: async (query) => query.includes("FROM deck_package_revisions")
+        ? revisionRow({ checksum: "older123", version: "0.9.0", chunk_count: 2 })
+        : null,
       onBatch: async (batch) => statements.push(...batch),
     }),
   };
   const response = await handleDeckLibraryRequest(
-    new Request("https://study.example/api/decks/sample-deck", {
-      method: "DELETE",
-      headers: { "x-abpn-device-id": "device-test" },
+    request("/api/decks/sample-deck/restore", {
+      method: "POST",
+      body: JSON.stringify({ checksum: "older123" }),
     }),
+    env,
+    helpers({ reserveUsage: async (_env, delta) => reservations.push(delta) }),
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.restored, true);
+  assert.equal(body.checksum, "older123");
+  assert.equal(statements.length, 4);
+  assert.match(statements[0].query, /deck_package_heads/);
+  assert.match(statements[2].query, /deck_package_revision_chunks/);
+  assert.equal(reservations[0].writeActions, 1);
+});
+
+test("explicit deck deletion removes the head, all revisions, and compatibility rows", async () => {
+  const statements = [];
+  const env = {
+    DB: fakeDb({
+      first: async (query) => {
+        if (query.includes("FROM deck_package_heads AS h")) return revisionRow({ chunk_count: 2 });
+        if (query.includes("SUM(chunk_count)")) return { revision_count: 3, chunk_count: 7 };
+        return null;
+      },
+      onBatch: async (batch) => statements.push(...batch),
+    }),
+  };
+  const response = await handleDeckLibraryRequest(
+    request("/api/decks/sample-deck", { method: "DELETE" }),
     env,
     helpers(),
   );
   assert.equal(response.status, 200);
   assert.equal((await response.json()).deleted, true);
-  assert.equal(statements.length, 2);
-  assert.match(statements[0].query, /deck_package_chunks/);
-  assert.match(statements[1].query, /deck_packages/);
+  assert.equal(statements.length, 4);
+  assert.match(statements[0].query, /deck_package_heads/);
+  assert.match(statements[1].query, /deck_package_revisions/);
+  assert.match(statements[2].query, /deck_package_chunks/);
+  assert.match(statements[3].query, /deck_packages/);
 });
 
 test("deck library limits remain bounded", () => {
   assert.equal(DECK_LIBRARY_LIMITS.maximumPackageBytes, 20 * 1024 * 1024);
   assert.equal(DECK_LIBRARY_LIMITS.maximumDecks, 50);
   assert.equal(DECK_LIBRARY_LIMITS.maximumChunks, 96);
+  assert.equal(DECK_LIBRARY_LIMITS.maximumRevisionsPerDeck, 100);
 });
