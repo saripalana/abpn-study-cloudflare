@@ -9,6 +9,7 @@ import { loadInstalledQuestionBanks } from "./client/question-bank-import.js";
 const app = document.getElementById("app");
 const LOCAL_STARTUP_TIMEOUT_MS = 2_000;
 const CLOUD_STARTUP_TIMEOUT_MS = 5_000;
+const CLOUD_CATALOG_RELOAD_KEY = "abpn-cloud-catalog-reload";
 
 function withStartupTimeout(operation, timeoutMs, message) {
   let timeoutId;
@@ -26,6 +27,10 @@ async function loadAvailableDecks(timeoutMs = LOCAL_STARTUP_TIMEOUT_MS) {
   );
 }
 
+function catalogSignature(definitions) {
+  return definitions.map((bank) => `${bank.id}@${bank.version || ""}`).sort().join("|");
+}
+
 try {
   // Render the application first. Cloud synchronization must never prevent the
   // bundled/local study interface or the file-import control from appearing.
@@ -36,6 +41,7 @@ try {
     console.warn("Local deck cache is unavailable; continuing with bundled decks.", error);
   }
 
+  const startupCatalog = catalogSignature(QUESTION_BANKS);
   await import("./app.js");
 
   // Refresh cloud and locally installed decks after the dashboard is usable.
@@ -53,7 +59,22 @@ try {
 
     try {
       const definitions = await loadAvailableDecks();
+      const updatedCatalog = catalogSignature(definitions);
       QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...definitions);
+
+      // app.js builds its selector from the startup catalog. When a clean device
+      // downloads a deck from Cloudflare after that render, reload exactly once
+      // so the normal startup path includes the new peer deck like K&S.
+      if (updatedCatalog !== startupCatalog) {
+        const lastReloadedCatalog = sessionStorage.getItem(CLOUD_CATALOG_RELOAD_KEY);
+        if (lastReloadedCatalog !== updatedCatalog) {
+          sessionStorage.setItem(CLOUD_CATALOG_RELOAD_KEY, updatedCatalog);
+          window.location.reload();
+          return;
+        }
+      }
+
+      sessionStorage.removeItem(CLOUD_CATALOG_RELOAD_KEY);
       window.dispatchEvent(new CustomEvent("abpn:deck-catalog-updated"));
     } catch (error) {
       console.warn("Updated deck catalog could not be loaded; current dashboard remains available.", error);
