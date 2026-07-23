@@ -29,6 +29,7 @@ let activeBank;
 let activeSet = null;
 let timer = null;
 let startedQuestionAt = Date.now();
+let catalogRefreshInProgress = false;
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -199,6 +200,16 @@ async function initialize() {
   }
 }
 
+async function refreshCatalog() {
+  if (catalogRefreshInProgress || activeSet) return;
+  catalogRefreshInProgress = true;
+  try {
+    await initialize();
+  } finally {
+    catalogRefreshInProgress = false;
+  }
+}
+
 async function selectBank(bankId) {
   activeBank = banks.find((bank) => bank.id === bankId) || activeBank;
   localStorage.setItem(SELECTED_BANK_KEY, activeBank.id);
@@ -218,14 +229,13 @@ function historyMarkup(history) {
         <span>${result.correct}/${result.total}</span>
       </div>
       <div class="history-details">
-        <div class="history-title">
-          <strong>${record.mode === 'tutor' ? 'Tutor' : 'Test'} set · ${record.questionIds.length} questions</strong>
-          <span class="pill good">Completed</span>
-        </div>
-        <small>${formatDateTime(record.completedAt || record.updatedAt)} · ${record.timed ? 'Timed' : 'Untimed'}</small>
-        <small>${result.answered} answered · ${result.omitted} omitted · ${result.incorrect} incorrect · ${formatSeconds(averageTimeMs)} average/question</small>
+        <strong>${esc(record.name || `${activeBank.shortTitle} practice set`)}</strong>
+        <span>${formatDateTime(record.completedAt || record.updatedAt)} · ${record.mode === 'tutor' ? 'Tutor' : 'Test'} · ${record.timed ? 'Timed' : 'Untimed'}</span>
+        <span>${result.answered} answered · ${result.omitted} omitted · ${formatSeconds(averageTimeMs)} average</span>
       </div>
-      <button class="secondary review-history-btn" type="button" data-set-id="${esc(record.id)}">Review test</button>
+      <div class="history-actions">
+        <button type="button" class="secondary" data-open-set="${esc(record.id)}">Review</button>
+      </div>
     </article>
   `).join('')}</div>`;
 }
@@ -233,309 +243,242 @@ function historyMarkup(history) {
 async function renderDashboard() {
   clearInterval(timer);
   homeBtn.hidden = true;
-
   const progress = await progressMap(activeBank.id);
-  const usedRecords = [...progress.values()].filter((record) => Number(record.timesUsed || 0) > 0);
-  const answered = usedRecords.length;
-  const correct = usedRecords.filter((record) => record.isCorrect === true).length;
-  const flagged = [...progress.values()].filter((record) => record.isFlagged).length;
-  const attempts = usedRecords.reduce((total, record) => total + Number(record.timesUsed || 0), 0);
-  const totalTimeMs = usedRecords.reduce((total, record) => total + Number(record.totalTimeMs || 0), 0);
-  const averageTimeMs = attempts ? totalTimeMs / attempts : 0;
-  const rows = categoryStatistics(activeBank, progress).filter((row) => row.answered);
   const history = await completedSetHistory(activeBank.id);
-  const resumable = activeSet && activeSet.bankId === activeBank.id && !activeSet.submitted;
   const categories = categoryEntries(activeBank);
-  const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title));
+  const categoryNames = categories.map((category) => category.title);
+  const settings = loadBuilderSettings(activeBank, categoryNames);
+  const answered = [...progress.values()].filter((entry) => Number(entry.timesUsed || 0) > 0).length;
+  const correct = [...progress.values()].filter((entry) => Number(entry.timesUsed || 0) > 0 && entry.isCorrect === true).length;
+  const totalTimeMs = [...progress.values()].reduce((total, entry) => total + Math.max(0, Number(entry.totalTimeMs || 0)), 0);
+  const totalUses = [...progress.values()].reduce((total, entry) => total + Math.max(0, Number(entry.timesUsed || 0)), 0);
+  const categoryStats = categoryStatistics(activeBank, progress);
 
   app.innerHTML = `
-    <section class="card hero">
-      <div>
-        <div class="eyebrow" style="color:var(--blue)">ACTIVE QUESTION BANK</div>
-        <h2>${esc(activeBank.title)}</h2>
-        <p class="muted">${esc(activeBank.description)} ${activeBank.questions.length} questions loaded.</p>
+    <section class="card">
+      <div class="deck-header">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">QUESTION BANK</div>
+          <h2>${esc(activeBank.title)}</h2>
+          <p class="muted">${esc(activeBank.description || '')}</p>
+        </div>
+        <label class="deck-picker">Deck
+          <select id="bankSelect">
+            ${banks.map((bank) => `<option value="${esc(bank.id)}" ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.shortTitle)} · ${bank.questions.length}</option>`).join('')}
+          </select>
+        </label>
       </div>
-      <div class="bank-selector">
-        <label for="bankSelect"><strong>Question bank</strong></label>
-        <select id="bankSelect">
-          ${banks.map((bank) => `<option value="${esc(bank.id)}" ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)} (${bank.questions.length})</option>`).join('')}
-        </select>
+
+      <div class="stats-grid">
+        <div class="stat"><strong>${activeBank.questions.length}</strong><span>Total questions</span></div>
+        <div class="stat"><strong>${answered}</strong><span>Used questions</span></div>
+        <div class="stat"><strong>${answered ? Math.round(correct / answered * 100) : 0}%</strong><span>Latest accuracy</span></div>
+        <div class="stat"><strong>${totalUses ? formatSeconds(totalTimeMs / totalUses) : '—'}</strong><span>Average time/question</span></div>
       </div>
-    </section>
 
-    <section class="stats">
-      <div class="stat"><strong>${activeBank.questions.length}</strong><span>Total questions</span></div>
-      <div class="stat"><strong>${answered}</strong><span>Used</span></div>
-      <div class="stat"><strong>${correct}</strong><span>Currently correct</span></div>
-      <div class="stat"><strong>${flagged}</strong><span>Flagged</span></div>
-      <div class="stat"><strong>${history.length}</strong><span>Completed tests</span></div>
-      <div class="stat"><strong>${attempts ? formatSeconds(averageTimeMs) : '—'}</strong><span>Average time/question</span></div>
-    </section>
+      <div class="dashboard-actions">
+        <button id="importBankBtn" class="secondary" type="button">Import from file</button>
+      </div>
 
-    ${resumable ? `
-      <section class="card">
-        <h3>Resume active set</h3>
-        <p class="muted">${activeSet.questionIds.length} questions · ${esc(activeSet.mode)} mode${activeSet.timed ? ` · ${formatTime(activeSet.remainingSeconds)} remaining` : ''}</p>
-        <div class="actions"><button id="resumeBtn" class="primary" type="button">Resume set</button></div>
+      <form id="builderForm" class="builder-card">
+        <div class="builder-heading">
+          <div>
+            <div class="eyebrow" style="color:var(--blue)">CREATE A NEW PRACTICE SET</div>
+            <h3>Build your next set</h3>
+          </div>
+          <span class="muted">Settings save automatically for this deck.</span>
+        </div>
+
+        <div class="builder-grid">
+          <label>Questions
+            <input id="questionCount" type="number" min="1" max="${activeBank.questions.length}" value="${settings.count}">
+          </label>
+          <label>Mode
+            <select id="modeSelect">
+              <option value="test" ${settings.mode === 'test' ? 'selected' : ''}>Test</option>
+              <option value="tutor" ${settings.mode === 'tutor' ? 'selected' : ''}>Tutor</option>
+            </select>
+          </label>
+          <label>Timing
+            <select id="timingSelect">
+              <option value="timed" ${settings.timing === 'timed' ? 'selected' : ''}>Timed</option>
+              <option value="untimed" ${settings.timing === 'untimed' ? 'selected' : ''}>Untimed</option>
+            </select>
+          </label>
+          <label>Status
+            <select id="poolSelect">
+              <option value="all" ${settings.pool === 'all' ? 'selected' : ''}>All questions</option>
+              <option value="new" ${settings.pool === 'new' ? 'selected' : ''}>New</option>
+              <option value="used" ${settings.pool === 'used' ? 'selected' : ''}>Used</option>
+              <option value="incorrect" ${settings.pool === 'incorrect' ? 'selected' : ''}>Incorrect</option>
+              <option value="flagged" ${settings.pool === 'flagged' ? 'selected' : ''}>Flagged</option>
+            </select>
+          </label>
+        </div>
+
+        <fieldset class="subject-filter">
+          <legend>Subjects</legend>
+          <div class="subject-actions">
+            <button id="allSubjectsBtn" type="button" class="ghost">All subjects</button>
+            <button id="clearSubjectsBtn" type="button" class="ghost">Clear</button>
+          </div>
+          <div class="subject-grid">
+            ${categories.map(({ title, count }) => `
+              <label><input type="checkbox" name="subjectFilter" value="${esc(title)}" ${settings.categories.includes(title) ? 'checked' : ''}> <span>${esc(title)}</span><small>${count}</small></label>
+            `).join('')}
+          </div>
+        </fieldset>
+
+        <div class="actions">
+          <button class="primary" type="submit">Start practice set</button>
+        </div>
+      </form>
+
+      <section class="dashboard-section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" style="color:var(--blue)">HISTORY / PREVIOUS TESTS</div>
+            <h3>Completed sets</h3>
+          </div>
+        </div>
+        ${historyMarkup(history)}
       </section>
-    ` : ''}
 
-    <section class="grid">
-      <div class="stack">
-        <section class="card">
-          <h3>Create practice set</h3>
-          <div class="form-grid">
-            <div class="field">
-              <label for="countInput">Questions</label>
-              <input id="countInput" type="number" min="1" max="${activeBank.questions.length}" value="${builder.count}">
-            </div>
-            <div class="field">
-              <label for="modeSelect">Mode</label>
-              <select id="modeSelect"><option value="test" ${builder.mode === 'test' ? 'selected' : ''}>Test</option><option value="tutor" ${builder.mode === 'tutor' ? 'selected' : ''}>Tutor</option></select>
-            </div>
-            <div class="field">
-              <label for="timingSelect">Timing</label>
-              <select id="timingSelect"><option value="timed" ${builder.timing === 'timed' ? 'selected' : ''}>Timed at 70.6 sec/question</option><option value="untimed" ${builder.timing === 'untimed' ? 'selected' : ''}>Untimed</option></select>
-            </div>
-            <div class="field">
-              <label for="poolSelect">Question status</label>
-              <select id="poolSelect">
-                <option value="all" ${builder.pool === 'all' ? 'selected' : ''}>All / Random</option>
-                <option value="new" ${builder.pool === 'new' ? 'selected' : ''}>New</option>
-                <option value="used" ${builder.pool === 'used' ? 'selected' : ''}>Used</option>
-                <option value="incorrect" ${builder.pool === 'incorrect' ? 'selected' : ''}>Wrong</option>
-                <option value="flagged" ${builder.pool === 'flagged' ? 'selected' : ''}>Flagged</option>
-              </select>
-            </div>
+      <section class="dashboard-section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" style="color:var(--blue)">ANALYTICS / PERFORMANCE BY CATEGORY</div>
+            <h3>Subject performance</h3>
           </div>
-          <details id="subjectPicker" class="subject-picker">
-            <summary>
-              <span>Subjects</span>
-              <span id="subjectSummary" class="subject-summary"></span>
-            </summary>
-            <div class="subject-picker-body">
-              <div class="subject-toolbar">
-                <button id="selectAllSubjectsBtn" class="secondary" type="button">Select all</button>
-                <button id="clearSubjectsBtn" class="secondary" type="button">Clear</button>
-              </div>
-              <div class="subject-options">
-                ${categories.map((category, index) => `
-                  <label class="subject-option" for="subject-${index}">
-                    <input id="subject-${index}" name="subjectFilter" type="checkbox" value="${esc(category.title)}" ${builder.categories.includes(category.title) ? 'checked' : ''}>
-                    <span>${esc(category.title)}</span>
-                    <small>${category.count}</small>
-                  </label>
-                `).join('')}
-              </div>
+        </div>
+        <div class="analytics-table">
+          ${categoryStats.map((entry) => `
+            <div class="analytics-row">
+              <span>${esc(entry.category)}</span>
+              <span>${entry.used}/${entry.total} used</span>
+              <span>${entry.used ? Math.round(entry.correct / entry.used * 100) : 0}%</span>
             </div>
-          </details>
-          <p id="eligibleCount" class="builder-availability"></p>
-          <div class="actions"><button id="startBtn" class="primary" type="button">Start randomized set</button></div>
-        </section>
-      </div>
-
-      <div class="stack">
-        <section class="card">
-          <h3>Data protection</h3>
-          <p class="notice">Progress saves to IndexedDB immediately. Cloud synchronization is additive and does not replace local-first saving.</p>
-          <div class="actions">
-            <button id="snapshotBtn" class="secondary" type="button">Create recovery snapshot</button>
-            <button id="importBankBtn" class="secondary" type="button">Import question bank</button>
-          </div>
-        </section>
-        <section class="card">
-          <h3>Current release state</h3>
-          <p class="muted">The protected K&S package and validation bank are loaded independently so future banks can be added without mixing progress.</p>
-        </section>
-      </div>
-    </section>
-
-    <section id="historySection" class="card dashboard-section">
-      <div class="section-heading">
-        <div>
-          <div class="eyebrow" style="color:var(--blue)">SAVED LOCALLY</div>
-          <h3>History / Previous tests</h3>
+          `).join('')}
         </div>
-        <span class="pill">${history.length} completed</span>
-      </div>
-      ${historyMarkup(history)}
-    </section>
-
-    <section id="analyticsSection" class="card dashboard-section">
-      <div class="section-heading">
-        <div>
-          <div class="eyebrow" style="color:var(--blue)">ANALYTICS</div>
-          <h3>Performance by category</h3>
-        </div>
-      </div>
-      ${rows.length ? `
-        <table class="summary-table">
-          <thead><tr><th>Category</th><th>Used</th><th>Accuracy</th></tr></thead>
-          <tbody>${rows.map((row) => `<tr><td>${esc(row.title)}</td><td>${row.answered}/${row.total}</td><td>${Math.round(row.accuracy * 100)}%</td></tr>`).join('')}</tbody>
-        </table>
-      ` : '<div class="empty">Complete questions to build analytics.</div>'}
+      </section>
     </section>
   `;
 
   document.getElementById('bankSelect').onchange = (event) => selectBank(event.target.value);
-  document.getElementById('startBtn').onclick = startSet;
-  document.getElementById('resumeBtn')?.addEventListener('click', renderQuestion);
-  document.getElementById('snapshotBtn').onclick = async () => {
-    await createRecoverySnapshot('manual');
-    alert('Recovery snapshot created.');
-  };
-  document.getElementById('importBankBtn').onclick = () => {
-    alert('Additional bank import validation will be added before external banks are accepted.');
-  };
-  document.querySelectorAll('.review-history-btn').forEach((button) => {
-    button.addEventListener('click', () => openCompletedSet(button.dataset.setId));
-  });
-
-  const subjectInputs = [...document.querySelectorAll('input[name="subjectFilter"]')];
-  const countInput = document.getElementById('countInput');
-  const modeSelect = document.getElementById('modeSelect');
-  const timingSelect = document.getElementById('timingSelect');
-  const poolSelect = document.getElementById('poolSelect');
-  const eligibleCount = document.getElementById('eligibleCount');
-  const subjectSummary = document.getElementById('subjectSummary');
-  const startButton = document.getElementById('startBtn');
-  let preferredCount = builder.count;
-
-  const updateBuilderAvailability = ({ countChanged = false } = {}) => {
-    const selectedCategories = selectedSubjectCategories();
-    const eligible = eligibleQuestionIds(activeBank, progress, poolSelect.value, selectedCategories);
-    if (countChanged) {
-      preferredCount = Math.min(
-        activeBank.questions.length,
-        Math.max(1, Math.trunc(Number(countInput.value)) || 1)
-      );
-    }
-    const displayedCount = eligible.length ? Math.min(preferredCount, eligible.length) : preferredCount;
-    const capped = eligible.length > 0 && displayedCount < preferredCount;
-
-    countInput.value = String(displayedCount);
-    countInput.max = String(Math.max(1, eligible.length));
-    startButton.disabled = eligible.length === 0;
-
-    subjectSummary.textContent = selectedCategories.length === categories.length
-      ? `All ${categories.length} selected`
-      : selectedCategories.length
-        ? `${selectedCategories.length} of ${categories.length} selected`
-        : 'No subjects selected';
-    eligibleCount.textContent = eligible.length
-      ? `${eligible.length} question${eligible.length === 1 ? '' : 's'} available${capped ? '; requested set size adjusted to match.' : '.'}`
-      : 'No questions match the selected subjects and question status.';
-    eligibleCount.dataset.empty = eligible.length ? 'false' : 'true';
-
-    localStorage.setItem(`${BUILDER_SETTINGS_PREFIX}${activeBank.id}`, JSON.stringify({
-      schemaVersion: 1,
-      count: preferredCount,
-      mode: modeSelect.value,
-      timing: timingSelect.value,
-      pool: poolSelect.value,
-      categories: selectedCategories.length === categories.length ? null : selectedCategories
-    }));
-  };
-
-  document.getElementById('selectAllSubjectsBtn').onclick = () => {
-    subjectInputs.forEach((input) => { input.checked = true; });
-    updateBuilderAvailability();
+  document.getElementById('builderForm').onsubmit = startSet;
+  document.getElementById('allSubjectsBtn').onclick = () => {
+    document.querySelectorAll('input[name="subjectFilter"]').forEach((input) => { input.checked = true; });
+    saveBuilderSettings();
   };
   document.getElementById('clearSubjectsBtn').onclick = () => {
-    subjectInputs.forEach((input) => { input.checked = false; });
-    updateBuilderAvailability();
+    document.querySelectorAll('input[name="subjectFilter"]').forEach((input) => { input.checked = false; });
+    saveBuilderSettings();
   };
-  subjectInputs.forEach((input) => input.addEventListener('change', updateBuilderAvailability));
-  countInput.addEventListener('input', () => {
-    const nextCount = Number(countInput.value);
-    if (Number.isFinite(nextCount) && nextCount >= 1) {
-      preferredCount = Math.min(activeBank.questions.length, Math.trunc(nextCount));
-    }
+  document.querySelectorAll('#builderForm input, #builderForm select').forEach((control) => {
+    control.addEventListener('change', saveBuilderSettings);
   });
-  countInput.addEventListener('change', () => updateBuilderAvailability({ countChanged: true }));
-  modeSelect.addEventListener('change', updateBuilderAvailability);
-  timingSelect.addEventListener('change', updateBuilderAvailability);
-  poolSelect.addEventListener('change', updateBuilderAvailability);
-  updateBuilderAvailability();
+  document.querySelectorAll('[data-open-set]').forEach((button) => {
+    button.onclick = () => openCompletedSet(button.dataset.openSet);
+  });
 }
 
-async function startSet() {
-  if (activeSet && !activeSet.submitted && !confirm(
-    'Replace the current active set?\n\nIts saved answers will remain in local history, but it will no longer be resumable.'
-  )) return;
+function saveBuilderSettings() {
+  if (!activeBank) return;
+  const categories = selectedSubjectCategories();
+  localStorage.setItem(`${BUILDER_SETTINGS_PREFIX}${activeBank.id}`, JSON.stringify({
+    count: Math.max(1, Math.trunc(Number(document.getElementById('questionCount')?.value || 1))),
+    mode: document.getElementById('modeSelect')?.value || 'test',
+    timing: document.getElementById('timingSelect')?.value || 'timed',
+    pool: document.getElementById('poolSelect')?.value || 'all',
+    categories
+  }));
+}
 
-  if (activeSet && !activeSet.submitted) await saveActiveSet('abandoned');
+async function startSet(event) {
+  event.preventDefault();
+  const count = Math.max(1, Math.trunc(Number(document.getElementById('questionCount').value)) || 1);
+  const mode = document.getElementById('modeSelect').value;
+  const timed = document.getElementById('timingSelect').value === 'timed';
+  const pool = document.getElementById('poolSelect').value;
+  const selectedCategories = selectedSubjectCategories();
+  saveBuilderSettings();
 
   const progress = await progressMap(activeBank.id);
-  const categories = selectedSubjectCategories();
-  if (!categories.length) return alert('Select at least one subject before starting a practice set.');
-  const ids = chooseQuestionIds(
-    activeBank,
-    progress,
-    document.getElementById('poolSelect').value,
-    document.getElementById('countInput').value,
-    Math.random,
-    categories
-  );
-  if (!ids.length) return alert('No questions are available in that pool.');
+  const eligible = eligibleQuestionIds(activeBank, progress, {
+    pool,
+    categories: selectedCategories
+  });
 
+  if (!eligible.length) {
+    alert('No questions match those settings. Choose more subjects or another question status.');
+    return;
+  }
+
+  const questionIds = chooseQuestionIds(eligible, Math.min(count, eligible.length));
+  const startedAt = new Date().toISOString();
   activeSet = {
     id: crypto.randomUUID(),
     bankId: activeBank.id,
-    questionIds: ids,
+    questionIds,
     index: 0,
-    mode: document.getElementById('modeSelect').value,
-    timed: document.getElementById('timingSelect').value === 'timed',
-    remainingSeconds: Math.ceil(ids.length * 70.6),
+    mode,
+    timed,
+    remainingSeconds: timed ? questionIds.length * 90 : 0,
     answers: new Map(),
     submitted: false,
-    startedAt: new Date().toISOString(),
+    startedAt,
     completedAt: null
   };
-  await saveActiveSet();
-  await renderQuestion();
-}
 
-async function saveActiveSet(status = activeSet?.submitted ? 'completed' : 'active') {
-  if (!activeSet) return;
   await updatePracticeSet({ deviceId, record: {
     id: activeSet.id,
     bankId: activeSet.bankId,
-    status,
-    mode: activeSet.mode,
-    timed: activeSet.timed,
-    questionIds: activeSet.questionIds,
-    index: activeSet.index,
+    name: `${activeBank.shortTitle} ${mode === 'tutor' ? 'Tutor' : 'Test'} set`,
+    mode,
+    timed,
+    status: 'active',
+    startedAt,
+    completedAt: null,
     remainingSeconds: activeSet.remainingSeconds,
-    submitted: activeSet.submitted,
-    startedAt: activeSet.startedAt,
-    completedAt: activeSet.completedAt ?? null,
-    updatedAt: new Date().toISOString()
+    index: activeSet.index,
+    questionIds,
+    submitted: false
   }});
+  await createRecoverySnapshot('practice-set-started');
+  homeBtn.hidden = false;
+  await renderQuestion();
 }
 
 function submissionConfirmation() {
-  const answered = activeSet.answers.size;
-  const unanswered = Math.max(0, activeSet.questionIds.length - answered);
-  return confirm([
-    'Submit this set now?',
-    '',
-    `${answered} answered`,
-    `${unanswered} unanswered (submitted as omitted)`,
-    '',
-    'After submission, the test will be saved in History / Previous tests and can be reviewed later.'
-  ].join('\n'));
+  const unanswered = activeSet.questionIds.length - activeSet.answers.size;
+  const wording = unanswered > 0
+    ? `Submit this set now? ${unanswered} question${unanswered === 1 ? '' : 's'} will be left unanswered.`
+    : 'Submit this set now?';
+  return confirm(wording);
+}
+
+async function saveActiveSet(status = activeSet.submitted ? 'completed' : 'active') {
+  await updatePracticeSet({ deviceId, record: {
+    id: activeSet.id,
+    bankId: activeSet.bankId,
+    name: `${activeBank.shortTitle} ${activeSet.mode === 'tutor' ? 'Tutor' : 'Test'} set`,
+    mode: activeSet.mode,
+    timed: activeSet.timed,
+    status,
+    startedAt: activeSet.startedAt,
+    completedAt: activeSet.completedAt,
+    remainingSeconds: activeSet.remainingSeconds,
+    index: activeSet.index,
+    questionIds: activeSet.questionIds,
+    submitted: activeSet.submitted
+  }});
 }
 
 async function renderQuestion() {
-  if (!activeSet) return renderDashboard();
-
   clearInterval(timer);
   homeBtn.hidden = false;
-
   const question = activeBank.byId.get(activeSet.questionIds[activeSet.index]);
   if (!question) {
-    await saveActiveSet('invalid');
     activeSet = null;
     return renderDashboard();
   }
@@ -805,6 +748,10 @@ homeBtn.onclick = async () => {
 
 window.addEventListener('beforeunload', () => {
   if (activeSet && !activeSet.submitted) void saveActiveSet();
+});
+
+window.addEventListener('abpn:deck-catalog-updated', () => {
+  void refreshCatalog();
 });
 
 initialize();
