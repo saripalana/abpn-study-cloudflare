@@ -6,10 +6,14 @@
   function normalizeControl() {
     const button = document.getElementById("importBankBtn");
     if (!(button instanceof HTMLButtonElement)) return null;
-    button.type = "button";
-    button.textContent = "Import from file";
-    button.setAttribute("aria-controls", input.id);
-    button.setAttribute("aria-haspopup", "dialog");
+    if (button.type !== "button") button.type = "button";
+    if (button.textContent !== "Import from file") button.textContent = "Import from file";
+    if (button.getAttribute("aria-controls") !== input.id) {
+      button.setAttribute("aria-controls", input.id);
+    }
+    if (button.getAttribute("aria-haspopup") !== "dialog") {
+      button.setAttribute("aria-haspopup", "dialog");
+    }
     return button;
   }
 
@@ -27,6 +31,8 @@
     button.className = "secondary";
     button.type = "button";
     button.textContent = "Import from file";
+    button.setAttribute("aria-controls", input.id);
+    button.setAttribute("aria-haspopup", "dialog");
 
     const note = document.createElement("p");
     note.className = "muted";
@@ -34,7 +40,6 @@
 
     actions.append(button);
     loadingCard.append(note, actions);
-    normalizeControl();
   }
 
   function openPicker() {
@@ -65,14 +70,14 @@
   }, true);
 
   // The dashboard is rendered repeatedly. Normalize each newly rendered control.
-  // During startup, keep file import available without changing the protected app.
+  // Only write when a value differs so the observer cannot retrigger itself forever.
   const observer = new MutationObserver(() => {
-    normalizeControl();
     ensureStartupControl();
+    normalizeControl();
   });
   observer.observe(app, { childList: true, subtree: true });
-  normalizeControl();
   ensureStartupControl();
+  normalizeControl();
 
   // Native buttons already translate Enter/Space into click. No competing
   // keydown handler is needed.
