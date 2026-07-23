@@ -24,7 +24,9 @@ test('Import from file opens the native file chooser through one activation path
     </main>
     <input id="bankImportInput" type="file" accept="application/json,.json">
   `);
-  await page.addScriptTag({ content: bridgeSource });
+  await page.evaluate((source) => {
+    (0, eval)(source);
+  }, bridgeSource);
 
   const button = page.locator('#importBankBtn');
   await expect(button).toBeVisible();
