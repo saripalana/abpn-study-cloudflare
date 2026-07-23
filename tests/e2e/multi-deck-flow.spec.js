@@ -42,9 +42,13 @@ test("combined K&S and Spiegel set survives reload, submission, history, and rev
   });
 
   await page.goto("/");
+  await expect(page.locator('#bankSelect option[value="validation-bank"]')).toHaveCount(0);
+  await expect(page.locator("#bankSelect option")).toHaveCount(1);
+
   await page.locator("#githubBankUrlInput").fill("https://dancingremote.github.io/spiegel-test-prep/");
   await page.getByRole("button", { name: "Import from GitHub" }).click();
   await expect(page.locator("#bankSelect")).toHaveValue("spiegel-test-prep");
+  await expect(page.locator('#bankSelect option[value="validation-bank"]')).toHaveCount(0);
 
   await page.locator("#bankSelect").selectOption("ks-psychiatry-core");
   await expect(page.locator("#bankSelect")).toHaveValue("ks-psychiatry-core");
@@ -82,6 +86,7 @@ test("combined K&S and Spiegel set survives reload, submission, history, and rev
   await expect(page.getByText("K&S Psychiatry", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Back to dashboard" }).click();
+  await expect(page.locator(".history-item").first()).toContainText("Decks: K&S Psychiatry + Spiegel Test Prep");
   const reviewButton = page.locator(".review-history-btn").first();
   await expect(reviewButton).toBeVisible();
   await reviewButton.click();
