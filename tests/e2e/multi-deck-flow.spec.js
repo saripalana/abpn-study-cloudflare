@@ -19,10 +19,14 @@ function legacySpiegelSource() {
 }
 
 test("combined K&S and Spiegel set survives reload, submission, history, and review", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(90_000);
   page.on("dialog", async (dialog) => dialog.accept());
   await page.addInitScript(() => {
-    Math.random = () => 0;
+    let shuffleCall = 0;
+    Math.random = () => {
+      shuffleCall += 1;
+      return shuffleCall === 1 ? 0 : 0.999999;
+    };
   });
   await page.route("https://raw.githubusercontent.com/dancingremote/spiegel-test-prep/**", async (route) => {
     if (route.request().url().endsWith("/main/data.js")) {
@@ -46,14 +50,15 @@ test("combined K&S and Spiegel set survives reload, submission, history, and rev
   await expect(page.locator("#bankSelect")).toHaveValue("ks-psychiatry-core");
   await page.locator("#deckScopeSelect").selectOption("all");
   await expect(page.locator("#deckScopeAvailability")).toContainText("2 study decks");
-  await page.locator("#countInput").fill("602");
+  await page.locator("#countInput").fill("2");
   await page.locator("#modeSelect").selectOption("tutor");
   await page.locator("#timingSelect").selectOption("untimed");
-  await page.getByRole("button", { name: "Start randomized set" }).click();
+  await page.getByRole("button", { name: "Start combined randomized set" }).click();
 
   const questionMap = page.locator(".question-map button");
-  await expect(questionMap).toHaveCount(602);
-  await questionMap.nth(601).click();
+  await expect(questionMap).toHaveCount(2);
+  const spiegelIndex = await page.locator(".exam .eyebrow").textContent().then((text) => text?.includes("Spiegel") ? 0 : 1);
+  if (spiegelIndex === 1) await questionMap.nth(1).click();
   await expect(page.locator(".exam .eyebrow")).toContainText("Spiegel");
   await expect(page.getByText("Select all that apply", { exact: false })).toBeVisible();
 
@@ -72,15 +77,16 @@ test("combined K&S and Spiegel set survives reload, submission, history, and rev
 
   await page.getByRole("button", { name: "Submit set" }).click();
   await expect(page.getByText("SET RESULTS")).toBeVisible();
-  await expect(page.getByRole("heading", { name: /1\/602 correct/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /1\/2 correct/ })).toBeVisible();
   await expect(page.getByText("Spiegel", { exact: true })).toBeVisible();
+  await expect(page.getByText("K&S", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Back to dashboard" }).click();
   const reviewButton = page.locator(".review-history-btn").first();
   await expect(reviewButton).toBeVisible();
   await reviewButton.click();
   await expect(page.getByText("SET RESULTS")).toBeVisible();
-  await expect(page.getByRole("heading", { name: /1\/602 correct/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /1\/2 correct/ })).toBeVisible();
   await page.getByRole("button", { name: "Review questions" }).click();
   await expect(page.locator(".exam .eyebrow")).toBeVisible();
 });
