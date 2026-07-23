@@ -42,13 +42,16 @@ test("combined K&S and Spiegel set survives reload, submission, history, and rev
   });
 
   await page.goto("/");
-  await expect(page.locator('#bankSelect option[value="validation-bank"]')).toHaveCount(0);
-  await expect(page.locator("#bankSelect option")).toHaveCount(1);
+  const validationOption = page.locator('#bankSelect option[value="validation-bank"]');
+  await expect(validationOption).toHaveCount(1);
+  await expect(validationOption).toHaveAttribute("hidden", "");
+  await expect(page.locator('#bankSelect option:not([hidden])')).toHaveCount(1);
+  await expect(page.locator('#bankSelect option:not([hidden])')).toHaveValue("ks-psychiatry-core");
 
   await page.locator("#githubBankUrlInput").fill("https://dancingremote.github.io/spiegel-test-prep/");
   await page.getByRole("button", { name: "Import from GitHub" }).click();
   await expect(page.locator("#bankSelect")).toHaveValue("spiegel-test-prep");
-  await expect(page.locator('#bankSelect option[value="validation-bank"]')).toHaveCount(0);
+  await expect(validationOption).toHaveAttribute("hidden", "");
 
   await page.locator("#bankSelect").selectOption("ks-psychiatry-core");
   await expect(page.locator("#bankSelect")).toHaveValue("ks-psychiatry-core");
