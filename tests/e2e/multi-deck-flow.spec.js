@@ -78,8 +78,8 @@ test("combined K&S and Spiegel set survives reload, submission, history, and rev
   await page.getByRole("button", { name: "Submit set" }).click();
   await expect(page.getByText("SET RESULTS")).toBeVisible();
   await expect(page.getByRole("heading", { name: /1\/2 correct/ })).toBeVisible();
-  await expect(page.getByText("Spiegel", { exact: true })).toBeVisible();
-  await expect(page.getByText("K&S", { exact: true })).toBeVisible();
+  await expect(page.getByText("Spiegel Test Prep", { exact: true })).toBeVisible();
+  await expect(page.getByText("K&S Psychiatry", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Back to dashboard" }).click();
   const reviewButton = page.locator(".review-history-btn").first();
