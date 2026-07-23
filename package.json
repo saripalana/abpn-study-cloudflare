@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "app:compat": "node scripts/patch-multiselect-app.mjs && node scripts/patch-multi-deck-builder-ui.mjs && node scripts/patch-multi-deck-session-app.mjs && node scripts/patch-multi-deck-runtime-app.mjs && node scripts/patch-multi-deck-results-correctness.mjs && node scripts/patch-cloud-deck-imports.mjs",
+    "app:compat": "node scripts/patch-multiselect-app.mjs && node scripts/patch-multi-deck-builder-ui.mjs && node scripts/patch-multi-deck-session-app.mjs && node scripts/patch-multi-deck-runtime-app.mjs && node scripts/patch-multi-deck-results-correctness.mjs && node scripts/patch-user-facing-decks.mjs && node scripts/patch-cloud-deck-imports.mjs",
     "worker:compat": "node scripts/patch-deck-library-worker.mjs",
     "bank:import": "node scripts/import-ks-bank.mjs && npm run app:compat && npm run worker:compat",
     "dev": "npm run bank:import && wrangler dev",
