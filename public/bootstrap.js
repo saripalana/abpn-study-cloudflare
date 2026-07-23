@@ -7,13 +7,24 @@ import {
 import { loadInstalledQuestionBanks } from "./client/question-bank-import.js";
 
 const app = document.getElementById("app");
+const CLOUD_STARTUP_TIMEOUT_MS = 5_000;
+
+function withStartupTimeout(operation, timeoutMs = CLOUD_STARTUP_TIMEOUT_MS) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error("Cloud deck startup timed out.")), timeoutMs);
+  });
+  return Promise.race([operation, timeout]).finally(() => clearTimeout(timeoutId));
+}
 
 try {
   const reservedIds = QUESTION_BANKS.filter((bank) => bank.protected).map((bank) => bank.id);
   try {
-    await flushPendingCloudDeckUploads();
-    await promoteLocallyInstalledDecks({ reservedIds });
-    await refreshCloudDeckLibrary({ reservedIds });
+    await withStartupTimeout((async () => {
+      await flushPendingCloudDeckUploads();
+      await promoteLocallyInstalledDecks({ reservedIds });
+      await refreshCloudDeckLibrary({ reservedIds });
+    })());
   } catch (error) {
     console.warn("Cloud deck library is unavailable; continuing with bundled and locally cached decks.", error);
   }
