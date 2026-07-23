@@ -18,14 +18,18 @@ replaceRequired(
 );
 
 replaceRequired(
-  `    const selected = localStorage.getItem(SELECTED_BANK_KEY);
-    activeBank = banks.find((bank) => bank.id === selected)
-      || banks.find((bank) => bank.id === 'ks-psychiatry-core')
-      || banks[0];`,
-  `    const selected = localStorage.getItem(SELECTED_BANK_KEY);
-    activeBank = resolveUserActiveDeck(banks, selected);
-    if (!activeBank) throw new Error('No normal study decks are available.');
-    localStorage.setItem(SELECTED_BANK_KEY, activeBank.id);`,
+  [
+    "    const selected = localStorage.getItem(SELECTED_BANK_KEY);",
+    "    activeBank = banks.find((bank) => bank.id === selected)",
+    "      || banks.find((bank) => bank.id === 'ks-psychiatry-core')",
+    "      || banks[0];",
+  ].join("\n"),
+  [
+    "    const selected = localStorage.getItem(SELECTED_BANK_KEY);",
+    "    activeBank = resolveUserActiveDeck(banks, selected);",
+    "    if (!activeBank) throw new Error('No normal study decks are available.');",
+    "    localStorage.setItem(SELECTED_BANK_KEY, activeBank.id);",
+  ].join("\n"),
   "safe active-deck selection",
 );
 
@@ -36,11 +40,15 @@ replaceRequired(
 );
 
 replaceRequired(
-  `        <small>${formatDateTime(record.completedAt || record.updatedAt)} · ${record.timed ? 'Timed' : 'Untimed'}</small>
-        <small>${result.answered} answered · ${result.omitted} omitted · ${result.incorrect} incorrect · ${formatSeconds(averageTimeMs)} average/question</small>`,
-  `        <small><strong>Decks:</strong> ${esc(practiceSetDeckLabel(banks, record))}</small>
-        <small>${formatDateTime(record.completedAt || record.updatedAt)} · ${record.timed ? 'Timed' : 'Untimed'}</small>
-        <small>${result.answered} answered · ${result.omitted} omitted · ${result.incorrect} incorrect · ${formatSeconds(averageTimeMs)} average/question</small>`,
+  [
+    "        <small>${formatDateTime(record.completedAt || record.updatedAt)} · ${record.timed ? 'Timed' : 'Untimed'}</small>",
+    "        <small>${result.answered} answered · ${result.omitted} omitted · ${result.incorrect} incorrect · ${formatSeconds(averageTimeMs)} average/question</small>",
+  ].join("\n"),
+  [
+    "        <small><strong>Decks:</strong> ${esc(practiceSetDeckLabel(banks, record))}</small>",
+    "        <small>${formatDateTime(record.completedAt || record.updatedAt)} · ${record.timed ? 'Timed' : 'Untimed'}</small>",
+    "        <small>${result.answered} answered · ${result.omitted} omitted · ${result.incorrect} incorrect · ${formatSeconds(averageTimeMs)} average/question</small>",
+  ].join("\n"),
   "completed-test deck labels",
 );
 
