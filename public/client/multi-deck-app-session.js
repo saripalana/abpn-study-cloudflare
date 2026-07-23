@@ -2,6 +2,14 @@ import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from "./multi-deck-bui
 import { createCombinedPracticeSet } from "./multi-deck-session.js";
 import { currentSetQuestion } from "./multi-deck-runtime.js";
 
+export function categoriesByDeckForSession(decks, activeBankId, selectedCategories) {
+  const activeCategories = Array.isArray(selectedCategories) ? selectedCategories.map(String) : null;
+  return new Map((decks || []).map((deck) => [
+    deck.id,
+    deck.id === activeBankId ? activeCategories : null,
+  ]));
+}
+
 export async function loadProgressForSelectedDecks({ decks, activeBankId, settings, loadProgress }) {
   const normalized = normalizeDeckScopeSettings({ decks, activeBankId, saved: settings });
   const progressByBank = new Map();
