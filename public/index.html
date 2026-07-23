@@ -23,7 +23,19 @@
     </div>
   </header>
   <main id="app" class="shell" aria-live="polite">
-    <section class="loading-card">Loading question banks…</section>
+    <section class="loading-card">
+      <p>Loading question banks…</p>
+      <p class="muted">You can choose a saved deck file while the library finishes loading.</p>
+      <div class="actions">
+        <button
+          id="importBankBtn"
+          class="secondary"
+          type="button"
+          aria-controls="bankImportInput"
+          aria-haspopup="dialog"
+        >Import from file</button>
+      </div>
+    </section>
   </main>
   <input
     id="bankImportInput"
@@ -35,7 +47,7 @@
   >
   <footer>Unofficial personal study tool. Not produced or endorsed by ABPN.</footer>
   <script src="/active-autosave-guard.js"></script>
-  <script src="/import-picker-fallback.js"></script>
+  <script src="/import-button-bridge.js"></script>
   <script type="module" src="/bootstrap.js"></script>
   <script type="module" src="/sync-controller.js"></script>
   <script type="module" src="/backup-controller.js"></script>
