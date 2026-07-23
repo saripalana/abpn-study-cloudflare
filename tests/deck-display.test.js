@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  deckOptionHiddenAttribute,
   practiceSetDeckLabel,
   resolveUserActiveDeck,
   userSelectableDecks,
@@ -20,8 +21,17 @@ test("normal deck selector excludes system-validation content", () => {
   ]);
 });
 
+test("system validation option is hidden while normal options remain visible", () => {
+  assert.equal(deckOptionHiddenAttribute(decks[0]), "");
+  assert.equal(deckOptionHiddenAttribute(decks[1]), " hidden");
+});
+
 test("a previously selected validation deck falls back to a normal study deck", () => {
   assert.equal(resolveUserActiveDeck(decks, "validation-bank")?.id, "ks-psychiatry-core");
+});
+
+test("the internal validation fixture can be restored for the active test session", () => {
+  assert.equal(resolveUserActiveDeck(decks, "validation-bank", "ks-psychiatry-core", true)?.id, "validation-bank");
 });
 
 test("combined history labels preserve all source deck names", () => {
