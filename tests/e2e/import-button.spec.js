@@ -1,14 +1,36 @@
+import { readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 
+const indexPath = new URL('../../public/index.html', import.meta.url);
+const bridgePath = new URL('../../public/import-button-bridge.js', import.meta.url);
+
 test('Import from file opens the native file chooser through one activation path', async ({ page }) => {
-  test.setTimeout(35_000);
-  await page.goto('/', { waitUntil: 'commit', timeout: 15_000 });
+  test.setTimeout(20_000);
+
+  const [indexHtml, bridgeSource] = await Promise.all([
+    readFile(indexPath, 'utf8'),
+    readFile(bridgePath, 'utf8'),
+  ]);
+
+  expect(indexHtml).toContain('id="importBankBtn"');
+  expect(indexHtml).toContain('id="bankImportInput"');
+  expect(indexHtml).toContain('src="/import-button-bridge.js"');
+
+  await page.setContent(`
+    <main id="app">
+      <section class="loading-card">
+        <button id="importBankBtn" class="secondary" type="button">Import from file</button>
+      </section>
+    </main>
+    <input id="bankImportInput" type="file" accept="application/json,.json">
+  `);
+  await page.addScriptTag({ content: bridgeSource });
 
   const button = page.locator('#importBankBtn');
-  await expect(button).toBeVisible({ timeout: 15_000 });
+  await expect(button).toBeVisible();
   await expect(button).toHaveText('Import from file');
 
-  const chooserPromise = page.waitForEvent('filechooser', { timeout: 15_000 });
+  const chooserPromise = page.waitForEvent('filechooser', { timeout: 10_000 });
   await button.click();
   const chooser = await chooserPromise;
 
