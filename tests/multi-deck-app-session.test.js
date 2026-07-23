@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  categoriesByDeckForSession,
   createPracticeSession,
   loadProgressForSelectedDecks,
   persistenceRecordForSession,
@@ -16,6 +17,13 @@ const alpha = deck("alpha", "Alpha", ["shared", "a2"]);
 const beta = deck("beta", "Beta", ["shared", "b2"]);
 const validation = { ...deck("validation", "Validation", ["v1"]), sourceType: "system-validation", contentClass: "system-validation" };
 const decks = [alpha, beta, validation];
+
+test("applies selected subjects only to the active deck in a combined set", () => {
+  const categories = categoriesByDeckForSession(decks, alpha.id, ["Alpha subject"]);
+  assert.deepEqual(categories.get("alpha"), ["Alpha subject"]);
+  assert.equal(categories.get("beta"), null);
+  assert.equal(categories.get("validation"), null);
+});
 
 test("loads progress only for selected study decks", async () => {
   const calls = [];
