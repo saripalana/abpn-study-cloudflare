@@ -23,7 +23,19 @@
     </div>
   </header>
   <main id="app" class="shell" aria-live="polite">
-    <section class="loading-card">Loading question banks…</section>
+    <section class="loading-card">
+      <p>Loading question banks…</p>
+      <p class="muted">You can choose a saved deck file while the library finishes loading.</p>
+      <div class="actions">
+        <button
+          id="importBankBtn"
+          class="secondary"
+          type="button"
+          aria-controls="bankImportInput"
+          aria-haspopup="dialog"
+        >Import from file</button>
+      </div>
+    </section>
   </main>
   <input
     id="bankImportInput"
