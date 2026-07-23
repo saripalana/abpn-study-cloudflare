@@ -7,30 +7,58 @@ import {
 import { loadInstalledQuestionBanks } from "./client/question-bank-import.js";
 
 const app = document.getElementById("app");
+const LOCAL_STARTUP_TIMEOUT_MS = 2_000;
 const CLOUD_STARTUP_TIMEOUT_MS = 5_000;
 
-function withStartupTimeout(operation, timeoutMs = CLOUD_STARTUP_TIMEOUT_MS) {
+function withStartupTimeout(operation, timeoutMs, message) {
   let timeoutId;
   const timeout = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error("Cloud deck startup timed out.")), timeoutMs);
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
   });
   return Promise.race([operation, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
+async function loadAvailableDecks(timeoutMs = LOCAL_STARTUP_TIMEOUT_MS) {
+  return withStartupTimeout(
+    loadInstalledQuestionBanks(QUESTION_BANKS),
+    timeoutMs,
+    "Local deck startup timed out.",
+  );
+}
+
 try {
-  const reservedIds = QUESTION_BANKS.filter((bank) => bank.protected).map((bank) => bank.id);
+  // Render the application first. Cloud synchronization must never prevent the
+  // bundled/local study interface or the file-import control from appearing.
   try {
-    await withStartupTimeout((async () => {
-      await flushPendingCloudDeckUploads();
-      await promoteLocallyInstalledDecks({ reservedIds });
-      await refreshCloudDeckLibrary({ reservedIds });
-    })());
+    const definitions = await loadAvailableDecks();
+    QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...definitions);
   } catch (error) {
-    console.warn("Cloud deck library is unavailable; continuing with bundled and locally cached decks.", error);
+    console.warn("Local deck cache is unavailable; continuing with bundled decks.", error);
   }
-  const definitions = await loadInstalledQuestionBanks(QUESTION_BANKS);
-  QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...definitions);
+
   await import("./app.js");
+
+  // Refresh cloud and locally installed decks after the dashboard is usable.
+  void (async () => {
+    const reservedIds = QUESTION_BANKS.filter((bank) => bank.protected).map((bank) => bank.id);
+    try {
+      await withStartupTimeout((async () => {
+        await flushPendingCloudDeckUploads();
+        await promoteLocallyInstalledDecks({ reservedIds });
+        await refreshCloudDeckLibrary({ reservedIds });
+      })(), CLOUD_STARTUP_TIMEOUT_MS, "Cloud deck startup timed out.");
+    } catch (error) {
+      console.warn("Cloud deck library is unavailable; continuing with bundled and locally cached decks.", error);
+    }
+
+    try {
+      const definitions = await loadAvailableDecks();
+      QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...definitions);
+      window.dispatchEvent(new CustomEvent("abpn:deck-catalog-updated"));
+    } catch (error) {
+      console.warn("Updated deck catalog could not be loaded; current dashboard remains available.", error);
+    }
+  })();
 } catch (error) {
   console.error("Question-bank bootstrap failed", error);
   app.innerHTML = `
