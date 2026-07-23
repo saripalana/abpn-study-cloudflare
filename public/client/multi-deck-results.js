@@ -1,12 +1,43 @@
 import { setQuestionItems } from "./multi-deck-runtime.js";
 
+function normalizedLetters(value) {
+  const letters = Array.isArray(value)
+    ? value
+    : value == null
+      ? []
+      : [value];
+  return [...new Set(letters.map(String).map((letter) => letter.trim()).filter(Boolean))].sort();
+}
+
+export function isSessionAnswerCorrect(question, entry) {
+  if (!question || !entry) return false;
+
+  const correctLetters = normalizedLetters(
+    Array.isArray(question.correctLetters) && question.correctLetters.length
+      ? question.correctLetters
+      : question.correctLetter,
+  );
+  const selectedLetters = normalizedLetters(
+    Array.isArray(entry.selectedAnswers) && entry.selectedAnswers.length
+      ? entry.selectedAnswers
+      : entry.selectedAnswer,
+  );
+
+  if (correctLetters.length) {
+    return correctLetters.length === selectedLetters.length
+      && correctLetters.every((letter, index) => letter === selectedLetters[index]);
+  }
+
+  return entry.isCorrect === true;
+}
+
 export function calculateSessionResult(
   decks,
   set,
   answers,
   {
     hasAnswer = (entry) => Boolean(entry),
-    isCorrect = (question, entry) => Boolean(entry?.isCorrect),
+    isCorrect = isSessionAnswerCorrect,
   } = {},
 ) {
   const items = setQuestionItems(decks, set);
