@@ -13,7 +13,7 @@ function replaceRequired(search, replacement, label) {
 
 replaceRequired(
   "import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from './client/multi-deck-builder.js';",
-  "import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from './client/multi-deck-builder.js';\nimport { createPracticeSession, persistenceRecordForSession } from './client/multi-deck-app-session.js';\n\n" + patchMarker,
+  "import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from './client/multi-deck-builder.js';\nimport { categoriesByDeckForSession, createPracticeSession, persistenceRecordForSession } from './client/multi-deck-app-session.js';\n\n" + patchMarker,
   "multi-deck app-session imports",
 );
 
@@ -38,7 +38,7 @@ const replacement = `async function startSet() {
   const count = document.getElementById('countInput').value;
   const mode = document.getElementById('modeSelect').value;
   const timed = document.getElementById('timingSelect').value === 'timed';
-  const categoriesByBank = new Map(banks.map((bank) => [bank.id, categories]));
+  const categoriesByBank = categoriesByDeckForSession(banks, activeBank.id, categories);
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 
