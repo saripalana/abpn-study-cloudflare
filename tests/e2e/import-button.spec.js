@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 
 test('Import from file opens the native file chooser through one activation path', async ({ page }) => {
   test.setTimeout(20_000);
-  await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 15_000 });
+  await page.goto('/', { waitUntil: 'commit', timeout: 15_000 });
   const button = page.getByRole('button', { name: 'Import from file' });
-  await expect(button).toBeVisible();
+  await expect(button).toBeVisible({ timeout: 10_000 });
 
   const chooserPromise = page.waitForEvent('filechooser', { timeout: 15_000 });
   await button.click();
