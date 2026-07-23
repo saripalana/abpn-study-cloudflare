@@ -54,8 +54,13 @@ replaceRequired(
 
 replaceRequired(
   "  let preferredCount = builder.count;",
-  `  let preferredCount = builder.count;
-  bindMultiDeckSelector(app, {
+  "  let preferredCount = builder.count;",
+  "multi-deck selector binding anchor",
+);
+
+replaceRequired(
+  "  document.getElementById('selectAllSubjectsBtn').onclick = () => {",
+  `  bindMultiDeckSelector(app, {
     decks: banks,
     activeBankId: activeBank.id,
     settings: multiDeckBuilder,
@@ -71,7 +76,9 @@ replaceRequired(
         updateBuilderAvailability();
       }
     },
-  });`,
+  });
+
+  document.getElementById('selectAllSubjectsBtn').onclick = () => {`,
   "multi-deck selector binding",
 );
 
