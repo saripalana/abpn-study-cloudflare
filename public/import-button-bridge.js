@@ -3,6 +3,16 @@
   const input = document.getElementById("bankImportInput");
   if (!app || !input) return;
 
+  function normalizeControl() {
+    const button = document.getElementById("importBankBtn");
+    if (!(button instanceof HTMLButtonElement)) return null;
+    button.type = "button";
+    button.textContent = "Import from file";
+    button.setAttribute("aria-controls", input.id);
+    button.setAttribute("aria-haspopup", "dialog");
+    return button;
+  }
+
   function openPicker() {
     input.value = "";
     try {
@@ -29,6 +39,12 @@
     event.stopImmediatePropagation();
     openPicker();
   }, true);
+
+  // The dashboard is rendered repeatedly. Normalize the newly rendered button
+  // each time so the visible label and accessibility contract remain stable.
+  const observer = new MutationObserver(normalizeControl);
+  observer.observe(app, { childList: true, subtree: true });
+  normalizeControl();
 
   // Native buttons already translate Enter/Space into click. No competing
   // keydown handler is needed.
