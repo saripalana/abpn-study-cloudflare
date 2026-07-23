@@ -1,11 +1,30 @@
 import { isStudyDeck } from "./multi-deck-practice.js";
 
-export function userSelectableDecks(decks) {
-  return (Array.isArray(decks) ? decks : []).filter(isStudyDeck);
+export function isUserSelectableDeck(deck) {
+  return isStudyDeck(deck);
 }
 
-export function resolveUserActiveDeck(decks, selectedBankId, preferredBankId = "ks-psychiatry-core") {
-  const selectable = userSelectableDecks(decks);
+export function userSelectableDecks(decks) {
+  return (Array.isArray(decks) ? decks : []).filter(isUserSelectableDeck);
+}
+
+export function deckOptionHiddenAttribute(deck) {
+  return isUserSelectableDeck(deck) ? "" : " hidden";
+}
+
+export function resolveUserActiveDeck(
+  decks,
+  selectedBankId,
+  preferredBankId = "ks-psychiatry-core",
+  allowSystemValidation = false,
+) {
+  const allDecks = Array.isArray(decks) ? decks : [];
+  if (allowSystemValidation) {
+    const selected = allDecks.find((deck) => deck.id === selectedBankId);
+    if (selected) return selected;
+  }
+
+  const selectable = userSelectableDecks(allDecks);
   return selectable.find((deck) => deck.id === selectedBankId)
     || selectable.find((deck) => deck.id === preferredBankId)
     || selectable[0]
