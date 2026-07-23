@@ -13,7 +13,7 @@ function replaceRequired(search, replacement, label) {
 
 replaceRequired(
   "import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from './client/multi-deck-builder.js';",
-  "import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from './client/multi-deck-builder.js';\nimport { categoriesByDeckForSession, createPracticeSession, persistenceRecordForSession } from './client/multi-deck-app-session.js';\n\n" + patchMarker,
+  "import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from './client/multi-deck-builder.js';\nimport { createPracticeSession, persistenceRecordForSession } from './client/multi-deck-app-session.js';\nimport { categoriesByDeckForSession } from './client/multi-deck-app-session.js';\n\n" + patchMarker,
   "multi-deck app-session imports",
 );
 
