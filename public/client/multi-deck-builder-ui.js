@@ -36,13 +36,13 @@ export function multiDeckSelectorMarkup({ decks, activeBankId, settings } = {}) 
         <span id="deckScopeSummary" class="subject-summary">${escapeHtml(deckScopeSummary({ decks, activeBankId, settings: normalized }))}</span>
       </summary>
       <div class="subject-picker-body">
-        <div class="subject-toolbar">
+        <div class="deck-toolbar">
           <button id="selectAllDecksBtn" class="secondary" type="button">Select all</button>
           <button id="clearDecksBtn" class="secondary" type="button">Clear</button>
         </div>
-        <div class="subject-options">
+        <div class="subject-options deck-options">
           ${available.map((deck, index) => `
-            <label class="subject-option" for="practice-deck-${index}">
+            <label class="deck-option" for="practice-deck-${index}" style="display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:.75rem;min-height:44px;padding:.65rem .75rem;">
               <input id="practice-deck-${index}" name="practiceDeckFilter" type="checkbox" value="${escapeHtml(deck.id)}" ${selected.has(deck.id) ? "checked" : ""}>
               <span>${escapeHtml(deck.title)}</span>
               <small>${Number(deck.questions?.length || 0)}</small>
