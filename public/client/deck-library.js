@@ -68,6 +68,32 @@ export async function listCloudDecks(fetchImpl = globalThis.fetch.bind(globalThi
   return Array.isArray(body.decks) ? body.decks : [];
 }
 
+export async function getCloudDeckBootstrapState(fetchImpl = globalThis.fetch.bind(globalThis)) {
+  const response = await fetchImpl("/api/decks/bootstrap", {
+    method: "GET",
+    cache: "no-store",
+    headers: requestHeaders(),
+  });
+  if (!response.ok) {
+    const details = await responseDetails(response, "Deck bootstrap state could not be loaded.");
+    throw responseFailure(response, details);
+  }
+  return response.json();
+}
+
+export async function setCloudDeckBootstrapState(version, fetchImpl = globalThis.fetch.bind(globalThis)) {
+  const response = await fetchImpl("/api/decks/bootstrap", {
+    method: "PUT",
+    headers: requestHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({ version }),
+  });
+  if (!response.ok) {
+    const details = await responseDetails(response, "Deck bootstrap state could not be saved.");
+    throw responseFailure(response, details);
+  }
+  return response.json();
+}
+
 export async function fetchCloudDeckPackage(deckId, fetchImpl = globalThis.fetch.bind(globalThis)) {
   const response = await fetchImpl(`/api/decks/${encodeURIComponent(deckId)}`, {
     method: "GET",

@@ -531,7 +531,10 @@ footer {
   .exam-nav { flex-wrap: wrap; }
   .exam-nav button { flex: 1 1 120px; }
   .card { padding: 15px; }
-  input, select { font-size: 16px; min-height: 44px; }
+  input { font-size: 16px; min-height: 44px; }
+  /* Mobile WebKit can ignore min-height on native selects, so use an explicit
+     touch-target height while retaining the responsive full-width layout. */
+  select { font-size: 16px; height: 44px; min-height: 44px; }
   .header-actions { width: 100%; flex-wrap: wrap; }
   .choice { min-height: 48px; }
   .question-actions { align-items: stretch; }

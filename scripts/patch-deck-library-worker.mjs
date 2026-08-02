@@ -10,7 +10,7 @@ const importNeedle = "const json = (data, status = 200, extraHeaders = {}) =>";
 if (!source.includes(importNeedle)) throw new Error("Could not find Worker JSON helper for deck-library patch.");
 source = source.replace(
   importNeedle,
-  `import { handleDeckLibraryRequest } from "./deck-library-api.js";\n\n${marker}\n${importNeedle}`,
+  `import { handleDeckLibraryRequest } from "./deck-library-api.js";\nimport { handleStarterDeckSourceRequest } from "./starter-deck-source.js";\n\n${marker}\n${importNeedle}`,
 );
 
 const routeNeedle = `async function routeApi(request, env) {\n  const url = new URL(request.url);\n\n`;
@@ -18,6 +18,12 @@ if (!source.includes(routeNeedle)) throw new Error("Could not find Worker API ro
 source = source.replace(
   routeNeedle,
   `async function routeApi(request, env) {\n  const url = new URL(request.url);\n\n  const deckResponse = await handleDeckLibraryRequest(request, env, {\n    json,\n    requireSyncReady,\n    requireContext,\n    reserveUsage,\n    ensureUserAndDevice,\n  });\n  if (deckResponse) return deckResponse;\n\n`,
+);
+
+const routedDeckNeedle = "  if (deckResponse) return deckResponse;\n\n";
+source = source.replace(
+  routedDeckNeedle,
+  `${routedDeckNeedle}  const starterSourceResponse = await handleStarterDeckSourceRequest(request, env, {\n    json,\n    requireSyncReady,\n    requireContext,\n    reserveUsage,\n    ensureUserAndDevice,\n  });\n  if (starterSourceResponse) return starterSourceResponse;\n\n`,
 );
 
 await writeFile(workerPath, source, "utf8");
