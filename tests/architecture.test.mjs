@@ -51,25 +51,34 @@ test("worker exposes health and bidirectional sync endpoints behind release cont
 });
 
 test("all imported banks use the protected persistent deck library", async () => {
-  const [worker, api, browserClient, bootstrap, migration, packageJson] = await Promise.all([
+  const [worker, api, sourceProxy, browserClient, bootstrap, migration, bootstrapMigration, packageJson] = await Promise.all([
     read("src/worker.js"),
     read("src/deck-library-api.js"),
+    read("src/starter-deck-source.js"),
     read("public/client/deck-library.js"),
     read("public/bootstrap.js"),
     read("migrations/0004_cloud_deck_library.sql"),
+    read("migrations/0006_deck_library_bootstrap.sql"),
     read("package.json"),
   ]);
   assert.match(worker, /handleDeckLibraryRequest/);
   assert.match(api, /\/api\/decks/);
   assert.match(api, /MAX_DECK_PACKAGE_BYTES/);
   assert.match(api, /deck_package_chunks/);
+  assert.match(api, /deck_library_state/);
+  assert.match(api, /Protected built-in decks cannot be replaced/);
+  assert.match(sourceProxy, /raw\.githubusercontent\.com\/saripalana\/ks-study-guide\/4d03f158/);
+  assert.match(sourceProxy, /redirect: "error"/);
   assert.match(browserClient, /publishCloudDeckPackage/);
   assert.match(browserClient, /refreshCloudDeckLibrary/);
+  assert.match(browserClient, /getCloudDeckBootstrapState/);
+  assert.match(browserClient, /setCloudDeckBootstrapState/);
   assert.match(browserClient, /pendingDeckUpload/);
   assert.match(bootstrap, /flushPendingCloudDeckUploads/);
   assert.match(bootstrap, /refreshCloudDeckLibrary/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_packages/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_package_chunks/);
+  assert.match(bootstrapMigration, /CREATE TABLE IF NOT EXISTS deck_library_state/);
   assert.match(packageJson, /patch-deck-library-worker\.mjs/);
   assert.match(packageJson, /patch-cloud-deck-imports\.mjs/);
 });

@@ -112,6 +112,64 @@ test("ignores non-deck API routes", async () => {
   assert.equal(response, null);
 });
 
+test("reads an empty per-user bootstrap state without changing deck content", async () => {
+  const reservations = [];
+  const env = { DB: fakeDb() };
+  const response = await handleDeckLibraryRequest(
+    request("/api/decks/bootstrap"),
+    env,
+    helpers({ reserveUsage: async (_env, delta) => reservations.push(delta) }),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { version: "", completedAt: null, updatedAt: null });
+  assert.deepEqual(reservations, [{ requests: 1, rowsRead: 1, rowsWritten: 0 }]);
+});
+
+test("writes only bounded bootstrap metadata", async () => {
+  let saved = null;
+  const env = {
+    DB: fakeDb({
+      first: async () => null,
+    }),
+  };
+  env.DB.prepare = (query) => ({
+    bind: (...values) => ({
+      query,
+      values,
+      first: async () => null,
+      all: async () => ({ results: [] }),
+      run: async () => { saved = { query, values }; return { success: true }; },
+    }),
+  });
+  const response = await handleDeckLibraryRequest(
+    request("/api/decks/bootstrap", {
+      method: "PUT",
+      body: JSON.stringify({ version: "uniform-decks-v1" }),
+    }),
+    env,
+    helpers(),
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).version, "uniform-decks-v1");
+  assert.match(saved.query, /deck_library_state/);
+  assert.equal(saved.values[1], "uniform-decks-v1");
+});
+
+test("rejects oversized bootstrap metadata", async () => {
+  const env = { DB: fakeDb() };
+  await assert.rejects(
+    handleDeckLibraryRequest(
+      request("/api/decks/bootstrap", {
+        method: "PUT",
+        body: JSON.stringify({ version: "x".repeat(5_000) }),
+      }),
+      env,
+      helpers(),
+    ),
+    /4 KiB limit/,
+  );
+});
+
 test("stores a validated deck as an immutable revision and active head", async () => {
   const statements = [];
   const reservations = [];
@@ -337,4 +395,5 @@ test("deck library limits remain bounded", () => {
   assert.equal(DECK_LIBRARY_LIMITS.maximumDecks, 50);
   assert.equal(DECK_LIBRARY_LIMITS.maximumChunks, 96);
   assert.equal(DECK_LIBRARY_LIMITS.maximumRevisionsPerDeck, 100);
+  assert.equal(DECK_LIBRARY_LIMITS.maximumBootstrapBodyBytes, 4 * 1024);
 });

@@ -68,3 +68,10 @@ test("browser and source backup implementations remain identical", async () => {
   ]);
   assert.equal(browser, source);
 });
+
+test("backup restore resolves installed deck references and defers Safari reload", async () => {
+  const controller = await readFile(new URL("../public/backup-controller.js", import.meta.url), "utf8");
+  assert.match(controller, /getAllRecords\(STORES\.BANK_CONTENT\)/);
+  assert.match(controller, /knownQuestionIdsByBank: await knownQuestionIdsByBank\(\)/);
+  assert.match(controller, /setTimeout\(\(\) => location\.reload\(\), 0\)/);
+});

@@ -3,6 +3,7 @@ const CHUNK_CHARACTERS = 240_000;
 const MAX_CHUNKS = 96;
 const MAX_DECKS = 50;
 const MAX_REVISIONS_PER_DECK = 100;
+const MAX_BOOTSTRAP_BODY_BYTES = 4 * 1024;
 
 const safeId = (value) => {
   const id = String(value || "").trim().toLowerCase();
@@ -23,16 +24,20 @@ const safeText = (value, field, maxLength, required = true) => {
   return text;
 };
 
-async function readBoundedText(request, maximumBytes = MAX_DECK_PACKAGE_BYTES) {
+async function readBoundedText(
+  request,
+  maximumBytes = MAX_DECK_PACKAGE_BYTES,
+  limitMessage = "Deck package exceeds the 20 MiB cloud-library limit",
+) {
   const declared = Number(request.headers.get("content-length") || 0);
-  if (declared > maximumBytes) throw new Error("Deck package exceeds the 20 MiB cloud-library limit");
+  if (declared > maximumBytes) throw new Error(limitMessage);
   const bytes = await request.arrayBuffer();
-  if (bytes.byteLength > maximumBytes) throw new Error("Deck package exceeds the 20 MiB cloud-library limit");
+  if (bytes.byteLength > maximumBytes) throw new Error(limitMessage);
   return { text: new TextDecoder().decode(bytes), bytes: bytes.byteLength };
 }
 
-async function readJson(request, maximumBytes = 16 * 1024) {
-  const body = await readBoundedText(request, maximumBytes);
+async function readJson(request, maximumBytes = 16 * 1024, limitMessage) {
+  const body = await readBoundedText(request, maximumBytes, limitMessage);
   try {
     return JSON.parse(body.text);
   } catch {
@@ -141,6 +146,44 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
 
   requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
+
+  // Bootstrap state tracks preparation only. It never changes deck content and
+  // keeps the internal validation fixture governed by its existing protections.
+  if (parts.length === 1 && parts[0] === "bootstrap") {
+    if (request.method === "GET") {
+      await reserveUsage(env, { requests: 1, rowsRead: 1, rowsWritten: 0 });
+      await ensureUserAndDevice(env, userId, deviceId);
+      const state = await env.DB.prepare(
+        "SELECT bootstrap_version, completed_at, updated_at FROM deck_library_state WHERE user_id = ?"
+      ).bind(userId).first();
+      return json({
+        version: state?.bootstrap_version || "",
+        completedAt: state?.completed_at || null,
+        updatedAt: state?.updated_at || null,
+      });
+    }
+    if (request.method === "PUT") {
+      const parsed = await readJson(
+        request,
+        MAX_BOOTSTRAP_BODY_BYTES,
+        "Deck bootstrap request exceeds the 4 KiB limit",
+      );
+      const version = safeText(parsed?.version, "Deck bootstrap version", 100);
+      await reserveUsage(env, { requests: 1, writeActions: 1, rowsRead: 1, rowsWritten: 1 });
+      await ensureUserAndDevice(env, userId, deviceId);
+      const now = new Date().toISOString();
+      await env.DB.prepare(`
+        INSERT INTO deck_library_state (user_id, bootstrap_version, completed_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          bootstrap_version = excluded.bootstrap_version,
+          completed_at = excluded.completed_at,
+          updated_at = excluded.updated_at
+      `).bind(userId, version, now, now).run();
+      return json({ ok: true, version, completedAt: now, updatedAt: now });
+    }
+    return json({ error: "Method not allowed" }, 405, { allow: "GET, PUT" });
+  }
 
   if (request.method === "GET" && parts.length === 0) {
     await reserveUsage(env, { requests: 1, rowsRead: MAX_DECKS, rowsWritten: 0 });
@@ -403,4 +446,5 @@ export const DECK_LIBRARY_LIMITS = Object.freeze({
   maximumDecks: MAX_DECKS,
   maximumChunks: MAX_CHUNKS,
   maximumRevisionsPerDeck: MAX_REVISIONS_PER_DECK,
+  maximumBootstrapBodyBytes: MAX_BOOTSTRAP_BODY_BYTES,
 });
