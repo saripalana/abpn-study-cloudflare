@@ -77,7 +77,7 @@ jobs:
       - name: Run remaining desktop Chrome flows
         id: desktop
         continue-on-error: true
-        run: timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=chromium-desktop --grep-invert='Import question bank opens' --reporter=json > desktop-chrome-report.json
+        run: timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=chromium-desktop --grep-invert='Import question bank opens' --workers=1 --reporter=json > desktop-chrome-report.json
       - name: Upload desktop Chrome report
         if: always()
         uses: actions/upload-artifact@v4
@@ -94,7 +94,7 @@ jobs:
       - name: Run iPhone 13 Safari flows
         id: iphone
         continue-on-error: true
-        run: timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=iphone-13-safari --reporter=json > iphone-safari-report.json
+        run: timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=iphone-13-safari --workers=1 --reporter=json > iphone-safari-report.json
       - name: Upload iPhone Safari report
         if: always()
         uses: actions/upload-artifact@v4
