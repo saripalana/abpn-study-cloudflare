@@ -20,7 +20,13 @@ require_file() {
 require_file "docs/COST_AND_USAGE_POLICY.md"
 require_file ".github/workflows/cost-guardrails.yml"
 
-mapfile -t wrangler_files < <(
+# macOS ships Bash 3.2, which does not provide `mapfile`. Populate indexed
+# arrays with a POSIX-style read loop so the same guardrail runs locally and
+# in GitHub Actions without weakening or duplicating any policy checks.
+wrangler_files=()
+while IFS= read -r file; do
+  wrangler_files+=("$file")
+done < <(
   find . -type f \
     \( -name 'wrangler.toml' -o -name 'wrangler.json' -o -name 'wrangler.jsonc' \) \
     -not -path './node_modules/*' \
@@ -52,7 +58,10 @@ for file in "${wrangler_files[@]}"; do
 done
 
 # Deployment and package configuration must not opt into prohibited products or paid plans.
-mapfile -t deployment_files < <(
+deployment_files=()
+while IFS= read -r file; do
+  deployment_files+=("$file")
+done < <(
   find . -type f \
     \( -name 'package.json' -o -name 'package-lock.json' -o -name 'pnpm-lock.yaml' -o -name 'yarn.lock' -o -name '*.tf' -o -name '*.yaml' -o -name '*.yml' \) \
     -not -path './node_modules/*' \

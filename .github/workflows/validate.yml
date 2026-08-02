@@ -2,7 +2,7 @@ name: Validate ABPN Study Cloudflare
 
 on:
   push:
-    branches: [main, development]
+    branches: [main, release-candidate]
   pull_request:
     branches: [main]
 
@@ -12,7 +12,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,7 +41,22 @@ jobs:
           test -f public/banks/generated/ks-psychiatry-core.manifest.json
           grep -q '"questionCount": 602' public/banks/generated/ks-psychiatry-core.manifest.json
       - name: Install Chromium and WebKit
-        run: npx playwright install --with-deps chromium webkit >/tmp/playwright-install.log 2>&1 || { tail -n 200 /tmp/playwright-install.log; exit 1; }
+        id: playwright_install
+        continue-on-error: true
+        run: timeout --signal=TERM --kill-after=30s 20m npx playwright install --with-deps chromium webkit > playwright-install.log 2>&1
+      - name: Upload Playwright installation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-install-log
+          path: playwright-install.log
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Fail when Playwright installation fails or times out
+        if: steps.playwright_install.outcome == 'failure'
+        run: |
+          tail -n 200 playwright-install.log || true
+          exit 1
       - name: Verify import button smoke flow
         id: import_smoke
         continue-on-error: true
