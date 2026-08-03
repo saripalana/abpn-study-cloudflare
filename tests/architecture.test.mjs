@@ -35,6 +35,31 @@ test("local storage uses separate bank-bound progress keys", async () => {
   assert.match(storage, /id: `\$\{entityType\}:\$\{entityKey\}`/);
 });
 
+test("phase 1 weakness analytics remain local, derived, and content-free", async () => {
+  const [analytics, app] = await Promise.all([
+    read("src/client/weakness-analytics.js"),
+    read("public/app.js"),
+  ]);
+  assert.match(analytics, /limited-current-state/);
+  assert.match(analytics, /priorityScore/);
+  assert.doesNotMatch(analytics, /fetch\s*\(/);
+  assert.doesNotMatch(analytics, /selectedAnswer|correctLetter|question\.question/);
+  assert.match(app, /LOCAL-ONLY · LIMITED EVIDENCE/);
+});
+
+test("dependency installation is locked and the audited HTTP client is patched", async () => {
+  const [packageJson, packageLock, validationWorkflow] = await Promise.all([
+    read("package.json"),
+    read("package-lock.json"),
+    read(".github/workflows/validate.yml"),
+  ]);
+  assert.match(packageJson, /"undici"\s*:\s*"7\.29\.0"/);
+  assert.match(packageLock, /"node_modules\/undici"/);
+  assert.match(packageLock, /"version"\s*:\s*"7\.29\.0"/);
+  assert.match(validationWorkflow, /run:\s*npm ci --silent/);
+  assert.doesNotMatch(validationWorkflow, /run:\s*npm install --silent/);
+});
+
 test("worker exposes health and bidirectional sync endpoints behind release controls", async () => {
   const worker = await read("src/worker.js");
   assert.match(worker, /\/api\/health/);

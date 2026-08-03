@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm install --silent
+        run: npm ci --silent
       - name: Verify pinned K&S source, unit tests, and Worker build
         id: verify
         continue-on-error: true
