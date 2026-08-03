@@ -57,9 +57,29 @@ jobs:
         run: |
           tail -n 200 playwright-install.log || true
           exit 1
+      - name: Start shared local validation server
+        id: validation_server
+        continue-on-error: true
+        run: |
+          setsid sh -c 'npm run dev:test > validation-server.log 2>&1' &
+          echo "$!" > validation-server.pid
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error http://127.0.0.1:8787/ > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+      - name: Fail when validation server does not start
+        if: steps.validation_server.outcome == 'failure'
+        run: |
+          tail -n 200 validation-server.log || true
+          exit 1
       - name: Verify import button smoke flow
         id: import_smoke
         continue-on-error: true
+        env:
+          PLAYWRIGHT_REUSE_SERVER: "true"
         run: timeout --signal=TERM --kill-after=10s 90s npx playwright test tests/e2e/import-button.spec.js --project=chromium-desktop --workers=1 --retries=0 --reporter=json > import-button-report.json
       - name: Upload import smoke report
         if: always()
@@ -77,7 +97,11 @@ jobs:
       - name: Run remaining desktop Chrome flows
         id: desktop
         continue-on-error: true
-        run: timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=chromium-desktop --grep-invert='Import question bank opens' --workers=1 --reporter=json > desktop-chrome-report.json
+        env:
+          PLAYWRIGHT_REUSE_SERVER: "true"
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8787/ > /dev/null
+          timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=chromium-desktop --grep-invert='Import question bank opens' --workers=1 --reporter=json > desktop-chrome-report.json
       - name: Upload desktop Chrome report
         if: always()
         uses: actions/upload-artifact@v4
@@ -94,7 +118,11 @@ jobs:
       - name: Run iPhone 13 Safari flows
         id: iphone
         continue-on-error: true
-        run: timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=iphone-13-safari --workers=1 --reporter=json > iphone-safari-report.json
+        env:
+          PLAYWRIGHT_REUSE_SERVER: "true"
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8787/ > /dev/null
+          timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=iphone-13-safari --workers=1 --reporter=json > iphone-safari-report.json
       - name: Upload iPhone Safari report
         if: always()
         uses: actions/upload-artifact@v4
@@ -108,3 +136,18 @@ jobs:
       - name: Fail when iPhone Safari validation fails
         if: steps.iphone.outcome == 'failure'
         run: exit 1
+      - name: Stop shared local validation server
+        if: always()
+        run: |
+          if test -f validation-server.pid; then
+            server_pid="$(cat validation-server.pid)"
+            kill -- "-$server_pid" 2>/dev/null || true
+          fi
+      - name: Upload validation server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-server-log
+          path: validation-server.log
+          if-no-files-found: warn
+          retention-days: 7

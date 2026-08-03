@@ -31,7 +31,9 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev:test',
     url: 'http://127.0.0.1:8787',
-    reuseExistingServer: !process.env.CI,
+    // CI starts one job-scoped server so sequential browser gates cannot race
+    // through repeated Wrangler startup and teardown cycles.
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === 'true' || !process.env.CI,
     timeout: 120_000
   }
 });
