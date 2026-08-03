@@ -80,7 +80,11 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   const firstContext = await browser.newContext({ baseURL });
   const firstPage = await firstContext.newPage();
   await installDeckApiRoute(firstPage, cloudStore, observedHeaders);
-  firstPage.on("dialog", async (dialog) => dialog.accept());
+  let importCompleted = false;
+  firstPage.on("dialog", async (dialog) => {
+    if (dialog.message().startsWith("Deck added to your library successfully.")) importCompleted = true;
+    await dialog.accept();
+  });
   await firstPage.goto("/");
   await expect(firstPage.getByRole("heading", { name: "K&S Psychiatry Question Bank" })).toBeVisible();
 
@@ -92,10 +96,10 @@ test("an added deck appears in a clean second browser profile like K&S", async (
     buffer: Buffer.from(JSON.stringify(deckPackage())),
   });
 
-  // Treat the completed protected-cloud upload as the import boundary, then reload
-  // explicitly so the selector assertion observes a fully initialized local library.
+  // Require protected-cloud publication and the post-install success boundary; the
+  // application then performs its own reload, which the selector assertion observes.
   await expect.poll(() => cloudStore.has("cross-device-deck")).toBe(true);
-  await firstPage.reload();
+  await expect.poll(() => importCompleted).toBe(true);
   await expect(firstPage.locator('#bankSelect option[value="cross-device-deck"]')).toHaveCount(1);
   await firstPage.selectOption("#bankSelect", "cross-device-deck");
   await expect(firstPage.getByRole("heading", { name: "Cross-device Deck" })).toBeVisible();
