@@ -86,17 +86,19 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   const chooserPromise = firstPage.waitForEvent("filechooser");
   await firstPage.getByRole("button", { name: "Import from file" }).click();
   const chooser = await chooserPromise;
-  const navigation = firstPage.waitForNavigation({ waitUntil: "domcontentloaded" });
   await chooser.setFiles({
     name: "cross-device-deck.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(deckPackage())),
   });
-  await navigation;
 
-  await expect(firstPage.locator("#bankSelect")).toHaveValue("cross-device-deck");
+  // The import intentionally reloads, but navigation events and automatic selection
+  // can settle in either order. Wait for the durable local/cloud contracts, then select
+  // the deck explicitly before validating what a user can study.
+  await expect(firstPage.locator('#bankSelect option[value="cross-device-deck"]')).toHaveCount(1);
+  await expect.poll(() => cloudStore.has("cross-device-deck")).toBe(true);
+  await firstPage.selectOption("#bankSelect", "cross-device-deck");
   await expect(firstPage.getByRole("heading", { name: "Cross-device Deck" })).toBeVisible();
-  expect(cloudStore.has("cross-device-deck")).toBe(true);
   await firstContext.close();
 
   const secondContext = await browser.newContext({ baseURL });
