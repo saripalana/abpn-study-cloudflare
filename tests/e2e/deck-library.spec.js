@@ -82,21 +82,21 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   await installDeckApiRoute(firstPage, cloudStore, observedHeaders);
   firstPage.on("dialog", async (dialog) => dialog.accept());
   await firstPage.goto("/");
+  await expect(firstPage.getByRole("heading", { name: "K&S Psychiatry Question Bank" })).toBeVisible();
 
-  const chooserPromise = firstPage.waitForEvent("filechooser");
-  await firstPage.getByRole("button", { name: "Import from file" }).click();
-  const chooser = await chooserPromise;
-  await chooser.setFiles({
+  // File-picker activation is covered by import-button.spec.js. This test targets
+  // library persistence, so inject the package through the stable file input.
+  await firstPage.locator("#bankImportInput").setInputFiles({
     name: "cross-device-deck.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(deckPackage())),
   });
 
-  // The import intentionally reloads, but navigation events and automatic selection
-  // can settle in either order. Wait for the durable local/cloud contracts, then select
-  // the deck explicitly before validating what a user can study.
-  await expect(firstPage.locator('#bankSelect option[value="cross-device-deck"]')).toHaveCount(1);
+  // Treat the completed protected-cloud upload as the import boundary, then reload
+  // explicitly so the selector assertion observes a fully initialized local library.
   await expect.poll(() => cloudStore.has("cross-device-deck")).toBe(true);
+  await firstPage.reload();
+  await expect(firstPage.locator('#bankSelect option[value="cross-device-deck"]')).toHaveCount(1);
   await firstPage.selectOption("#bankSelect", "cross-device-deck");
   await expect(firstPage.getByRole("heading", { name: "Cross-device Deck" })).toBeVisible();
   await firstContext.close();

@@ -2,9 +2,10 @@ name: Validate ABPN Study Cloudflare
 
 on:
   push:
-    branches: [main, release-candidate]
+    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
