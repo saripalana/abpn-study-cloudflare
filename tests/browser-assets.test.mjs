@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, access } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const root=path.resolve(new URL('..',import.meta.url).pathname);
+const root=path.resolve(fileURLToPath(new URL('..',import.meta.url)));
 const read=relative=>readFile(path.join(root,relative),'utf8');
 
 test('required application assets exist',async()=>{for(const file of ['public/index.html','public/app.js','public/styles.css','public/client/storage.js','public/client/study-engine.js','public/banks/catalog.js'])await access(path.join(root,file))});
