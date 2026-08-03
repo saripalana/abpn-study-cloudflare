@@ -420,6 +420,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .legend-flag { color: #c68b00; font-style: normal; font-size: 14px; }
 
 .dashboard-section { margin-top: 18px; }
+.analytics-subsection {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
 
 .section-heading {
   display: flex;

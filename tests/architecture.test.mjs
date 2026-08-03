@@ -35,6 +35,18 @@ test("local storage uses separate bank-bound progress keys", async () => {
   assert.match(storage, /id: `\$\{entityType\}:\$\{entityKey\}`/);
 });
 
+test("phase 1 weakness analytics remain local, derived, and content-free", async () => {
+  const [analytics, app] = await Promise.all([
+    read("src/client/weakness-analytics.js"),
+    read("public/app.js"),
+  ]);
+  assert.match(analytics, /limited-current-state/);
+  assert.match(analytics, /priorityScore/);
+  assert.doesNotMatch(analytics, /fetch\s*\(/);
+  assert.doesNotMatch(analytics, /selectedAnswer|correctLetter|question\.question/);
+  assert.match(app, /LOCAL-ONLY · LIMITED EVIDENCE/);
+});
+
 test("worker exposes health and bidirectional sync endpoints behind release controls", async () => {
   const worker = await read("src/worker.js");
   assert.match(worker, /\/api\/health/);

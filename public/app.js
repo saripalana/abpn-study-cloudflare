@@ -6,6 +6,7 @@ import {
   calculateSetResult,
   categoryStatistics
 } from './client/study-engine.js';
+import { buildWeaknessSnapshot } from './client/weakness-analytics.js';
 import {
   STORES,
   getRecord,
@@ -243,6 +244,8 @@ async function renderDashboard() {
   const totalTimeMs = usedRecords.reduce((total, record) => total + Number(record.totalTimeMs || 0), 0);
   const averageTimeMs = attempts ? totalTimeMs / attempts : 0;
   const rows = categoryStatistics(activeBank, progress).filter((row) => row.answered);
+  const weakness = buildWeaknessSnapshot(activeBank, progress);
+  const weaknessRows = weakness.domains.filter((domain) => domain.usedQuestions > 0);
   const history = await completedSetHistory(activeBank.id);
   const resumable = activeSet && activeSet.bankId === activeBank.id && !activeSet.submitted;
   const categories = categoryEntries(activeBank);
@@ -374,6 +377,21 @@ async function renderDashboard() {
           <tbody>${rows.map((row) => `<tr><td>${esc(row.title)}</td><td>${row.answered}/${row.total}</td><td>${Math.round(row.accuracy * 100)}%</td></tr>`).join('')}</tbody>
         </table>
       ` : '<div class="empty">Complete questions to build analytics.</div>'}
+      <div class="section-heading analytics-subsection">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">LOCAL-ONLY · LIMITED EVIDENCE</div>
+          <h3>Weakness priorities</h3>
+          <p class="muted">A planning aid based on current correctness, recent use, and time. It is not attempt history or a prediction.</p>
+        </div>
+        <span class="pill">${Math.round((weakness.masteryCoverage || 0) * 100)}% mastery coverage</span>
+      </div>
+      ${weaknessRows.length ? `
+        <table class="summary-table">
+          <thead><tr><th>Domain</th><th>Priority</th><th>Evidence</th></tr></thead>
+          <tbody>${weaknessRows.map((domain) => `<tr><td>${esc(domain.title)}</td><td>${domain.priorityScore}/100</td><td>${esc(domain.evidence)} · ${domain.usedQuestions}/${domain.totalQuestions} used</td></tr>`).join('')}</tbody>
+        </table>
+        <p class="muted">Adequate evidence in ${Math.round((weakness.evidenceCoverage || 0) * 100)}% of domains. More completed questions improve reliability.</p>
+      ` : '<div class="empty">Complete questions to build local weakness priorities.</div>'}
     </section>
   `;
 
