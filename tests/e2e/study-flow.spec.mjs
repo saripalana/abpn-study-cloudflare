@@ -169,7 +169,7 @@ test('tutor mode reveals feedback immediately and records analytics', async ({ p
   await page.locator('.choice').first().click();
   await expect(page.locator('.explanation')).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  await expect(page.locator('.summary-table')).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Category' })).toBeVisible();
 });
 
 test('timed set continues counting down across reload', async ({ page }) => {
