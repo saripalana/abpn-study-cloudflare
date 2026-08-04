@@ -10,6 +10,7 @@
     "bank:import": "node scripts/import-ks-bank.mjs && npm run build",
     "dev": "npm run bank:import && wrangler dev",
     "dev:test": "npm run bank:import && wrangler dev --local --port 8787 --var APP_RELEASE_MODE:full --var CLOUD_SYNC_ENABLED:false --var ACCESS_JWT_REQUIRED:false",
+    "staging:check": "npm run verify && wrangler deploy --dry-run --config wrangler.staging.toml",
     "deploy": "npm run verify && npm run db:migrate:remote && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply abpn-study-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply abpn-study-db --remote",

@@ -152,3 +152,28 @@ test("verified D1 remains bound while protected cloud synchronization is enabled
   assert.match(wrangler, /ACCESS_JWT_REQUIRED\s*=\s*"true"/);
   assert.doesNotMatch(wrangler, /00000000-0000-0000-0000-000000000000/);
 });
+
+test("one parallel staging stack is production-equivalent but write-isolated", async () => {
+  const [production, staging, worker, lifecycle, bootstrap] = await Promise.all([
+    read("wrangler.toml"),
+    read("wrangler.staging.toml"),
+    read("src/worker.js"),
+    read("src/client/staging-lifecycle.js"),
+    read("src/browser/bootstrap.js"),
+  ]);
+  assert.match(staging, /name\s*=\s*"abpn-study-cloudflare-staging"/);
+  assert.match(staging, /database_name\s*=\s*"abpn-study-db-staging"/);
+  assert.match(staging, /APP_ENV\s*=\s*"staging"/);
+  assert.match(staging, /STUDY_USER_ID\s*=\s*"staging-user"/);
+  assert.match(staging, /STAGING_DISPOSABLE_ENABLED\s*=\s*"true"/);
+  assert.match(staging, /STAGING_SESSION_TTL_SECONDS\s*=\s*"14400"/);
+  assert.doesNotMatch(staging, /356b5061-81c2-4327-bdec-27127e03319d/);
+  assert.doesNotMatch(production, /STAGING_DISPOSABLE_ENABLED/);
+  assert.match(worker, /Disposable session cleanup is available only in isolated staging/);
+  assert.match(worker, /DELETE FROM deck_package_heads WHERE user_id/);
+  assert.match(worker, /DELETE FROM users WHERE id/);
+  assert.match(lifecycle, /\/api\/health/);
+  assert.match(lifecycle, /\/api\/staging\/session/);
+  assert.match(lifecycle, /deleteStudyDatabase/);
+  assert.match(bootstrap, /await ensureStagingSession\(\)/);
+});

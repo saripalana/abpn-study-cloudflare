@@ -15,3 +15,5 @@ The sentence above records the original deployment state and is retained as hist
 5. Obtain explicit user acceptance and separate approvals for merge, database migration, and production deployment.
 
 `npm run deploy` remains production-affecting because it includes remote D1 migration application. It must never be used merely to preview a candidate.
+
+Staging uses the separately versioned `wrangler.staging.toml`. `npm run staging:check` validates the complete candidate and performs a staging-configured dry build without deployment. Any staging migration or Worker deployment remains a separately approved action. The staging configuration must never contain the production D1 identifier, and production must never enable `STAGING_DISPOSABLE_ENABLED`.

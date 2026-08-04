@@ -46,6 +46,14 @@ The current package/chunk Deck Library remains a backward-compatible persistence
 
 The environment progression is local verification, the sole private staging environment with isolated test data, user acceptance, and only then separately approved merge, migration, and production deployment.
 
+### Parallel staging environment
+
+`wrangler.staging.toml` defines the sole production-equivalent staging stack. It uses the same Worker, generated assets, source adapters, APIs, and migrations while binding only the staging hostname, Access audience, test identity, and `abpn-study-db-staging` database. Production configuration contains no disposable-session switch.
+
+Each new staging browser session clears the prior staging user's D1 rows, IndexedDB database, local storage, and Cache Storage before the application loads. Reloads in the same tab retain that isolated session so reload/resume behavior remains testable. A bounded server TTL provides cleanup when browser-close delivery is unavailable. The cleanup endpoint exists only when `APP_ENV=staging`, `STAGING_DISPOSABLE_ENABLED=true`, and `STUDY_USER_ID=staging-user`; otherwise it returns not found without touching D1.
+
+Generated dependencies, browser-test downloads, screenshots, reports, Wrangler output, and logs remain test-harness artifacts and must be removed after validation. A webpage cannot delete arbitrary files from a user's Downloads folder, so manual exports are treated as user-owned files rather than silently removed.
+
 GitHub remains the permanent source/version-history recovery layer and is not pruned by local/Drive backup retention. Local and Google Drive backups cover database exports, temporary-archive recovery bundles, and other non-Git artifacts.
 
 K&S and the validation deck are bundled protected packages. User-added file and GitHub decks use the same normalized runtime model, are cached in IndexedDB, and are stored as chunked versioned packages in the protected one-user D1 Deck Library. Existing locally imported decks are promoted automatically after this capability is deployed.

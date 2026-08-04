@@ -1,0 +1,30 @@
+name = "abpn-study-cloudflare-staging"
+main = "src/access-worker.js"
+compatibility_date = "2026-07-20"
+workers_dev = true
+preview_urls = false
+
+# The same generated candidate assets are exercised in staging. Requests still
+# pass through the Access-validating Worker before any asset is served.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+# Staging never binds the production D1 database.
+[[d1_databases]]
+binding = "DB"
+database_name = "abpn-study-db-staging"
+database_id = "a365ee45-4a65-481c-b000-8bfe750b9012"
+migrations_dir = "./migrations"
+
+[vars]
+APP_ENV = "staging"
+APP_RELEASE_MODE = "full"
+CLOUD_SYNC_ENABLED = "true"
+STUDY_USER_ID = "staging-user"
+STAGING_DISPOSABLE_ENABLED = "true"
+STAGING_SESSION_TTL_SECONDS = "14400"
+ACCESS_JWT_REQUIRED = "true"
+ACCESS_TEAM_DOMAIN = "https://falling-snow-6183.cloudflareaccess.com"
+ACCESS_POLICY_AUD = "8580e087b2a99fc59014a641d94e31a9419a581dcacae5387dca71cbc14acbbe"

@@ -24,6 +24,13 @@ export const SYNC_LIMITS = Object.freeze({
 
 const releaseMode = (env) => env.APP_RELEASE_MODE === "full" ? "full" : "setup";
 const cloudSyncEnabled = (env) => releaseMode(env) === "full" && env.CLOUD_SYNC_ENABLED === "true";
+const disposableStagingEnabled = (env) => env.APP_ENV === "staging"
+  && env.STAGING_DISPOSABLE_ENABLED === "true"
+  && env.STUDY_USER_ID === "staging-user";
+const stagingSessionTtlSeconds = (env) => Math.max(300, Math.min(
+  86_400,
+  Number(env.STAGING_SESSION_TTL_SECONDS || 14_400),
+));
 
 const withSecurityHeaders = (response) => {
   const headers = new Headers(response.headers);
@@ -96,6 +103,69 @@ function requireContext(request, env) {
   if (!deviceId) throw json({ error: "Missing x-abpn-device-id" }, 400);
   if (deviceId.length > 200) throw json({ error: "Invalid x-abpn-device-id" }, 400);
   return { userId, deviceId };
+}
+
+function requireDisposableStaging(request, env) {
+  if (!disposableStagingEnabled(env)) {
+    throw json({ error: "Disposable session cleanup is available only in isolated staging" }, 404);
+  }
+  const sessionId = request.headers.get("x-abpn-staging-session")?.trim();
+  const deviceId = request.headers.get("x-abpn-device-id")?.trim();
+  if (!sessionId || sessionId !== deviceId || !/^[A-Za-z0-9-]{8,200}$/.test(sessionId)) {
+    throw json({ error: "A valid isolated staging session is required" }, 400);
+  }
+  return sessionId;
+}
+
+async function clearDisposableStagingState(env) {
+  const userId = env.STUDY_USER_ID;
+  const now = new Date().toISOString();
+  // Delete children before parents so cleanup remains valid across the current
+  // legacy package schema and its immutable revision foreign-key constraints.
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM deck_package_heads WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM deck_package_revision_chunks WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM deck_package_revisions WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM deck_package_chunks WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM deck_packages WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM deck_library_state WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM practice_set_answers WHERE set_id IN (SELECT id FROM practice_sets WHERE user_id = ?)").bind(userId),
+    env.DB.prepare("DELETE FROM practice_sets WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM question_progress WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM sync_changes WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM devices WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM question_banks WHERE id NOT IN (SELECT bank_id FROM question_progress UNION SELECT bank_id FROM practice_sets)"),
+    env.DB.prepare(`
+      UPDATE app_usage
+      SET utc_day = '', utc_minute = '', request_count = 0, write_actions = 0,
+          rows_read = 0, rows_written = 0, suspended = 0,
+          suspension_reason = NULL, updated_at = ?
+      WHERE id = 1
+    `).bind(now),
+  ]);
+}
+
+async function expireDisposableStagingState(env) {
+  // Browser close delivery is not reliable. A later staging health check
+  // therefore clears any session whose last device heartbeat exceeded the
+  // bounded TTL. The exact staging guard makes this path unreachable in live.
+  if (!disposableStagingEnabled(env) || !env.DB) return false;
+  const latest = await env.DB.prepare(
+    "SELECT MAX(last_seen_at) AS last_seen_at FROM devices WHERE user_id = ?"
+  ).bind(env.STUDY_USER_ID).first();
+  if (!latest?.last_seen_at) return false;
+  const ageMs = Date.now() - Date.parse(latest.last_seen_at);
+  if (!Number.isFinite(ageMs) || ageMs <= stagingSessionTtlSeconds(env) * 1000) return false;
+  await clearDisposableStagingState(env);
+  return true;
+}
+
+async function handleStagingSessionReset(request, env) {
+  requireSyncReady(env);
+  requireDisposableStaging(request, env);
+  await clearDisposableStagingState(env);
+  return json({ ok: true, environment: "staging", state: "cleared" });
 }
 
 function utcBuckets(now = new Date()) {
@@ -300,6 +370,7 @@ async function handleHealth(env) {
 
   if (syncEnabled && env.DB) {
     try {
+      await expireDisposableStagingState(env);
       await env.DB.prepare("SELECT 1 AS ok").first();
       const usageRow = await readUsage(env);
       usage = usageSnapshot(usageRow);
@@ -675,6 +746,9 @@ async function routeApi(request, env) {
   if (starterSourceResponse) return starterSourceResponse;
 
   if (request.method === "GET" && url.pathname === "/api/health") return handleHealth(env);
+  if (request.method === "DELETE" && url.pathname === "/api/staging/session") {
+    return handleStagingSessionReset(request, env);
+  }
   if (request.method === "POST" && url.pathname === "/api/sync/push") return handleSyncPush(request, env);
   if (request.method === "GET" && url.pathname === "/api/sync/pull") return handleSyncPull(request, env);
 

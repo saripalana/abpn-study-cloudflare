@@ -1,4 +1,9 @@
 import { SYNC_CLIENT_LIMITS, SyncClient, clearSyncSuspension, getSyncState } from "./client/sync.js";
+import { ensureStagingSession } from "./client/staging-lifecycle.js";
+
+// Module scripts may load concurrently when bootstrap uses top-level await.
+// Reuse the same preparation promise before reading the per-session device ID.
+await ensureStagingSession();
 
 const syncButton = document.getElementById("syncBtn");
 const syncStatus = document.getElementById("syncStatus");

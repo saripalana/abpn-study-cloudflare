@@ -6,12 +6,14 @@ import {
 } from "./client/deck-library.js";
 import { loadInstalledQuestionBanks } from "./client/question-bank-import.js";
 import { initExamCountdown } from "./client/exam-countdown.js";
+import { ensureStagingSession } from "./client/staging-lifecycle.js";
 
 const app = document.getElementById("app");
 const LOCAL_STARTUP_TIMEOUT_MS = 2_000;
 const CLOUD_STARTUP_TIMEOUT_MS = 5_000;
 const CLOUD_CATALOG_RELOAD_KEY = "abpn-cloud-catalog-reload";
 
+await ensureStagingSession();
 initExamCountdown();
 
 function withStartupTimeout(operation, timeoutMs, message) {

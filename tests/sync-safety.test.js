@@ -6,6 +6,30 @@ import { SYNC_CLIENT_LIMITS, SyncClient, SyncRequestError } from "../src/client/
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
+function recordingDb({ lastSeenAt = null } = {}) {
+  const executed = [];
+  const prepare = (sql) => ({
+    sql,
+    values: [],
+    bind(...values) { this.values = values; return this; },
+    async first() {
+      if (sql.includes("MAX(last_seen_at)")) return { last_seen_at: lastSeenAt };
+      if (sql.includes("SELECT 1 AS ok")) return { ok: 1 };
+      if (sql.includes("FROM app_usage")) return null;
+      return null;
+    },
+    async run() { executed.push({ sql, values: this.values }); return { success: true }; },
+  });
+  return {
+    executed,
+    prepare,
+    async batch(statements) {
+      executed.push(...statements.map((statement) => ({ sql: statement.sql, values: statement.values })));
+      return statements.map(() => ({ success: true }));
+    },
+  };
+}
+
 test("server quotas remain far below Cloudflare free-plan allowances", () => {
   assert.deepEqual(SYNC_LIMITS, {
     maxAuthorizedUsers: 1,
@@ -162,4 +186,68 @@ test("the visible application has one guarded sync controller with local-only fa
   assert.match(publicClient, /MIN_BACKGROUND_INTERVAL_MS = 15 \* 60 \* 1000/);
   assert.match(publicClient, /applyRemoteRecord/);
   assert.match(publicClient, /practiceSetAnswer/);
+});
+
+test("disposable session reset is impossible outside isolated staging", async () => {
+  const db = recordingDb();
+  const response = await worker.fetch(new Request("https://study.example/api/staging/session", {
+    method: "DELETE",
+    headers: {
+      "x-abpn-device-id": "staging-session-1234",
+      "x-abpn-staging-session": "staging-session-1234",
+    },
+  }), {
+    APP_ENV: "production",
+    APP_RELEASE_MODE: "full",
+    CLOUD_SYNC_ENABLED: "true",
+    STUDY_USER_ID: "production-user",
+    STAGING_DISPOSABLE_ENABLED: "true",
+    DB: db,
+  });
+  assert.equal(response.status, 404);
+  assert.equal(db.executed.length, 0);
+});
+
+test("isolated staging reset removes every user-scoped test table and resets usage", async () => {
+  const db = recordingDb();
+  const response = await worker.fetch(new Request("https://study.example/api/staging/session", {
+    method: "DELETE",
+    headers: {
+      "x-abpn-device-id": "staging-session-1234",
+      "x-abpn-staging-session": "staging-session-1234",
+    },
+  }), {
+    APP_ENV: "staging",
+    APP_RELEASE_MODE: "full",
+    CLOUD_SYNC_ENABLED: "true",
+    STUDY_USER_ID: "staging-user",
+    STAGING_DISPOSABLE_ENABLED: "true",
+    STAGING_SESSION_TTL_SECONDS: "14400",
+    DB: db,
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, environment: "staging", state: "cleared" });
+  const sql = db.executed.map((entry) => entry.sql).join("\n");
+  for (const table of [
+    "deck_package_heads", "deck_package_revision_chunks", "deck_package_revisions",
+    "deck_package_chunks", "deck_packages", "deck_library_state",
+    "practice_set_answers", "practice_sets", "question_progress", "sync_changes",
+    "devices", "users", "question_banks",
+  ]) assert.match(sql, new RegExp(`DELETE FROM ${table}`));
+  assert.match(sql, /UPDATE app_usage/);
+});
+
+test("stale staging state expires lazily while production health stays non-destructive", async () => {
+  const db = recordingDb({ lastSeenAt: "2026-01-01T00:00:00.000Z" });
+  const response = await worker.fetch(new Request("https://study.example/api/health"), {
+    APP_ENV: "staging",
+    APP_RELEASE_MODE: "full",
+    CLOUD_SYNC_ENABLED: "true",
+    STUDY_USER_ID: "staging-user",
+    STAGING_DISPOSABLE_ENABLED: "true",
+    STAGING_SESSION_TTL_SECONDS: "300",
+    DB: db,
+  });
+  assert.equal(response.status, 200);
+  assert.ok(db.executed.some((entry) => entry.sql.includes("DELETE FROM users")));
 });
