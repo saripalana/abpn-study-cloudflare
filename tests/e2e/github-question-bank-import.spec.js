@@ -97,7 +97,7 @@ test("imports the legacy Spiegel GitHub Pages site and preserves multi-select be
   await page.locator("#countInput").fill("1");
   await page.selectOption("#modeSelect", "tutor");
   await page.selectOption("#timingSelect", "untimed");
-  await page.getByRole("button", { name: "Start randomized set" }).click();
+  await page.getByRole("button", { name: "Start set" }).click();
 
   await expect(page.getByText("Clinical vignette")).toBeVisible();
   await expect(page.getByText("Select all that apply", { exact: false })).toBeVisible();

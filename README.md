@@ -14,6 +14,7 @@ Version 1.0 protected production release. Cloudflare Access restricts the applic
 - Preserve the existing ABPN study workflow and K&S deck.
 - Treat K&S, Spiegel, and every future imported package as decks in one shared Deck Library.
 - Give every deck the same practice, tutor, test, subject-filter, flag, history, backup, reset, and analytics behavior.
+- Make question order explicit: All defaults to randomized, filtered pools default to source order, and the user can override either choice without separating linked-question groups.
 - Keep progress, completed tests, and question identifiers isolated by deck ID.
 - Work offline using IndexedDB.
 - Cache every deck locally and persist user-added decks across authorized devices through Cloudflare Workers and D1.

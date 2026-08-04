@@ -19,6 +19,7 @@ export function createCombinedPracticeSet({
   now = new Date().toISOString(),
   id = crypto.randomUUID(),
   random = Math.random,
+  randomized = true,
 } = {}) {
   const selectedDecks = selectedDecksForScope({ decks, activeBankId, settings });
   if (selectedDecks.length < 2) return null;
@@ -30,7 +31,7 @@ export function createCombinedPracticeSet({
     progressByBank: selectedProgressByBank(selectedDecks, progressByBank),
     pool,
     categoriesByBank,
-  }, count, random);
+  }, count, random, randomized);
 
   if (!references.length) return null;
 

@@ -30,7 +30,7 @@ test('deletes a completed test from History and restores it with Undo', async ({
   await page.locator('#countInput').fill('1');
   await page.locator('#modeSelect').selectOption('tutor');
   await page.locator('#timingSelect').selectOption('untimed');
-  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.getByRole('button', { name: 'Start set' }).click();
   await page.locator('.choice').first().click();
 
   page.once('dialog', async (dialog) => dialog.accept());
@@ -65,7 +65,7 @@ test('discards an active set and restores its answers with Undo', async ({ page 
   await page.locator('#countInput').fill('2');
   await page.locator('#modeSelect').selectOption('tutor');
   await page.locator('#timingSelect').selectOption('untimed');
-  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.getByRole('button', { name: 'Start set' }).click();
   await page.locator('.choice').first().click();
   await page.getByRole('button', { name: 'Save and exit' }).click();
 

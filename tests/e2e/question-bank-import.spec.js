@@ -76,7 +76,7 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
   await page.locator('#countInput').fill('1');
   await page.selectOption('#modeSelect', 'tutor');
   await page.selectOption('#timingSelect', 'untimed');
-  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.getByRole('button', { name: 'Start set' }).click();
   await page.locator('.choice').nth(1).click();
   await page.getByRole('button', { name: 'Submit set' }).click();
   await expect(page.getByText('SET RESULTS')).toBeVisible();

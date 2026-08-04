@@ -68,17 +68,20 @@ export function multiDeckQuestionRefGroups({
   return groups;
 }
 
-export function chooseMultiDeckQuestionRefs(options, requestedCount, random = Math.random) {
+export function chooseMultiDeckQuestionRefs(options, requestedCount, random = Math.random, randomized = true) {
   const groups = multiDeckQuestionRefGroups(options);
   const count = Math.max(0, Math.trunc(Number(requestedCount)) || 0);
   if (!count) return [];
-  const shuffled = [...groups];
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  // Keep deck and source-question order stable for sequential sets.
+  const orderedGroups = [...groups];
+  if (randomized) {
+    for (let index = orderedGroups.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(random() * (index + 1));
+      [orderedGroups[index], orderedGroups[swapIndex]] = [orderedGroups[swapIndex], orderedGroups[index]];
+    }
   }
   const selected = [];
-  for (const group of shuffled) {
+  for (const group of orderedGroups) {
     selected.push(...group);
     if (selected.length >= count) break;
   }

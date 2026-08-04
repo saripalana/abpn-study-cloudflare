@@ -33,10 +33,11 @@ export async function createPracticeSession({
   now,
   id,
   random,
+  randomized = true,
 }) {
   const normalized = normalizeDeckScopeSettings({ decks, activeBankId: activeBank?.id, saved: settings });
   if (normalized.scope === DECK_SCOPE_CURRENT) {
-    return createSingleDeckSet({ activeBank, pool, count, mode, timed, now, id, random });
+    return createSingleDeckSet({ activeBank, pool, count, mode, timed, now, id, random, randomized });
   }
 
   const { progressByBank } = await loadProgressForSelectedDecks({
@@ -59,6 +60,7 @@ export async function createPracticeSession({
     now,
     id,
     random,
+    randomized,
   });
 }
 

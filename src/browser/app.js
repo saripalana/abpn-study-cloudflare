@@ -113,6 +113,7 @@ function loadBuilderSettings(bank, categories) {
     mode: ['test', 'tutor'].includes(saved.mode) ? saved.mode : 'test',
     timing: ['timed', 'untimed'].includes(saved.timing) ? saved.timing : 'timed',
     pool: ['all', 'new', 'used', 'incorrect', 'flagged'].includes(saved.pool) ? saved.pool : 'all',
+    randomized: typeof saved.randomized === 'boolean' ? saved.randomized : saved.pool == null || saved.pool === 'all',
     categories: selectedCategories
   };
 }
@@ -347,6 +348,10 @@ async function renderDashboard() {
                 <option value="flagged" ${builder.pool === 'flagged' ? 'selected' : ''}>Flagged</option>
               </select>
             </div>
+            <label class="subject-option" for="randomizeOrder">
+              <input id="randomizeOrder" type="checkbox" ${builder.randomized ? 'checked' : ''}>
+              <span><strong>Randomize question order</strong><small>Turn off to follow the source order. The All pool defaults to randomized.</small></span>
+            </label>
           </div>
           <details id="subjectPicker" class="subject-picker">
             <summary>
@@ -370,7 +375,7 @@ async function renderDashboard() {
             </div>
           </details>
           <p id="eligibleCount" class="builder-availability"></p>
-          <div class="actions"><button id="startBtn" class="primary" type="button">Start randomized set</button></div>
+          <div class="actions"><button id="startBtn" class="primary" type="button">Start set</button></div>
         </section>
       </div>
 
@@ -507,6 +512,7 @@ async function renderDashboard() {
   const modeSelect = document.getElementById('modeSelect');
   const timingSelect = document.getElementById('timingSelect');
   const poolSelect = document.getElementById('poolSelect');
+  const randomizeOrder = document.getElementById('randomizeOrder');
   const eligibleCount = document.getElementById('eligibleCount');
   const subjectSummary = document.getElementById('subjectSummary');
   const startButton = document.getElementById('startBtn');
@@ -544,6 +550,7 @@ async function renderDashboard() {
       mode: modeSelect.value,
       timing: timingSelect.value,
       pool: poolSelect.value,
+      randomized: randomizeOrder.checked,
       categories: selectedCategories.length === categories.length ? null : selectedCategories
     }));
   };
@@ -555,7 +562,7 @@ async function renderDashboard() {
     onChange: (settings) => {
       localStorage.setItem(MULTI_DECK_BUILDER_KEY, JSON.stringify({ schemaVersion: 1, ...settings }));
       const combined = settings.scope !== DECK_SCOPE_CURRENT;
-      startButton.textContent = combined ? 'Start combined randomized set' : 'Start randomized set';
+      startButton.textContent = combined ? 'Start combined set' : 'Start set';
       startButton.disabled = false;
       if (combined) {
         eligibleCount.textContent = document.getElementById('deckScopeAvailability')?.textContent || 'Selected study decks ready.';
@@ -584,7 +591,11 @@ async function renderDashboard() {
   countInput.addEventListener('change', () => updateBuilderAvailability({ countChanged: true }));
   modeSelect.addEventListener('change', updateBuilderAvailability);
   timingSelect.addEventListener('change', updateBuilderAvailability);
-  poolSelect.addEventListener('change', updateBuilderAvailability);
+  poolSelect.addEventListener('change', () => {
+    randomizeOrder.checked = poolSelect.value === 'all';
+    updateBuilderAvailability();
+  });
+  randomizeOrder.addEventListener('change', updateBuilderAvailability);
   updateBuilderAvailability();
 }
 
@@ -603,6 +614,7 @@ async function startSet() {
   const count = document.getElementById('countInput').value;
   const mode = document.getElementById('modeSelect').value;
   const timed = document.getElementById('timingSelect').value === 'timed';
+  const randomized = document.getElementById('randomizeOrder').checked;
   const categoriesByBank = categoriesByDeckForSession(banks, activeBank.id, categories);
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
@@ -620,9 +632,10 @@ async function startSet() {
     now,
     id,
     random: Math.random,
-    createSingleDeckSet: async ({ activeBank: selectedBank, pool: selectedPool, count: requestedCount, mode: selectedMode, timed: isTimed, now: startedAt, id: setId, random }) => {
+    randomized,
+    createSingleDeckSet: async ({ activeBank: selectedBank, pool: selectedPool, count: requestedCount, mode: selectedMode, timed: isTimed, now: startedAt, id: setId, random, randomized: randomizeQuestions }) => {
       const progress = await progressMap(selectedBank.id);
-      const ids = chooseQuestionIds(selectedBank, progress, selectedPool, requestedCount, random, categories);
+      const ids = chooseQuestionIds(selectedBank, progress, selectedPool, requestedCount, random, categories, randomizeQuestions);
       if (!ids.length) return null;
       return {
         id: setId,

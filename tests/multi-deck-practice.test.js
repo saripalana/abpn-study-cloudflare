@@ -108,3 +108,13 @@ test("multi-deck randomization keeps linked questions together and ordered", () 
     { bankId: "spiegel", questionId: "s2" },
   ]);
 });
+
+test("multi-deck sequential selection preserves deck and source order", () => {
+  const refs = chooseMultiDeckQuestionRefs({ decks: [ks, spiegel], pool: "all" }, 4, () => 0, false);
+  assert.deepEqual(refs.map(decodeQuestionRef), [
+    { bankId: "ks", questionId: "k1" },
+    { bankId: "ks", questionId: "k2" },
+    { bankId: "spiegel", questionId: "s1" },
+    { bankId: "spiegel", questionId: "s2" },
+  ]);
+});

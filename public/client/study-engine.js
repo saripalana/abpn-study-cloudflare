@@ -142,17 +142,21 @@ export function chooseQuestionIds(
   count = 40,
   random = Math.random,
   categories = null,
+  randomized = true,
 ) {
   const groups = eligibleQuestionGroups(bank, progress, pool, categories);
   if (!groups.length) return [];
-  const shuffled = groups.slice();
-  for (let i = shuffled.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  // Preserve source order unless the user explicitly requests randomization.
+  const orderedGroups = groups.slice();
+  if (randomized) {
+    for (let i = orderedGroups.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random() * (i + 1));
+      [orderedGroups[i], orderedGroups[j]] = [orderedGroups[j], orderedGroups[i]];
+    }
   }
   const requested = Math.max(1, Number(count) || 1);
   const selected = [];
-  for (const group of shuffled) {
+  for (const group of orderedGroups) {
     selected.push(...group);
     if (selected.length >= requested) break;
   }

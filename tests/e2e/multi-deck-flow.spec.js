@@ -60,7 +60,7 @@ test("combined K&S and Spiegel set survives reload, submission, history, and rev
   await page.locator("#countInput").fill("2");
   await page.locator("#modeSelect").selectOption("tutor");
   await page.locator("#timingSelect").selectOption("untimed");
-  await page.getByRole("button", { name: "Start combined randomized set" }).click();
+  await page.getByRole("button", { name: "Start combined set" }).click();
 
   const questionMap = page.locator(".question-map button");
   await expect(questionMap).toHaveCount(2);
