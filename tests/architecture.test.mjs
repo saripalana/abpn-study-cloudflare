@@ -76,7 +76,7 @@ test("worker exposes health and bidirectional sync endpoints behind release cont
 });
 
 test("all imported banks use the protected persistent deck library", async () => {
-  const [worker, api, sourceProxy, browserClient, bootstrap, migration, bootstrapMigration, packageJson] = await Promise.all([
+  const [worker, api, sourceProxy, browserClient, bootstrap, migration, bootstrapMigration] = await Promise.all([
     read("src/worker.js"),
     read("src/deck-library-api.js"),
     read("src/starter-deck-source.js"),
@@ -84,7 +84,6 @@ test("all imported banks use the protected persistent deck library", async () =>
     read("public/bootstrap.js"),
     read("migrations/0004_cloud_deck_library.sql"),
     read("migrations/0006_deck_library_bootstrap.sql"),
-    read("package.json"),
   ]);
   assert.match(worker, /handleDeckLibraryRequest/);
   assert.match(api, /\/api\/decks/);
@@ -104,8 +103,33 @@ test("all imported banks use the protected persistent deck library", async () =>
   assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_packages/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_package_chunks/);
   assert.match(bootstrapMigration, /CREATE TABLE IF NOT EXISTS deck_library_state/);
-  assert.match(packageJson, /patch-deck-library-worker\.mjs/);
-  assert.match(packageJson, /patch-cloud-deck-imports\.mjs/);
+});
+
+test("browser deployment assets have one deterministic source and no runtime patch chain", async () => {
+  const [packageJson, builder] = await Promise.all([
+    read("package.json"),
+    read("scripts/build-browser-assets.mjs"),
+  ]);
+  assert.match(packageJson, /"build:check"/);
+  assert.match(packageJson, /"build:idempotence"/);
+  assert.match(packageJson, /build-browser-assets\.mjs --verify-idempotent/);
+  assert.doesNotMatch(packageJson, /patch-[a-z0-9-]+\.mjs/);
+  assert.match(builder, /src\/browser/);
+  assert.match(builder, /src\/client/);
+  assert.match(builder, /Generated browser assets are stale/);
+  assert.match(builder, /not idempotent/);
+});
+
+test("startup import remains disabled until its file handler is attached", async () => {
+  const [html, bridge, controller] = await Promise.all([
+    read("src/browser/index.html"),
+    read("src/browser/import-button-bridge.js"),
+    read("src/browser/question-bank-controller.js"),
+  ]);
+  assert.match(html, /id="importBankBtn"[\s\S]*?disabled/);
+  assert.match(bridge, /button\.disabled = true/);
+  assert.match(controller, /button\.disabled = false/);
+  assert.match(controller, /importInput\.addEventListener\("change"/);
 });
 
 test("Cloudflare Access JWT validation is the outer request gateway", async () => {
@@ -139,4 +163,29 @@ test("verified D1 remains bound while protected cloud synchronization is enabled
   assert.match(wrangler, /CLOUD_SYNC_ENABLED\s*=\s*"true"/);
   assert.match(wrangler, /ACCESS_JWT_REQUIRED\s*=\s*"true"/);
   assert.doesNotMatch(wrangler, /00000000-0000-0000-0000-000000000000/);
+});
+
+test("one parallel staging stack is production-equivalent but write-isolated", async () => {
+  const [production, staging, worker, lifecycle, bootstrap] = await Promise.all([
+    read("wrangler.toml"),
+    read("wrangler.staging.toml"),
+    read("src/worker.js"),
+    read("src/client/staging-lifecycle.js"),
+    read("src/browser/bootstrap.js"),
+  ]);
+  assert.match(staging, /name\s*=\s*"abpn-study-cloudflare-staging"/);
+  assert.match(staging, /database_name\s*=\s*"abpn-study-db-staging"/);
+  assert.match(staging, /APP_ENV\s*=\s*"staging"/);
+  assert.match(staging, /STUDY_USER_ID\s*=\s*"staging-user"/);
+  assert.match(staging, /STAGING_DISPOSABLE_ENABLED\s*=\s*"true"/);
+  assert.match(staging, /STAGING_SESSION_TTL_SECONDS\s*=\s*"14400"/);
+  assert.doesNotMatch(staging, /356b5061-81c2-4327-bdec-27127e03319d/);
+  assert.doesNotMatch(production, /STAGING_DISPOSABLE_ENABLED/);
+  assert.match(worker, /Disposable session cleanup is available only in isolated staging/);
+  assert.match(worker, /DELETE FROM deck_package_heads WHERE user_id/);
+  assert.match(worker, /DELETE FROM users WHERE id/);
+  assert.match(lifecycle, /\/api\/health/);
+  assert.match(lifecycle, /\/api\/staging\/session/);
+  assert.match(lifecycle, /deleteStudyDatabase/);
+  assert.match(bootstrap, /await ensureStagingSession\(\)/);
 });

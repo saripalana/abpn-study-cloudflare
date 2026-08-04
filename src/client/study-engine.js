@@ -27,6 +27,16 @@ export function normalizeQuestion(question, index, bankId) {
       : question?.correctLetter
   );
   const isMultiSelect = Boolean(question?.isMultiSelect || correctLetters.length > 1);
+  const linkedGroupId = String(
+    question?.linkedGroupId
+    || question?.groupId
+    || (String(question?.sectionType || question?.chapter || "").toLowerCase() === "vignette"
+      ? `${bankId}:vignette:${question?.section || question?.chapterTitle || question?.category || "untitled"}`
+      : "")
+  ).trim();
+  const linkedOrder = Number.isFinite(Number(question?.linkedOrder))
+    ? Math.max(0, Math.trunc(Number(question.linkedOrder)))
+    : index;
   if (
     !question
     || !String(question.question || "").trim()
@@ -43,6 +53,8 @@ export function normalizeQuestion(question, index, bankId) {
     chapterTitle: String(question.chapterTitle || question.category || "Uncategorized").trim() || "Uncategorized",
     question: String(question.question),
     vignetteStem: String(question.vignetteStem || ""),
+    linkedGroupId,
+    linkedOrder,
     choices,
     choiceLetters: letters,
     correctLetter: correctLetters[0],
@@ -106,6 +118,23 @@ export function eligibleQuestionIds(bank, progress, pool = "all", categories = n
   }).map((question) => question.id);
 }
 
+export function eligibleQuestionGroups(bank, progress, pool = "all", categories = null) {
+  const matched = new Set(eligibleQuestionIds(bank, progress, pool, categories));
+  const groups = new Map();
+  for (const question of bank.questions) {
+    const key = question.linkedGroupId || `question:${question.id}`;
+    const group = groups.get(key) || [];
+    group.push(question);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .filter((group) => group.some((question) => matched.has(question.id)))
+    .map((group) => group
+      .slice()
+      .sort((a, b) => a.linkedOrder - b.linkedOrder)
+      .map((question) => question.id));
+}
+
 export function chooseQuestionIds(
   bank,
   progress,
@@ -114,14 +143,20 @@ export function chooseQuestionIds(
   random = Math.random,
   categories = null,
 ) {
-  const eligible = eligibleQuestionIds(bank, progress, pool, categories);
-  if (!eligible.length) return [];
-  const shuffled = eligible.slice();
+  const groups = eligibleQuestionGroups(bank, progress, pool, categories);
+  if (!groups.length) return [];
+  const shuffled = groups.slice();
   for (let i = shuffled.length - 1; i > 0; i -= 1) {
     const j = Math.floor(random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  return shuffled.slice(0, Math.max(1, Math.min(Number(count) || 1, shuffled.length)));
+  const requested = Math.max(1, Number(count) || 1);
+  const selected = [];
+  for (const group of shuffled) {
+    selected.push(...group);
+    if (selected.length >= requested) break;
+  }
+  return selected;
 }
 
 export function calculateSetResult(questionIds, answers, bank) {

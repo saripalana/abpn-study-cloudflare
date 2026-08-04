@@ -1,6 +1,16 @@
 const DB_NAME = "abpn-study";
 const DB_VERSION = 2;
 
+export function deleteStudyDatabase() {
+  if (!("indexedDB" in globalThis)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(DB_NAME);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error("IndexedDB deletion failed"));
+    request.onblocked = () => reject(new Error("IndexedDB deletion was blocked"));
+  });
+}
+
 export const STORES = Object.freeze({
   META: "meta",
   BANKS: "banks",

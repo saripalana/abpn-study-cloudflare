@@ -31,6 +31,8 @@ Question-bank packages add new content without modifying the protected K&S packa
     "questions": [
       {
         "id": "example-1",
+        "linkedGroupId": "example-case-1",
+        "linkedOrder": 0,
         "chapterTitle": "Mood Disorders",
         "question": "Question stem",
         "choices": ["First", "Second", "Third", "Fourth"],
@@ -42,6 +44,10 @@ Question-bank packages add new content without modifying the protected K&S packa
   }
 }
 ```
+
+`linkedGroupId` and `linkedOrder` are optional only for independent questions. Questions that share a case, stem, or prerequisite context must use the same stable group ID and consecutive order. A study set selects the complete ordered group; it never guesses linkage from question wording.
+
+This version-1 JSON package is an ingestion/compatibility format. Every accepted package is validated and converted into the universal bank/revision/group/question/choice/rationale contract. K&S and other protected sources must pass through the same contract even when their source adapter is different.
 
 ## Content classification
 
@@ -73,6 +79,7 @@ Use this for assistant-created or assistant-expanded cards. It cannot be relabel
 - After progress or test history exists, an update may add questions but cannot change or remove existing questions.
 - A breaking content revision must use a new bank id, which prevents old progress from attaching to different question text.
 - Protected ids such as `ks-psychiatry-core` and `validation-bank` cannot be imported or overwritten.
+- Linked-group identity and order are immutable within a revision. Correcting group membership requires a new validated revision.
 
 ## Separate backup responsibilities
 

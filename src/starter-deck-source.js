@@ -32,8 +32,8 @@ export async function handleStarterDeckSourceRequest(request, env, helpers) {
   requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
   if (request.method !== "GET") return json({ error: "Method not allowed" }, 405, { allow: "GET" });
-  await reserveUsage(env, { requests: 1, rowsRead: 0, rowsWritten: 0 });
   await ensureUserAndDevice(env, userId, deviceId);
+  await reserveUsage(env, { requests: 1, rowsRead: 0, rowsWritten: 0 });
 
   const response = await fetchExternal(KS_SOURCE_URL, {
     headers: { accept: "text/javascript,text/plain" },

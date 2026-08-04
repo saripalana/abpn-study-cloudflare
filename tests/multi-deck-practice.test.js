@@ -91,3 +91,20 @@ test("randomized selection draws from the combined pool without losing attributi
   assert.equal(new Set(refs).size, 4);
   assert.equal(refs.every((reference) => ["ks", "spiegel"].includes(decodeQuestionRef(reference).bankId)), true);
 });
+
+test("multi-deck randomization keeps linked questions together and ordered", () => {
+  spiegel.questions[0].linkedGroupId = "vignette-a";
+  spiegel.questions[0].linkedOrder = 0;
+  spiegel.questions[0].chapterTitle = "Linked case";
+  spiegel.questions[1].linkedGroupId = "vignette-a";
+  spiegel.questions[1].linkedOrder = 1;
+  spiegel.questions[1].chapterTitle = "Linked case";
+  const refs = chooseMultiDeckQuestionRefs({
+    decks: [spiegel],
+    categoriesByBank: new Map([["spiegel", ["Linked case"]]]),
+  }, 1, () => 0);
+  assert.deepEqual(refs.map(decodeQuestionRef), [
+    { bankId: "spiegel", questionId: "s1" },
+    { bankId: "spiegel", questionId: "s2" },
+  ]);
+});

@@ -1,0 +1,7 @@
+# Deterministic dependencies, build output, and local validation residue.
+node_modules/
+.wrangler/
+test-results/
+playwright-report/
+*.log
+public/banks/generated/

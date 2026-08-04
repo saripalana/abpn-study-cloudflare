@@ -36,6 +36,8 @@ jobs:
       - name: Fail when verification fails
         if: steps.verify.outcome == 'failure'
         run: exit 1
+      - name: Reject stale generated browser assets
+        run: git diff --exit-code -- src public package.json
       - name: Confirm generated K&S manifest
         run: |
           test -f public/banks/generated/ks-psychiatry-core.js

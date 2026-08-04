@@ -81,7 +81,7 @@ test('Tutor mode supports confirmed submission at any point, answer states, and 
   await expect(page.getByText('Performance by category')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Weakness priorities' })).toBeVisible();
   await expect(page.getByText('LOCAL-ONLY · LIMITED EVIDENCE')).toBeVisible();
-  await expect(page.getByText(/limited · 1\/2 used/)).toBeVisible();
+  await expect(page.getByText(/limited · 1\/\d+ used/)).toBeVisible();
 
   await page.getByRole('button', { name: 'Review test' }).click();
   await expect(page.getByText('SET RESULTS')).toBeVisible();

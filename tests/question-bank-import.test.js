@@ -47,6 +47,20 @@ test("prepares a normalized package with a deterministic checksum", async () => 
   assert.equal(first.checksum, second.checksum);
   assert.match(first.checksum, /^[a-f0-9]{64}$/);
   assert.equal(first.bank.contentClass, "source-material");
+  assert.equal(Object.hasOwn(first.bank.questions[0], "linkedGroupId"), false);
+  assert.equal(Object.hasOwn(first.bank.questions[0], "linkedOrder"), false);
+});
+
+test("preserves explicit linked-question metadata without adding it to unlinked questions", async () => {
+  const linked = await prepareQuestionBankPackage(packageDefinition({ questions: [
+    { id: "case-1", chapterTitle: "Case", linkedGroupId: "case-a", linkedOrder: 0, question: "Start?", choices: ["A", "B"], correctLetter: "A", explanation: "" },
+    { id: "case-2", chapterTitle: "Case", linkedGroupId: "case-a", linkedOrder: 1, question: "Follow-up?", choices: ["A", "B"], correctLetter: "B", explanation: "" },
+    { id: "solo", chapterTitle: "Other", question: "Solo?", choices: ["A", "B"], correctLetter: "A", explanation: "" },
+  ] }));
+  assert.deepEqual(linked.bank.questions.slice(0, 2).map((question) => [question.linkedGroupId, question.linkedOrder]), [
+    ["case-a", 0], ["case-a", 1],
+  ]);
+  assert.equal(Object.hasOwn(linked.bank.questions[2], "linkedGroupId"), false);
 });
 
 test("protected built-in bank ids cannot be imported", async () => {
@@ -141,6 +155,7 @@ test("browser and source import, storage, and study-engine modules remain identi
     ["src/client/question-bank-import.js", "public/client/question-bank-import.js"],
     ["src/client/storage.js", "public/client/storage.js"],
     ["src/client/study-engine.js", "public/client/study-engine.js"],
+    ["src/client/exam-countdown.js", "public/client/exam-countdown.js"],
   ];
   for (const [sourcePath, publicPath] of pairs) {
     const [source, browser] = await Promise.all([

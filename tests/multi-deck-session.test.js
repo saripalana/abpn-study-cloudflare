@@ -98,3 +98,27 @@ test("respects explicit deck selection and requested count", () => {
   assert.equal(set.questionIds.length, 2);
   assert.deepEqual(set.selectedBankIds, ["deck-a", "deck-b"]);
 });
+
+test("timed combined sets expand time for a complete linked group", () => {
+  const linkedDecks = buildBankCatalog([
+    { id: "linked-a", title: "Linked A", questions: [
+      { id: "a1", chapterTitle: "Case", linkedGroupId: "case-a", linkedOrder: 0, question: "Start?", choices: ["x", "y"], correctLetter: "A", explanation: "" },
+      { id: "a2", chapterTitle: "Case", linkedGroupId: "case-a", linkedOrder: 1, question: "Follow-up?", choices: ["x", "y"], correctLetter: "B", explanation: "" },
+    ] },
+    { id: "linked-b", title: "Linked B", questions: [
+      { id: "b1", chapterTitle: "Other", question: "Other?", choices: ["x", "y"], correctLetter: "A", explanation: "" },
+    ] },
+  ]);
+  const set = createCombinedPracticeSet({
+    decks: linkedDecks,
+    activeBankId: "linked-a",
+    settings: { scope: "all" },
+    categoriesByBank: new Map([["linked-a", ["Case"]], ["linked-b", []]]),
+    count: 1,
+    mode: "test",
+    timed: true,
+    random: () => 0,
+  });
+  assert.equal(set.questionIds.length, 2);
+  assert.equal(set.remainingSeconds, Math.ceil(2 * 70.6));
+});
