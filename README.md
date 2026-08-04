@@ -20,6 +20,7 @@ Version 1.0 protected production release. Cloudflare Access restricts the applic
 - Avoid Google OAuth, Google Drive, Google Cloud, and Google-specific dependencies.
 - Use one clear synchronization control with connection-aware status.
 - Preserve completed sets, timers, flags, answers, analytics, and reset history.
+- The private application offers an optional assistant weakness summary that remains enabled until explicitly revoked. Revocation blocks access but preserves the aggregate; only the separate delete control removes it. The feature exposes only allowlisted category-level aggregate metrics and records publication, access, and deletion counts. It is enabled in production only after this reviewed staging acceptance and remains off until the user checks the permission control.
 - Never silently overwrite newer study data or a protected built-in deck.
 
 ## Architecture

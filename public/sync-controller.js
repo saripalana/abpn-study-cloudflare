@@ -7,7 +7,12 @@ await ensureStagingSession();
 
 const syncButton = document.getElementById("syncBtn");
 const syncStatus = document.getElementById("syncStatus");
-const deviceId = localStorage.getItem("abpn-study:device-id") || crypto.randomUUID();
+// Staging tabs must retain their own isolated identity even when a newer tab
+// rotates the shared localStorage device id. Production has no session id and
+// continues to use the durable local device id.
+const deviceId = sessionStorage.getItem(STAGING_SESSION_KEY)
+  || localStorage.getItem("abpn-study:device-id")
+  || crypto.randomUUID();
 localStorage.setItem("abpn-study:device-id", deviceId);
 
 const client = new SyncClient({ deviceId });

@@ -19,9 +19,10 @@ database_id = "356b5061-81c2-4327-bdec-27127e03319d"
 migrations_dir = "./migrations"
 
 [vars]
-APP_ENV = "development"
+APP_ENV = "production"
 APP_RELEASE_MODE = "full"
 CLOUD_SYNC_ENABLED = "true"
+ASSISTANT_WEAKNESS_ENABLED = "true"
 STUDY_USER_ID = "f0ac0ac0-4fdd-4c36-a305-29c3182fc9b0"
 ACCESS_JWT_REQUIRED = "true"
 ACCESS_TEAM_DOMAIN = "https://falling-snow-6183.cloudflareaccess.com"

@@ -238,6 +238,7 @@ test("isolated staging reset removes every user-scoped test table and resets usa
   assert.deepEqual(await response.json(), { ok: true, environment: "staging", state: "cleared" });
   const sql = db.executed.map((entry) => entry.sql).join("\n");
   for (const table of [
+    "assistant_weakness_audit", "assistant_weakness_snapshots", "assistant_weakness_permissions",
     "deck_package_heads", "deck_package_revision_chunks", "deck_package_revisions",
     "deck_package_chunks", "deck_packages", "deck_library_state",
     "practice_set_answers", "practice_sets", "question_progress", "sync_changes",

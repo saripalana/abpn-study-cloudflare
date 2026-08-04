@@ -111,11 +111,13 @@ test("opening a new staging tab revokes the previous tab without accepting stale
   const oldPage = await context.newPage();
   await oldPage.goto("/");
   await expect(oldPage.getByRole("heading", { name: "Board Practice" })).toBeVisible();
+  await expect(oldPage.locator("#bankSelect")).toBeVisible();
   const oldSession = await oldPage.evaluate(() => sessionStorage.getItem("abpn-study:staging-session"));
 
   const currentPage = await context.newPage();
   await currentPage.goto("/");
   await expect(currentPage.getByRole("heading", { name: "Board Practice" })).toBeVisible();
+  await expect(currentPage.locator("#bankSelect")).toBeVisible();
   await expect(currentPage.locator('#bankSelect option[value="validation-bank"]')).not.toHaveAttribute("hidden", "");
   for (const label of [
     "Create recovery snapshot",

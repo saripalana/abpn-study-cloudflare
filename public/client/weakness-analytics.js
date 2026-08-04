@@ -100,3 +100,36 @@ export function buildWeaknessSnapshot(bank, progress, suppliedOptions = {}) {
     masteryCoverage: domains.length ? masteredDomains / domains.length : null,
   };
 }
+
+/**
+ * Produces the only payload that may cross the assistant-insights boundary.
+ * The allowlist is intentional: callers cannot accidentally serialize the
+ * source bank, question identifiers, answers, rationales, notes, or attempts.
+ */
+export function buildContentFreeWeaknessAggregate(bank, progress, suppliedOptions = {}) {
+  const snapshot = buildWeaknessSnapshot(bank, progress, suppliedOptions);
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date(suppliedOptions.now || Date.now()).toISOString(),
+    evidenceModel: snapshot.evidenceModel,
+    deck: {
+      id: String(bank.id || "unknown").slice(0, 100),
+      title: String(bank.title || "Study deck").slice(0, 200),
+    },
+    summary: {
+      evidenceCoverage: snapshot.evidenceCoverage,
+      masteryCoverage: snapshot.masteryCoverage,
+    },
+    domains: snapshot.domains.map((domain) => ({
+      title: domain.title,
+      totalQuestions: domain.totalQuestions,
+      usedQuestions: domain.usedQuestions,
+      attempts: domain.attempts,
+      accuracy: domain.smoothedAccuracy,
+      averageTimeMs: domain.averageTimeMs,
+      evidence: domain.evidence,
+      priorityScore: domain.priorityScore,
+      mastered: domain.mastered,
+    })),
+  };
+}

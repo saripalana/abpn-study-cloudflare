@@ -47,6 +47,35 @@ test("phase 1 weakness analytics remain local, derived, and content-free", async
   assert.match(app, /LOCAL-ONLY · LIMITED EVIDENCE/);
 });
 
+test("assistant weakness access is private, explicitly enabled, permissioned until revoked, separately deletable, and audited", async () => {
+  const [api, controller, staging, production, migration, deletionMigration] = await Promise.all([
+    read("src/assistant-weakness-api.js"),
+    read("src/browser/assistant-weakness-controller.js"),
+    read("wrangler.staging.toml"),
+    read("wrangler.toml"),
+    read("migrations/0007_assistant_weakness_staging.sql"),
+    read("migrations/0008_assistant_weakness_delete_count.sql"),
+  ]);
+  assert.match(api, /\["staging", "production"\]\.includes\(env\.APP_ENV\)/);
+  assert.match(api, /UNTIL_REVOKED_AT/);
+  assert.match(api, /retention: "until-revoked"/);
+  assert.match(api, /Explicit assistant-insights permission is required/);
+  assert.match(api, /DELETE FROM assistant_weakness_snapshots/);
+  assert.match(api, /delete_count = delete_count \+ 1/);
+  assert.match(api, /snapshot-accessed/);
+  assert.match(controller, /On until you revoke it/);
+  assert.match(controller, /deleteWeaknessAggregateBtn/);
+  assert.match(staging, /ASSISTANT_WEAKNESS_ENABLED\s*=\s*"true"/);
+  assert.match(production, /APP_ENV\s*=\s*"production"/);
+  assert.match(production, /ASSISTANT_WEAKNESS_ENABLED\s*=\s*"true"/);
+  assert.match(migration, /assistant_weakness_permissions/);
+  assert.match(migration, /assistant_weakness_snapshots/);
+  assert.match(migration, /assistant_weakness_audit/);
+  assert.doesNotMatch(migration, /\bDROP\b/i);
+  assert.match(deletionMigration, /ADD COLUMN delete_count/);
+  assert.doesNotMatch(deletionMigration, /\bDROP\b/i);
+});
+
 test("dependency installation is locked and the audited HTTP client is patched", async () => {
   const [packageJson, packageLock, validationWorkflow] = await Promise.all([
     read("package.json"),
@@ -188,4 +217,6 @@ test("one parallel staging stack is production-equivalent but write-isolated", a
   assert.match(lifecycle, /\/api\/staging\/session/);
   assert.match(lifecycle, /deleteStudyDatabase/);
   assert.match(bootstrap, /await ensureStagingSession\(\)/);
+  const syncController = await read("src/browser/sync-controller.js");
+  assert.match(syncController, /sessionStorage\.getItem\(STAGING_SESSION_KEY\)/);
 });

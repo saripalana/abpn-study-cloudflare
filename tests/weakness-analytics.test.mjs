@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildWeaknessSnapshot } from '../src/client/weakness-analytics.js';
+import { buildContentFreeWeaknessAggregate, buildWeaknessSnapshot } from '../src/client/weakness-analytics.js';
 
 const bank = {
   questions: [
@@ -53,4 +53,19 @@ test('is deterministic when the calculation time is supplied', () => {
     buildWeaknessSnapshot(bank, progress, { now }),
     buildWeaknessSnapshot(bank, progress, { now }),
   );
+});
+
+test('content-free assistant aggregate is an explicit metadata allowlist', () => {
+  const aggregate = buildContentFreeWeaknessAggregate({ ...bank, id: 'ks', title: 'K&S' }, progress, { now });
+  assert.deepEqual(Object.keys(aggregate), [
+    'schemaVersion', 'generatedAt', 'evidenceModel', 'deck', 'summary', 'domains',
+  ]);
+  assert.deepEqual(Object.keys(aggregate.domains[0]), [
+    'title', 'totalQuestions', 'usedQuestions', 'attempts', 'accuracy',
+    'averageTimeMs', 'evidence', 'priorityScore', 'mastered',
+  ]);
+  const serialized = JSON.stringify(aggregate);
+  for (const forbidden of ['Private mood', 'Private psychosis', 'questionId', 'selectedAnswer', 'correctLetter', 'rationale', 'notes']) {
+    assert.doesNotMatch(serialized, new RegExp(forbidden, 'i'));
+  }
 });
