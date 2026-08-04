@@ -50,6 +50,7 @@ localStorage.setItem('abpn-study:device-id', deviceId);
 
 let banks;
 let activeBank;
+let allowSystemValidation = false;
 let activeSet = null;
 let timer = null;
 let startedQuestionAt = Date.now();
@@ -204,7 +205,7 @@ async function initialize() {
     }
 
     const selected = localStorage.getItem(SELECTED_BANK_KEY);
-    const allowSystemValidation = sessionStorage.getItem('abpn-study:allow-system-validation') === 'true';
+    allowSystemValidation = sessionStorage.getItem('abpn-study:allow-system-validation') === 'true';
     activeBank = resolveUserActiveDeck(banks, selected, 'ks-psychiatry-core', allowSystemValidation);
     if (!activeBank) throw new Error('No normal study decks are available.');
     localStorage.setItem(SELECTED_BANK_KEY, activeBank.id);
@@ -288,7 +289,7 @@ async function renderDashboard() {
       <div class="bank-selector">
         <label for="bankSelect"><strong>Deck</strong></label>
         <select id="bankSelect">
-          ${banks.map((bank) => `<option value="${esc(bank.id)}"${deckOptionHiddenAttribute(bank)} ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)} (${bank.questions.length})</option>`).join('')}
+          ${banks.map((bank) => `<option value="${esc(bank.id)}"${allowSystemValidation ? '' : deckOptionHiddenAttribute(bank)} ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)} (${bank.questions.length})</option>`).join('')}
         </select>
       </div>
     </section>

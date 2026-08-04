@@ -35,8 +35,8 @@ test("production never invokes disposable staging cleanup", async () => {
   assert.equal(deleted, 0);
 });
 
-test("a new staging browser session clears remote and browser-local test state", async () => {
-  const local = memoryStorage({ old: "test-state" });
+test("a new staging browser session clears test state but preserves the exam date", async () => {
+  const local = memoryStorage({ old: "test-state", "abpn-study:exam-date": "2030-12-31" });
   const session = memoryStorage();
   const calls = [];
   const deletedCaches = [];
@@ -60,8 +60,10 @@ test("a new staging browser session clears remote and browser-local test state",
   assert.equal(calls[1].options.method, "DELETE");
   assert.equal(calls[1].options.headers["x-abpn-staging-session"], "staging-session-1234");
   assert.equal(local.clearCalls, 1);
+  assert.equal(local.values.get("abpn-study:exam-date"), "2030-12-31");
   assert.equal(local.values.get("abpn-study:device-id"), "staging-session-1234");
   assert.equal(session.values.get(STAGING_SESSION_KEY), "staging-session-1234");
+  assert.equal(session.values.get("abpn-study:allow-system-validation"), "true");
   assert.equal(deletedDatabase, 1);
   assert.deepEqual(deletedCaches, ["test-cache-a", "test-cache-b"]);
 });

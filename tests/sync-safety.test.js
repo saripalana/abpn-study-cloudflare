@@ -172,14 +172,20 @@ test("production enables protected sync while the server kill switch remains enf
 });
 
 test("the visible application has one guarded sync controller with local-only fallback", async () => {
-  const [index, app, controller, publicClient] = await Promise.all([
+  const [index, bootstrap, app, controller, publicClient] = await Promise.all([
     read("public/index.html"),
+    read("public/bootstrap.js"),
     read("public/app.js"),
     read("public/sync-controller.js"),
     read("public/client/sync.js"),
   ]);
-  assert.match(index, /sync-controller\.js/);
+  assert.match(index, /bootstrap\.js/);
+  assert.match(bootstrap, /sync-controller\.js/);
+  assert.match(bootstrap, /backup-controller\.js/);
+  assert.match(bootstrap, /data-management-controller\.js/);
   assert.match(controller, /Local only · sync paused/);
+  assert.match(controller, /Restart staging sync/);
+  assert.match(controller, /STAGING_SESSION_KEY/);
   assert.match(controller, /Local study data is safe/);
   assert.match(controller, /syncButton\.onclick/);
   assert.match(controller, /clearSyncSuspension/);

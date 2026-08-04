@@ -13,8 +13,11 @@ const LOCAL_STARTUP_TIMEOUT_MS = 2_000;
 const CLOUD_STARTUP_TIMEOUT_MS = 5_000;
 const CLOUD_CATALOG_RELOAD_KEY = "abpn-cloud-catalog-reload";
 
-await ensureStagingSession();
+// Local-only preferences must remain usable even when staging cleanup or its
+// health check is slow. The staging gate still completes before decks or study
+// state are loaded below.
 initExamCountdown();
+await ensureStagingSession();
 
 function withStartupTimeout(operation, timeoutMs, message) {
   let timeoutId;
@@ -48,6 +51,13 @@ try {
 
   const startupCatalog = catalogSignature(QUESTION_BANKS);
   await import("./app.js");
+  // Controllers load from one ordered bootstrap so every dashboard render has
+  // the same sync, backup, reset, file/GitHub import, and review controls.
+  await import("./sync-controller.js");
+  await import("./backup-controller.js");
+  await import("./data-management-controller.js");
+  await import("./question-bank-controller.js");
+  await import("./github-question-bank-controller.js");
 
   // Refresh cloud and locally installed decks after the dashboard is usable.
   void (async () => {

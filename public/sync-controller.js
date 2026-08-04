@@ -1,5 +1,5 @@
 import { SYNC_CLIENT_LIMITS, SyncClient, clearSyncSuspension, getSyncState } from "./client/sync.js";
-import { ensureStagingSession } from "./client/staging-lifecycle.js";
+import { ensureStagingSession, STAGING_SESSION_KEY } from "./client/staging-lifecycle.js";
 
 // Module scripts may load concurrently when bootstrap uses top-level await.
 // Reuse the same preparation promise before reading the per-session device ID.
@@ -12,6 +12,7 @@ localStorage.setItem("abpn-study:device-id", deviceId);
 
 const client = new SyncClient({ deviceId });
 let syncing = false;
+let staleStagingSession = false;
 
 function showStatus(text, detail = text) {
   syncStatus.textContent = text;
@@ -19,9 +20,22 @@ function showStatus(text, detail = text) {
   syncStatus.setAttribute("aria-label", detail);
 }
 
+function showStaleStagingState(reason) {
+  staleStagingSession = true;
+  syncButton.textContent = "Restart staging sync";
+  showStatus(
+    "Local only · sync paused",
+    `This staging window was replaced by a newer one. Select Restart staging sync to make this window active. ${reason ? `${reason}. ` : ""}Local study data is safe.`,
+  );
+}
+
 async function renderStoredSyncState() {
   const state = await getSyncState();
   if (state.suspended) {
+    if (String(state.suspensionReason || "").includes("Staging session is no longer active")) {
+      showStaleStagingState(state.suspensionReason);
+      return;
+    }
     showStatus("Local only · sync paused", `Cloud synchronization is paused: ${state.suspensionReason || "safety shutdown"}. Local study data remains available.`);
     return;
   }
@@ -45,6 +59,8 @@ async function runSync({ background = false } = {}) {
     } else if (result.status === "skipped") {
       showStatus("Local only", "No cloud operation was needed. Local study data remains available.");
     } else {
+      staleStagingSession = false;
+      syncButton.textContent = "Sync";
       const conflicts = result.conflicts?.length || 0;
       showStatus(
         conflicts ? "Synced · review needed" : "Cloud ready",
@@ -52,6 +68,10 @@ async function runSync({ background = false } = {}) {
       );
     }
   } catch (error) {
+    if (error?.responseBody?.staleSession) {
+      showStaleStagingState(error.message);
+      return;
+    }
     const state = error.syncState || await getSyncState();
     if (state.suspended) {
       showStatus("Local only · sync paused", `Cloud synchronization was paused after a safety failure: ${state.suspensionReason || error.message}. Local study data is safe.`);
@@ -64,7 +84,14 @@ async function runSync({ background = false } = {}) {
   }
 }
 
-syncButton.onclick = () => runSync();
+syncButton.onclick = () => {
+  if (staleStagingSession) {
+    sessionStorage.removeItem(STAGING_SESSION_KEY);
+    location.reload();
+    return;
+  }
+  void runSync();
+};
 window.addEventListener("online", () => void runSync({ background: true }), { passive: true });
 window.addEventListener("load", () => void runSync({ background: true }), { once: true });
 setInterval(() => void runSync({ background: true }), SYNC_CLIENT_LIMITS.minimumBackgroundIntervalMs);

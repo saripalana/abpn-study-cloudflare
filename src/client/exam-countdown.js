@@ -21,13 +21,30 @@ export function daysUntilExam(value, now = new Date()) {
   return Math.round((target - today) / 86_400_000);
 }
 
+export function timeUntilExam(value, now = new Date()) {
+  const normalized = normalizeExamDate(value);
+  if (!normalized) return null;
+  const [year, month, day] = normalized.split("-").map(Number);
+  const target = new Date(year, month - 1, day);
+  const milliseconds = target.getTime() - now.getTime();
+  const absoluteMinutes = Math.floor(Math.abs(milliseconds) / 60_000);
+  return {
+    milliseconds,
+    days: Math.floor(absoluteMinutes / 1_440),
+    hours: Math.floor((absoluteMinutes % 1_440) / 60),
+    minutes: absoluteMinutes % 60,
+    sameLocalDay: target.getFullYear() === now.getFullYear()
+      && target.getMonth() === now.getMonth()
+      && target.getDate() === now.getDate(),
+  };
+}
+
 export function examCountdownText(value, now = new Date()) {
-  const days = daysUntilExam(value, now);
-  if (days == null) return "Set test date";
-  if (days === 0) return "Exam day";
-  if (days === 1) return "1 day";
-  if (days > 1) return `${days} days`;
-  return `${Math.abs(days)} day${days === -1 ? "" : "s"} past`;
+  const remaining = timeUntilExam(value, now);
+  if (!remaining) return "Set test date";
+  if (remaining.sameLocalDay) return "Exam day";
+  const duration = `${remaining.days}d ${remaining.hours}h ${remaining.minutes}m`;
+  return remaining.milliseconds > 0 ? duration : `${duration} past`;
 }
 
 export function initExamCountdown({ documentRef = document, storage = localStorage, now = () => new Date() } = {}) {
@@ -50,6 +67,8 @@ export function initExamCountdown({ documentRef = document, storage = localStora
     input.value = saved;
     clearButton.hidden = !saved;
   };
+  // Update visible hours and minutes without changing the saved date.
+  const refreshTimer = setInterval(render, 60_000);
   const close = () => typeof dialog.close === "function" ? dialog.close() : dialog.removeAttribute("open");
 
   openButton.addEventListener("click", () => {
@@ -78,5 +97,8 @@ export function initExamCountdown({ documentRef = document, storage = localStora
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) close();
   });
+  globalThis.addEventListener?.("pagehide", () => clearInterval(refreshTimer), { once: true });
+  // The static button starts disabled so a fast click cannot race module setup.
+  openButton.disabled = false;
   render();
 }

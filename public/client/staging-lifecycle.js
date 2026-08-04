@@ -5,6 +5,8 @@ import { deleteStudyDatabase } from "./storage.js";
 // of `staging`, and the server independently repeats the same environment gate.
 const SESSION_KEY = "abpn-study:staging-session";
 const DEVICE_KEY = "abpn-study:device-id";
+const EXAM_DATE_KEY = "abpn-study:exam-date";
+const VALIDATION_VISIBILITY_KEY = "abpn-study:allow-system-validation";
 const STAGING_HOSTNAME = "abpn-study-cloudflare-staging.saripalana.workers.dev";
 
 function withTimeout(operation, milliseconds) {
@@ -31,8 +33,11 @@ async function readEnvironment(fetchImpl) {
 }
 
 async function clearBrowserState({ localStorageRef, cacheStorage, deleteDatabase }) {
+  // Exam date is a durable preference, not disposable staging test data.
+  const preservedExamDate = localStorageRef.getItem(EXAM_DATE_KEY);
   await deleteDatabase();
   localStorageRef.clear();
+  if (preservedExamDate) localStorageRef.setItem(EXAM_DATE_KEY, preservedExamDate);
   if (cacheStorage?.keys) {
     const keys = await cacheStorage.keys();
     await Promise.all(keys.map((key) => cacheStorage.delete(key)));
@@ -72,6 +77,10 @@ export async function prepareStagingSession({
   if (environment !== "staging") {
     return { staging: false, reset: false, sessionId: null };
   }
+
+  // Reuse the existing validation bank for visible acceptance in staging. It
+  // remains hidden in production and excluded from normal multi-deck study.
+  sessionStorageRef.setItem(VALIDATION_VISIBILITY_KEY, "true");
 
   const existing = sessionStorageRef.getItem(SESSION_KEY);
   // sessionStorage survives a reload but disappears when the isolated browser
