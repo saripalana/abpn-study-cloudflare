@@ -87,6 +87,7 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   });
   await firstPage.goto("/");
   await expect(firstPage.getByRole("heading", { name: "K&S Psychiatry Question Bank" })).toBeVisible();
+  await expect(firstPage.getByRole("button", { name: "Import from file" })).toBeEnabled();
 
   // File-picker activation is covered by import-button.spec.js. This test targets
   // library persistence, so inject the package through the stable file input.

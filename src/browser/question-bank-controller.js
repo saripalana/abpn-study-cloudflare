@@ -9,8 +9,6 @@ import {
 import { publishCloudDeckPackage } from "./client/deck-library.js";
 import { STORES, getRecord, putRecord, recordsByIndex } from "./client/storage.js";
 
-await import("./bootstrap.js");
-
 const app = document.getElementById("app");
 const importInput = document.getElementById("bankImportInput");
 const SELECTED_BANK_KEY = "abpn-study:selected-bank";
@@ -59,6 +57,7 @@ function ensureImportControl() {
   button.setAttribute("aria-controls", importInput.id);
   button.setAttribute("aria-haspopup", "dialog");
   button.onclick = null;
+  button.disabled = false;
   return button;
 }
 

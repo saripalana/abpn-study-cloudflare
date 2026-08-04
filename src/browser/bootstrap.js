@@ -9,9 +9,9 @@ import { initExamCountdown } from "./client/exam-countdown.js";
 import { ensureStagingSession } from "./client/staging-lifecycle.js";
 
 const app = document.getElementById("app");
+const BUILT_IN_QUESTION_BANKS = [...QUESTION_BANKS];
 const LOCAL_STARTUP_TIMEOUT_MS = 2_000;
 const CLOUD_STARTUP_TIMEOUT_MS = 5_000;
-const CLOUD_CATALOG_RELOAD_KEY = "abpn-cloud-catalog-reload";
 
 // Local-only preferences must remain usable even when staging cleanup or its
 // health check is slow. The staging gate still completes before decks or study
@@ -29,7 +29,7 @@ function withStartupTimeout(operation, timeoutMs, message) {
 
 async function loadAvailableDecks(timeoutMs = LOCAL_STARTUP_TIMEOUT_MS) {
   return withStartupTimeout(
-    loadInstalledQuestionBanks(QUESTION_BANKS),
+    loadInstalledQuestionBanks(BUILT_IN_QUESTION_BANKS),
     timeoutMs,
     "Local deck startup timed out.",
   );
@@ -50,51 +50,43 @@ try {
   }
 
   const startupCatalog = catalogSignature(QUESTION_BANKS);
-  await import("./app.js");
-  // Controllers load from one ordered bootstrap so every dashboard render has
-  // the same sync, backup, reset, file/GitHub import, and review controls.
+  const { applicationReady, refreshApplication } = await import("./app.js");
+  await applicationReady;
+
+  // Finish the one bounded cloud-catalog pass before attaching interactive
+  // controllers. This prevents a late catalog refresh from racing a file
+  // picker, answer, resume action, or backup while preserving the already
+  // rendered local-first dashboard during an offline timeout.
+  const reservedIds = QUESTION_BANKS.filter((bank) => bank.protected).map((bank) => bank.id);
+  try {
+    await withStartupTimeout((async () => {
+      await flushPendingCloudDeckUploads();
+      await promoteLocallyInstalledDecks({ reservedIds });
+      await refreshCloudDeckLibrary({ reservedIds });
+    })(), CLOUD_STARTUP_TIMEOUT_MS, "Cloud deck startup timed out.");
+  } catch (error) {
+    console.warn("Cloud deck library is unavailable; continuing with bundled and locally cached decks.", error);
+  }
+
+  try {
+    const definitions = await loadAvailableDecks();
+    const updatedCatalog = catalogSignature(definitions);
+    QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...definitions);
+
+    if (updatedCatalog !== startupCatalog) {
+      await refreshApplication();
+    }
+  } catch (error) {
+    console.warn("Updated deck catalog could not be loaded; current dashboard remains available.", error);
+  }
+
+  // Controllers load only after the dashboard and its bounded catalog refresh
+  // are stable, so every visible control is attached to the current render.
   await import("./sync-controller.js");
   await import("./backup-controller.js");
   await import("./data-management-controller.js");
   await import("./question-bank-controller.js");
   await import("./github-question-bank-controller.js");
-
-  // Refresh cloud and locally installed decks after the dashboard is usable.
-  void (async () => {
-    const reservedIds = QUESTION_BANKS.filter((bank) => bank.protected).map((bank) => bank.id);
-    try {
-      await withStartupTimeout((async () => {
-        await flushPendingCloudDeckUploads();
-        await promoteLocallyInstalledDecks({ reservedIds });
-        await refreshCloudDeckLibrary({ reservedIds });
-      })(), CLOUD_STARTUP_TIMEOUT_MS, "Cloud deck startup timed out.");
-    } catch (error) {
-      console.warn("Cloud deck library is unavailable; continuing with bundled and locally cached decks.", error);
-    }
-
-    try {
-      const definitions = await loadAvailableDecks();
-      const updatedCatalog = catalogSignature(definitions);
-      QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...definitions);
-
-      // app.js builds its selector from the startup catalog. When a clean device
-      // downloads a deck from Cloudflare after that render, reload exactly once
-      // so the normal startup path includes the new peer deck like K&S.
-      if (updatedCatalog !== startupCatalog) {
-        const lastReloadedCatalog = sessionStorage.getItem(CLOUD_CATALOG_RELOAD_KEY);
-        if (lastReloadedCatalog !== updatedCatalog) {
-          sessionStorage.setItem(CLOUD_CATALOG_RELOAD_KEY, updatedCatalog);
-          window.location.reload();
-          return;
-        }
-      }
-
-      sessionStorage.removeItem(CLOUD_CATALOG_RELOAD_KEY);
-      window.dispatchEvent(new CustomEvent("abpn:deck-catalog-updated"));
-    } catch (error) {
-      console.warn("Updated deck catalog could not be loaded; current dashboard remains available.", error);
-    }
-  })();
 } catch (error) {
   console.error("Question-bank bootstrap failed", error);
   app.innerHTML = `

@@ -372,7 +372,7 @@ async function renderDashboard() {
           <p class="notice">Progress saves to IndexedDB immediately. Cloud synchronization is additive and does not replace local-first saving.</p>
           <div class="actions">
             <button id="snapshotBtn" class="secondary" type="button">Create recovery snapshot</button>
-            <button id="importBankBtn" class="secondary" type="button">Import question bank</button>
+            <button id="importBankBtn" class="secondary" type="button" disabled>Import question bank</button>
           </div>
         </section>
         <section class="card">
@@ -773,4 +773,7 @@ window.addEventListener('beforeunload', () => {
   if (activeSet && !activeSet.submitted) void saveActiveSet();
 });
 
-initialize();
+// Bootstrap and controllers share this explicit readiness boundary instead of
+// guessing when the first asynchronous dashboard render has completed.
+export const applicationReady = initialize();
+export const refreshApplication = () => applicationReady.then(() => initialize());
