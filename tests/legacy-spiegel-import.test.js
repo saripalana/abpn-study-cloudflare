@@ -60,6 +60,8 @@ test("scores multi-select questions only when the exact correct set is selected"
   const converted = await convertLegacySpiegelScript(legacyScript, "https://example.invalid/data.js");
   const bank = normalizeBank(converted.bank);
   const question = bank.byId.get("vignette1-q1");
+  assert.equal(question.linkedGroupId, "spiegel-test-prep:vignette:Vignette 1");
+  assert.equal(question.linkedOrder, 1);
   assert.equal(isQuestionAnswerCorrect(question, ["A", "C"]), true);
   assert.equal(isQuestionAnswerCorrect(question, ["C", "A"]), true);
   assert.equal(isQuestionAnswerCorrect(question, ["A"]), false);

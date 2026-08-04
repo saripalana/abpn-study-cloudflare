@@ -40,6 +40,22 @@ for (const [index, question] of questions.entries()) {
   ids.add(id);
 }
 
+// These pairs are explicitly linked by the pinned source wording: each second
+// prompt refers to the immediately previous case. Keep the mapping narrow and
+// reviewed rather than inferring relationships from unrelated clinical terms.
+const linkedQuestionGroups = [
+  ["k-25.21", "k-25.22"],
+  ["k-25.23", "k-25.24"],
+];
+for (const [groupIndex, questionIds] of linkedQuestionGroups.entries()) {
+  questionIds.forEach((questionId, linkedOrder) => {
+    const question = questions.find((candidate) => candidate.id === questionId);
+    if (!question) throw new Error(`Linked K&S question is missing: ${questionId}`);
+    question.linkedGroupId = `ks-linked-${groupIndex + 1}`;
+    question.linkedOrder = linkedOrder;
+  });
+}
+
 const bank = {
   id: 'ks-psychiatry-core',
   title: 'K&S Psychiatry Question Bank',

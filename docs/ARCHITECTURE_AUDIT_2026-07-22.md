@@ -112,3 +112,24 @@ Required correction: use source adapters that extract and validate a package, th
 - Production merge is a separate user checkpoint after preview testing.
 - K&S remains one protected bundled deck, not the platform identity.
 - Spiegel and every future import use the same package, versioning, progress, backup, and recovery rules.
+
+## 2026-08-03 canonical source and data-path correction
+
+This section supersedes any earlier implication that runtime normalization alone makes every deck a fully equivalent persisted question bank. The current D1 package/chunk model is a compatibility layer; the target is one queryable content contract for K&S, Spiegel, file/GitHub imports, and future sources.
+
+### Canonical entities
+
+- Content: `Bank`, immutable `BankRevision`, ordered `QuestionGroup`, ordered `Question`, ordered `Choice`, `Rationale`, and `Provenance`.
+- Study: `StudySession`, ordered revision-pinned `SessionQuestion`, append-safe `Attempt`, selection/correctness/timing, flag/note, and cumulative progress/history.
+- Source adapters may differ only at ingestion and provenance. They must emit the same validated content contract. Ambiguous linked questions are quarantined rather than guessed.
+- D1 is canonical cloud persistence. IndexedDB mirrors the versioned contract and retains a bounded offline outbox. Frontend and administrative tools use the same authenticated repository/API layer rather than querying D1 directly.
+
+### Repeatable modification pathway
+
+- Editable browser assets live under `src/browser` and `src/client`.
+- Corresponding `public` files are deterministic deployment outputs produced by `npm run build`; do not hand-edit generated copies.
+- `npm run build:check` rejects source/output drift. `npm run build:idempotence` proves a repeated generation produces identical bytes.
+- The existing `npm run verify` is the single consolidated validation path. Do not add another validator or patch chain.
+- Historical `scripts/patch-*.mjs` files are no longer invoked by package scripts. They remain only as accounted transition history until separately approved archival; new behavior must be implemented in canonical source.
+- GitHub validation rejects a checkout when generation changes committed `src`, `public`, or package metadata.
+- Local validation, the sole private staging environment with isolated data, user acceptance, migration, and production deployment are sequential gates. Automation does not grant approval for later gates.

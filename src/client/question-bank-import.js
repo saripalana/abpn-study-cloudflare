@@ -58,6 +58,7 @@ function validateQuestionShape(question, index, bankId) {
   text(question.chapterTitle || question.category || "Uncategorized", `Question ${id} category`, 500);
   text(question.explanation || "No explanation provided.", `Question ${id} explanation`, 100_000);
   text(question.vignetteStem || "", `Question ${id} vignette stem`, 100_000, { required: false });
+  text(question.linkedGroupId || question.groupId || "", `Question ${id} linked group`, 500, { required: false });
   text(question.answerText || "", `Question ${id} answer text`, 20_000, { required: false });
   if (!Array.isArray(question.choices) || question.choices.length < 2 || question.choices.length > 10) {
     throw new Error(`Question ${id} must contain between 2 and 10 choices.`);
@@ -130,12 +131,16 @@ function normalizedPackageBank(bank) {
     contentClass,
     sourceLabel: normalized.sourceLabel,
     protected: false,
-    questions: normalized.questions.map((question) => ({
+    questions: normalized.questions.map((question, index) => ({
       id: question.id,
       chapter: question.chapter,
       chapterTitle: question.chapterTitle,
       question: question.question,
       vignetteStem: question.vignetteStem,
+      ...(questions[index]?.linkedGroupId || questions[index]?.groupId ? {
+        linkedGroupId: question.linkedGroupId,
+        linkedOrder: question.linkedOrder,
+      } : {}),
       choices: [...question.choices],
       choiceLetters: [...question.choiceLetters],
       correctLetter: question.correctLetter,
@@ -186,6 +191,8 @@ export function questionFingerprint(question) {
     chapterTitle: question.chapterTitle,
     question: question.question,
     vignetteStem: question.vignetteStem ?? "",
+    linkedGroupId: question.linkedGroupId ?? "",
+    linkedOrder: question.linkedOrder ?? 0,
     choices: question.choices,
     choiceLetters: question.choiceLetters,
     correctLetter: question.correctLetter,

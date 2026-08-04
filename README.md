@@ -32,6 +32,22 @@ Protected production release. Cloudflare Access restricts the application to the
 - Authentication: Cloudflare Access
 - Deployment: Cloudflare Workers with static assets
 
+The current package/chunk Deck Library remains a backward-compatible persistence layer while the canonical question-level model is introduced additively. The target contract is shared by every source: immutable bank revisions, ordered linked-question groups, questions, choices, rationales, provenance, revision-pinned study sessions, attempts, timing, flags, notes, and history. K&S is protected, but it is not a separate runtime or persistence architecture.
+
+## Repeatable development pathway
+
+- Edit browser assets only under `src/browser` and `src/client`.
+- Run `npm run build` to generate their deployment copies under `public`.
+- Run `npm run build:check` to detect stale or manually edited deployment copies.
+- Run `npm run build:idempotence` to prove repeated generation is byte-stable.
+- Run `npm run verify` as the single consolidated local gate. It imports the pinned K&S source, generates browser assets, verifies idempotence, enforces free-tier guardrails, runs the complete unit/architecture suite, and performs a Cloudflare dry build without deployment.
+- Do not add another `patch-*` workflow. Existing historical patch scripts are no longer invoked; their required behavior has been captured in canonical source.
+- Generated dependencies, Wrangler state, test reports, logs, and generated K&S assets are ignored and must not be committed.
+
+The environment progression is local verification, the sole private staging environment with isolated test data, user acceptance, and only then separately approved merge, migration, and production deployment.
+
+GitHub remains the permanent source/version-history recovery layer and is not pruned by local/Drive backup retention. Local and Google Drive backups cover database exports, temporary-archive recovery bundles, and other non-Git artifacts.
+
 K&S and the validation deck are bundled protected packages. User-added file and GitHub decks use the same normalized runtime model, are cached in IndexedDB, and are stored as chunked versioned packages in the protected one-user D1 Deck Library. Existing locally imported decks are promoted automatically after this capability is deployed.
 
 ## Cost safety
@@ -66,3 +82,4 @@ Backup, restore, Worker rollback, and D1 migration recovery are controlled by [`
 8. Implement and verify cost, quota, kill-switch, and fail-closed safeguards.
 9. Run functional, data-integrity, offline, multi-device, security, and cost-safety tests.
 10. Activate only after a separate controlled validation and release review.
+11. Replace the transitional package/chunk content layer with the additive canonical question-level model; preserve compatibility and rollback until parity is proven.

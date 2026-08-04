@@ -76,7 +76,7 @@ test("worker exposes health and bidirectional sync endpoints behind release cont
 });
 
 test("all imported banks use the protected persistent deck library", async () => {
-  const [worker, api, sourceProxy, browserClient, bootstrap, migration, bootstrapMigration, packageJson] = await Promise.all([
+  const [worker, api, sourceProxy, browserClient, bootstrap, migration, bootstrapMigration] = await Promise.all([
     read("src/worker.js"),
     read("src/deck-library-api.js"),
     read("src/starter-deck-source.js"),
@@ -84,7 +84,6 @@ test("all imported banks use the protected persistent deck library", async () =>
     read("public/bootstrap.js"),
     read("migrations/0004_cloud_deck_library.sql"),
     read("migrations/0006_deck_library_bootstrap.sql"),
-    read("package.json"),
   ]);
   assert.match(worker, /handleDeckLibraryRequest/);
   assert.match(api, /\/api\/decks/);
@@ -104,8 +103,21 @@ test("all imported banks use the protected persistent deck library", async () =>
   assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_packages/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_package_chunks/);
   assert.match(bootstrapMigration, /CREATE TABLE IF NOT EXISTS deck_library_state/);
-  assert.match(packageJson, /patch-deck-library-worker\.mjs/);
-  assert.match(packageJson, /patch-cloud-deck-imports\.mjs/);
+});
+
+test("browser deployment assets have one deterministic source and no runtime patch chain", async () => {
+  const [packageJson, builder] = await Promise.all([
+    read("package.json"),
+    read("scripts/build-browser-assets.mjs"),
+  ]);
+  assert.match(packageJson, /"build:check"/);
+  assert.match(packageJson, /"build:idempotence"/);
+  assert.match(packageJson, /build-browser-assets\.mjs --verify-idempotent/);
+  assert.doesNotMatch(packageJson, /patch-[a-z0-9-]+\.mjs/);
+  assert.match(builder, /src\/browser/);
+  assert.match(builder, /src\/client/);
+  assert.match(builder, /Generated browser assets are stale/);
+  assert.match(builder, /not idempotent/);
 });
 
 test("Cloudflare Access JWT validation is the outer request gateway", async () => {

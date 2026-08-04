@@ -111,3 +111,12 @@ Cloud synchronization must remain disabled until all of the following are comple
 - no paid Cloudflare product or unexpected billable usage present
 
 Activation requires a separate reviewed change to both `APP_RELEASE_MODE` and `CLOUD_SYNC_ENABLED`. Neither variable may be changed as part of backup/restore implementation.
+# Archive and backup retention
+
+- Active development and official runtime workspaces contain no archive directories.
+- Retired workspace files may remain in one external temporary archive for no more than three calendar days.
+- Before temporary archive removal, its contents and checksum manifest must be recoverable from both the official local backup area and Google Drive.
+- Keep all backups during their first three calendar days. For older dates, keep only the latest backup created on each calendar day and move earlier same-day backups to recoverable Trash.
+- Apply the same daily retention result locally and in Google Drive. Never claim Drive parity until the Drive copy is read back or otherwise verified.
+- Production database exports associated with a deployment remain identified in the ledger by filename, size, checksum, source commit, and deployment version.
+- GitHub is the durable source/version-history recovery layer for tracked code, reviews, tags, and exact release commits. Do not apply the three-day rotating-file retention rule to Git commits or prune history. GitHub complements but does not replace local and Drive backups for databases, generated recovery bundles, or files that were never committed.

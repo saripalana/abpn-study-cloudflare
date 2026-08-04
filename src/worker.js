@@ -1,3 +1,7 @@
+import { handleDeckLibraryRequest } from "./deck-library-api.js";
+import { handleStarterDeckSourceRequest } from "./starter-deck-source.js";
+
+// ABPN_CLOUD_DECK_LIBRARY_V1
 const json = (data, status = 200, extraHeaders = {}) => new Response(JSON.stringify(data), {
   status,
   headers: {
@@ -651,6 +655,24 @@ async function handleSyncPull(request, env) {
 
 async function routeApi(request, env) {
   const url = new URL(request.url);
+
+  const deckResponse = await handleDeckLibraryRequest(request, env, {
+    json,
+    requireSyncReady,
+    requireContext,
+    reserveUsage,
+    ensureUserAndDevice,
+  });
+  if (deckResponse) return deckResponse;
+
+  const starterSourceResponse = await handleStarterDeckSourceRequest(request, env, {
+    json,
+    requireSyncReady,
+    requireContext,
+    reserveUsage,
+    ensureUserAndDevice,
+  });
+  if (starterSourceResponse) return starterSourceResponse;
 
   if (request.method === "GET" && url.pathname === "/api/health") return handleHealth(env);
   if (request.method === "POST" && url.pathname === "/api/sync/push") return handleSyncPush(request, env);

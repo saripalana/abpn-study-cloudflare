@@ -26,6 +26,15 @@ test('combines subject filters with all new used wrong and flagged pools',()=>{c
 
 test('random selection never leaves the selected subjects',()=>{const [bank]=buildBankCatalog([definition]);const ids=chooseQuestionIds(bank,new Map(),'all',10,()=>0,['Psychosis']);assert.deepEqual(ids,['q3'])});
 
+test('linked questions stay ordered and expand past the requested boundary',()=>{
+  const [bank]=buildBankCatalog([{id:'linked',title:'Linked',questions:[
+    {id:'case-1',chapterTitle:'Mood',linkedGroupId:'case-a',linkedOrder:0,question:'Case start?',choices:['A','B'],correctLetter:'A',explanation:'x'},
+    {id:'case-2',chapterTitle:'Other',linkedGroupId:'case-a',linkedOrder:1,question:'Case follow-up?',choices:['A','B'],correctLetter:'B',explanation:'y'},
+    {id:'solo',chapterTitle:'Other',question:'Solo?',choices:['A','B'],correctLetter:'A',explanation:'z'},
+  ]}]);
+  assert.deepEqual(chooseQuestionIds(bank,new Map(),'all',1,()=>0,['Mood']),['case-1','case-2']);
+});
+
 test('calculates answered omitted correct and incorrect totals',()=>{const [bank]=buildBankCatalog([definition]);const answers=new Map([['q1',{selectedAnswer:'A'}],['q2',{selectedAnswer:'A'}]]);assert.deepEqual(calculateSetResult(['q1','q2','q3'],answers,bank),{total:3,answered:2,omitted:1,correct:1,incorrect:1})});
 
 test('builds category accuracy and timing statistics',()=>{const [bank]=buildBankCatalog([definition]);const progress=new Map([['q1',{timesUsed:1,isCorrect:true,totalTimeMs:1000}],['q2',{timesUsed:1,isCorrect:false,totalTimeMs:3000}]]);const mood=categoryStatistics(bank,progress).find(row=>row.title==='Mood');assert.equal(mood.answered,2);assert.equal(mood.correct,1);assert.equal(mood.accuracy,.5);assert.equal(mood.averageTimeMs,2000)});
