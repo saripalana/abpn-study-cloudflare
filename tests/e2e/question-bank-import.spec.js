@@ -146,7 +146,7 @@ test('rejects a package that attempts to overwrite the hidden validation fixture
 
   await expect.poll(() => dialogs.length).toBeGreaterThan(0);
   expect(dialogs.some((message) => /reserved for a hidden system-validation fixture/i.test(message))).toBe(true);
-  await expect(page.locator('#bankSelect option')).toHaveCount(2);
+  await expect(page.locator('#bankSelect option')).toHaveCount(3);
   await page.selectOption('#bankSelect', 'validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
   await expect(page.getByText('3 questions loaded.', { exact: false })).toBeVisible();
