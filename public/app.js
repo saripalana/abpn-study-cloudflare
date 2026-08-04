@@ -29,6 +29,7 @@ import { categoriesByDeckForSession } from './client/multi-deck-app-session.js';
 
 // ABPN_MULTI_SELECT_PATCH_V1
 import { buildWeaknessSnapshot } from './client/weakness-analytics.js';
+import { attachAssistantWeaknessControls } from './assistant-weakness-controller.js';
 import {
   STORES,
   getRecord,
@@ -278,6 +279,13 @@ async function renderDashboard() {
   const categories = categoryEntries(activeBank);
   const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title));
   const multiDeckBuilder = loadMultiDeckBuilderSettings(activeBank.id);
+  const questionBrowserRows = activeBank.questions.map((question, index) => {
+    const record = progress.get(question.id);
+    const used = Number(record?.timesUsed || 0) > 0;
+    const status = !used ? 'New' : record?.isCorrect === true ? 'Correct' : record?.isCorrect === false ? 'Wrong' : 'Unanswered';
+    const preview = question.vignetteStem || question.question;
+    return `<button class="question-browser-number ${status.toLowerCase()}" type="button" aria-label="Question ${index + 1}, ${status}. Double-click to open." title="${esc(question.chapterTitle)} · ${status}" data-question-id="${esc(question.id)}" data-search="${esc(`${index + 1} ${question.chapterTitle} ${preview} ${status}`.toLowerCase())}">${index + 1}</button>`;
+  }).join('');
 
   app.innerHTML = `
     <section class="card hero">
@@ -367,17 +375,22 @@ async function renderDashboard() {
       </div>
 
       <div class="stack">
-        <section class="card">
-          <h3>Data protection</h3>
-          <p class="notice">Progress saves to IndexedDB immediately. Cloud synchronization is additive and does not replace local-first saving.</p>
-          <div class="actions">
-            <button id="snapshotBtn" class="secondary" type="button">Create recovery snapshot</button>
-            <button id="importBankBtn" class="secondary" type="button" disabled>Import question bank</button>
+        <section class="card question-browser-card">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow" style="color:var(--blue)">QUESTION NAVIGATOR</div>
+              <h3>Browse questions</h3>
+              <p class="muted">Double-click a number to open it without revealing the answer. Linked follow-ups open together.</p>
+            </div>
+            <span class="pill">${activeBank.questions.length}</span>
           </div>
-        </section>
-        <section class="card">
-          <h3>Current release state</h3>
-          <p class="muted"><strong>Version 1.0</strong> · The protected K&S package and validation bank are loaded independently so future banks can be added without mixing progress.</p>
+          <label class="field" for="questionBrowserSearch">
+            <span>Find by number, subject, or text</span>
+            <input id="questionBrowserSearch" type="search" placeholder="Search questions">
+          </label>
+          <div class="question-browser-legend" aria-label="Question status legend"><span><i class="correct"></i>Correct</span><span><i class="wrong"></i>Wrong</span><span><i class="unanswered"></i>Unanswered</span><span><i class="new"></i>New</span></div>
+          <div id="questionBrowserList" class="question-browser-list">${questionBrowserRows}</div>
+          <p id="questionBrowserEmpty" class="empty" hidden>No questions match this search.</p>
         </section>
       </div>
     </section>
@@ -422,10 +435,61 @@ async function renderDashboard() {
         <p class="muted">Adequate evidence in ${Math.round((weakness.evidenceCoverage || 0) * 100)}% of domains. More completed questions improve reliability.</p>
       ` : '<div class="empty">Complete questions to build local weakness priorities.</div>'}
     </section>
+
+    <section id="assistantInsightsSection" class="card dashboard-section">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">PRIVATE STAGING · OPTIONAL</div>
+          <h3>Assistant weakness insights</h3>
+          <p class="muted">Share only category-level scores and timing summaries. Questions, choices, answers, explanations, and notes are never included.</p>
+        </div>
+      </div>
+      <label class="assistant-permission" for="assistantInsightsPermission">
+        <input id="assistantInsightsPermission" type="checkbox">
+        <span><strong>Allow content-free weakness access until I revoke it</strong><small>Revoking access does not delete the stored aggregate. Delete it only with the separate button below.</small></span>
+      </label>
+      <div class="actions">
+        <button id="shareWeaknessBtn" class="primary" type="button" disabled>Share current summary</button>
+        <button id="verifyWeaknessAccessBtn" class="secondary" type="button" disabled>Verify assistant access</button>
+        <button id="revokeWeaknessBtn" class="secondary" type="button" disabled>Revoke access</button>
+        <button id="deleteWeaknessAggregateBtn" class="secondary danger" type="button" disabled>Delete shared aggregate</button>
+      </div>
+      <p id="assistantInsightsStatus" class="muted" aria-live="polite"></p>
+    </section>
+
+    <section class="card dashboard-section">
+      <h3>Data protection</h3>
+      <p class="notice">Progress saves to IndexedDB immediately. Cloud synchronization is additive and does not replace local-first saving.</p>
+      <div class="actions">
+        <button id="snapshotBtn" class="secondary" type="button">Create recovery snapshot</button>
+        <button id="importBankBtn" class="secondary" type="button" disabled>Import question bank</button>
+      </div>
+    </section>
+
+    <footer class="release-footer">Version 1.0 · Protected local-first study workspace</footer>
   `;
+
+  await attachAssistantWeaknessControls({ root: app, bank: activeBank });
 
   document.getElementById('bankSelect').onchange = (event) => selectBank(event.target.value);
   document.getElementById('startBtn').onclick = startSet;
+  document.querySelectorAll('.question-browser-number').forEach((button) => {
+    button.ondblclick = () => openSpecificQuestion(button.dataset.questionId);
+    button.onkeydown = (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openSpecificQuestion(button.dataset.questionId);
+    };
+  });
+  document.getElementById('questionBrowserSearch').oninput = (event) => {
+    const query = event.target.value.trim().toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('.question-browser-number').forEach((row) => {
+      row.hidden = Boolean(query) && !row.dataset.search.includes(query);
+      if (!row.hidden) visible += 1;
+    });
+    document.getElementById('questionBrowserEmpty').hidden = visible > 0;
+  };
   document.getElementById('resumeBtn')?.addEventListener('click', renderQuestion);
   document.getElementById('snapshotBtn').onclick = async () => {
     await createRecoverySnapshot('manual');
@@ -581,6 +645,39 @@ async function startSet() {
     ...session,
     answers: new Map(),
     submitted: false,
+    completedAt: null,
+  };
+  await saveActiveSet();
+  await renderQuestion();
+}
+
+async function openSpecificQuestion(questionId) {
+  if (activeSet && !activeSet.submitted && !confirm(
+    'Replace the current active set?\n\nIts saved answers will remain in local history, but it will no longer be resumable.'
+  )) return;
+  if (activeSet && !activeSet.submitted) await saveActiveSet('abandoned');
+
+  const selected = activeBank.questions.find((question) => question.id === questionId);
+  if (!selected) return alert('That question is no longer available in the selected deck.');
+  // Preserve an ordered linked-question group as one indivisible study set.
+  const questionIds = selected.linkedGroupId
+    ? activeBank.questions
+      .filter((question) => question.linkedGroupId === selected.linkedGroupId)
+      .sort((a, b) => Number(a.linkedOrder || 0) - Number(b.linkedOrder || 0))
+      .map((question) => question.id)
+    : [selected.id];
+
+  activeSet = {
+    id: crypto.randomUUID(),
+    bankId: activeBank.id,
+    questionIds,
+    index: Math.max(0, questionIds.indexOf(selected.id)),
+    mode: 'tutor',
+    timed: false,
+    remainingSeconds: 0,
+    answers: new Map(),
+    submitted: false,
+    startedAt: new Date().toISOString(),
     completedAt: null,
   };
   await saveActiveSet();
