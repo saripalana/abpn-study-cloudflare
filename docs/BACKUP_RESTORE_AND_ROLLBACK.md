@@ -4,7 +4,7 @@
 
 This document controls recovery for the private ABPN Study Cloudflare application. It does not apply to, modify, or replace the original repositories:
 
-- `saripalana/ks-study-guide`
+- `dancingremote/ks-study-guide` (authoritative read-only K&S source)
 - `saripalana/abpn-study-lite`
 
 ## Portable local backup

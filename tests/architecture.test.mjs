@@ -105,10 +105,12 @@ test("worker exposes health and bidirectional sync endpoints behind release cont
 });
 
 test("all user-facing banks use one protected persistent Deck Library", async () => {
-  const [worker, api, sourceProxy, browserClient, bootstrap, migration, bootstrapMigration] = await Promise.all([
+  const [worker, api, sourceProxy, importer, generatedManifest, browserClient, bootstrap, migration, bootstrapMigration] = await Promise.all([
     read("src/worker.js"),
     read("src/deck-library-api.js"),
     read("src/starter-deck-source.js"),
+    read("scripts/import-ks-bank.mjs"),
+    read("public/banks/generated/ks-psychiatry-core.manifest.json"),
     read("public/client/deck-library.js"),
     read("public/bootstrap.js"),
     read("migrations/0004_cloud_deck_library.sql"),
@@ -120,8 +122,14 @@ test("all user-facing banks use one protected persistent Deck Library", async ()
   assert.match(api, /deck_package_chunks/);
   assert.match(api, /deck_library_state/);
   assert.match(api, /shared immutable revision protection contract/);
-  assert.match(sourceProxy, /raw\.githubusercontent\.com\/saripalana\/ks-study-guide\/4d03f158/);
+  assert.match(sourceProxy, /raw\.githubusercontent\.com\/dancingremote\/ks-study-guide\/ddfcba21/);
   assert.match(sourceProxy, /redirect: "error"/);
+  assert.match(importer, /repository: 'dancingremote\/ks-study-guide'/);
+  const ksManifest = JSON.parse(generatedManifest);
+  assert.equal(ksManifest.repository, "dancingremote/ks-study-guide");
+  assert.equal(ksManifest.commit, "ddfcba21e97973f77c08311400d05310a4ea1ee3");
+  assert.equal(ksManifest.expectedGitBlobSha, "f4180d69a4a6bbd8a7f764bb88e7f2f404f7431f");
+  assert.equal(ksManifest.questionCount, 602);
   assert.match(browserClient, /publishCloudDeckPackage/);
   assert.match(browserClient, /refreshCloudDeckLibrary/);
   assert.match(browserClient, /getCloudDeckBootstrapState/);

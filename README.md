@@ -6,7 +6,7 @@ Private, local-first ABPN Psychiatry study application with optional Cloudflare 
 
 Version 1.0 protected production release. Cloudflare Access restricts the application to the approved identity, IndexedDB remains the primary local store, and bounded synchronization uses the verified D1 database with an immediate server-side kill switch and automatic local-only fallback. This repository is separate from and does not modify:
 
-- `saripalana/ks-study-guide`
+- `dancingremote/ks-study-guide` (authoritative read-only K&S source)
 - `saripalana/abpn-study-lite`
 
 ## Design goals
@@ -58,7 +58,7 @@ Generated dependencies, browser-test downloads, screenshots, reports, Wrangler o
 
 GitHub remains the permanent source/version-history recovery layer and is not pruned by local/Drive backup retention. Local and Google Drive backups cover database exports, temporary-archive recovery bundles, and other non-Git artifacts.
 
-K&S is an application-supplied seed installed through the same normalized, immutable-revision Deck Library contract as file and GitHub packages. Every user-facing bank is cached in IndexedDB and stored as a chunked versioned package in the protected one-user D1 library. The hidden validation fixture remains test-only and is not a user question bank. Existing locally imported decks are promoted automatically.
+K&S is imported from the immutable original `dancingremote/ks-study-guide` revision as an application-supplied seed through the same normalized, immutable-revision Deck Library contract as file and GitHub packages. The adapter verifies the Git blob, count, identifiers, choices, answers, and explicitly linked follow-up groups before generating the package; it never modifies the source repository. Every user-facing bank is cached in IndexedDB and stored as a chunked versioned package in the protected one-user D1 library. The hidden validation fixture remains test-only and is not a user question bank. Existing locally imported decks are promoted automatically.
 
 ## Cost safety
 

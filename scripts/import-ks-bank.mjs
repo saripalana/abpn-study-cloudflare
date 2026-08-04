@@ -3,8 +3,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const source = Object.freeze({
-  repository: 'saripalana/ks-study-guide',
-  commit: '4d03f158c6fbfacd698796d94c213a49ac8a377d',
+  // The original read-only repository is the authoritative K&S source. Pinning
+  // an immutable commit keeps builds reproducible even if its main branch moves.
+  repository: 'dancingremote/ks-study-guide',
+  commit: 'ddfcba21e97973f77c08311400d05310a4ea1ee3',
   path: 'data.js',
   expectedGitBlobSha: 'f4180d69a4a6bbd8a7f764bb88e7f2f404f7431f',
   expectedQuestionCount: 602,
