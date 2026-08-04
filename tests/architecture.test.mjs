@@ -135,6 +135,21 @@ test("all user-facing banks use one protected persistent Deck Library", async ()
   assert.match(bootstrapMigration, /CREATE TABLE IF NOT EXISTS deck_library_state/);
 });
 
+test("system validation is omitted from remote staging and production selectors", async () => {
+  const app = await read("src/browser/app.js");
+  assert.match(app, /\['127\.0\.0\.1', 'localhost'\]\.includes/);
+  assert.match(app, /deckSelectorBanks = allowSystemValidation \? banks : banks\.filter\(isUserSelectableDeck\)/);
+  assert.doesNotMatch(app, /banks\.map\(\(bank\).*deckOptionHiddenAttribute/);
+});
+
+test("optional assistant status cannot block core dashboard controls", async () => {
+  const app = await read("src/browser/app.js");
+  const controlBinding = app.indexOf("document.getElementById('startBtn').onclick = startSet");
+  const assistantBinding = app.indexOf("void attachAssistantWeaknessControls");
+  assert.ok(controlBinding > -1 && assistantBinding > controlBinding);
+  assert.match(app, /const assistantSection = document\.getElementById\('assistantInsightsSection'\)/);
+});
+
 test("browser deployment assets have one deterministic source and no runtime patch chain", async () => {
   const [packageJson, builder] = await Promise.all([
     read("package.json"),

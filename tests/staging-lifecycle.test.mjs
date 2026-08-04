@@ -8,6 +8,7 @@ function memoryStorage(initial = {}) {
     clearCalls: 0,
     clear() { this.clearCalls += 1; values.clear(); },
     getItem(key) { return values.get(key) ?? null; },
+    removeItem(key) { values.delete(key); },
     setItem(key, value) { values.set(key, String(value)); },
     values,
   };
@@ -66,6 +67,22 @@ test("a new staging browser session clears test state but preserves the exam dat
   assert.equal(session.values.get("abpn-study:allow-system-validation"), "true");
   assert.equal(deletedDatabase, 1);
   assert.deepEqual(deletedCaches, ["test-cache-a", "test-cache-b"]);
+});
+
+test("private staging never exposes the internal validation fixture", async () => {
+  const session = memoryStorage({ "abpn-study:allow-system-validation": "true" });
+  await prepareStagingSession({
+    fetchImpl: async (url) => url === "/api/health"
+      ? health("staging")
+      : new Response(JSON.stringify({ ok: true })),
+    localStorageRef: memoryStorage(),
+    sessionStorageRef: session,
+    cacheStorage: null,
+    locationRef: { hostname: "abpn-study-cloudflare-staging.saripalana.workers.dev" },
+    createId: () => "private-staging-session",
+    deleteDatabase: async () => {},
+  });
+  assert.equal(session.values.get("abpn-study:allow-system-validation"), undefined);
 });
 
 test("reloads preserve the current isolated staging session", async () => {

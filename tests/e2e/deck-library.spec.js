@@ -87,6 +87,11 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   });
   await firstPage.goto("/");
   await expect(firstPage.getByRole("heading", { name: "K&S Psychiatry Question Bank" })).toBeVisible();
+  await expect(firstPage.getByText("DECK LIBRARY · 1 INSTALLED")).toBeVisible();
+  await expect(firstPage.getByText("Every installed question bank uses the same versioned storage, protection, backup, study, and analytics system.")).toBeVisible();
+  await expect(firstPage.getByLabel("Installed question banks")).toHaveValue("ks-psychiatry-core");
+  await firstPage.getByRole("button", { name: "Manage Deck Library" }).click();
+  await expect(firstPage.locator("#deckLibraryManagement")).toBeVisible();
   await expect(firstPage.getByRole("button", { name: "Import from file" })).toBeEnabled();
   await expect(firstPage.getByRole("button", { name: "Download bank package" })).toBeVisible();
   await expect.poll(() => cloudStore.has("ks-psychiatry-core")).toBe(true);

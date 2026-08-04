@@ -1,5 +1,5 @@
 import { QUESTION_BANKS } from './banks/catalog.js';
-import { deckOptionHiddenAttribute, isUserSelectableDeck, practiceSetDeckLabel, resolveUserActiveDeck } from './client/deck-display.js';
+import { isUserSelectableDeck, practiceSetDeckLabel, resolveUserActiveDeck } from './client/deck-display.js';
 
 // ABPN_USER_FACING_DECKS_PATCH_V1
 import {
@@ -207,7 +207,11 @@ async function initialize() {
     }
 
     const selected = localStorage.getItem(SELECTED_BANK_KEY);
-    allowSystemValidation = sessionStorage.getItem('abpn-study:allow-system-validation') === 'true';
+    // Internal fixtures may be selected only from the local browser harness.
+    // Native select menus do not consistently honor hidden <option> elements,
+    // so remote staging and production omit the fixture from the DOM entirely.
+    const localValidationHarness = ['127.0.0.1', 'localhost'].includes(globalThis.location?.hostname);
+    allowSystemValidation = localValidationHarness;
     activeBank = resolveUserActiveDeck(banks, selected, 'ks-psychiatry-core', allowSystemValidation);
     if (!activeBank) throw new Error('No normal study decks are available.');
     localStorage.setItem(SELECTED_BANK_KEY, activeBank.id);
@@ -280,6 +284,8 @@ async function renderDashboard() {
   const categories = categoryEntries(activeBank);
   const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title));
   const multiDeckBuilder = loadMultiDeckBuilderSettings(activeBank.id);
+  const deckSelectorBanks = allowSystemValidation ? banks : banks.filter(isUserSelectableDeck);
+  const installedDeckCount = banks.filter(isUserSelectableDeck).length;
   const questionBrowserRows = activeBank.questions.map((question, index) => {
     const record = progress.get(question.id);
     const used = Number(record?.timesUsed || 0) > 0;
@@ -291,15 +297,17 @@ async function renderDashboard() {
   app.innerHTML = `
     <section class="card hero">
       <div>
-        <div class="eyebrow" style="color:var(--blue)">ACTIVE DECK</div>
+        <div class="eyebrow" style="color:var(--blue)">DECK LIBRARY · ${installedDeckCount} INSTALLED</div>
         <h2>${esc(activeBank.title)}</h2>
         <p class="muted">${esc(activeBank.description)} ${activeBank.questions.length} questions loaded.</p>
+        <p class="deck-library-contract">Every installed question bank uses the same versioned storage, protection, backup, study, and analytics system.</p>
       </div>
       <div class="bank-selector">
-        <label for="bankSelect"><strong>Deck</strong></label>
+        <label for="bankSelect"><strong>Installed question banks</strong></label>
         <select id="bankSelect">
-          ${banks.map((bank) => `<option value="${esc(bank.id)}"${allowSystemValidation ? '' : deckOptionHiddenAttribute(bank)} ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)} (${bank.questions.length})</option>`).join('')}
+          ${deckSelectorBanks.map((bank) => `<option value="${esc(bank.id)}" ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)} (${bank.questions.length})</option>`).join('')}
         </select>
+        <button id="manageDeckLibraryBtn" class="secondary deck-library-action" type="button">Manage Deck Library</button>
       </div>
     </section>
 
@@ -462,8 +470,10 @@ async function renderDashboard() {
       <p id="assistantInsightsStatus" class="muted" aria-live="polite"></p>
     </section>
 
-    <section class="card dashboard-section">
+    <section id="deckLibraryManagement" class="card dashboard-section">
+      <div class="eyebrow" style="color:var(--blue)">DECK LIBRARY</div>
       <h3>Data protection</h3>
+      <p class="muted">Install, export, and protect every question bank through this shared Deck Library.</p>
       <p class="notice">Progress saves to IndexedDB immediately. Cloud synchronization is additive and does not replace local-first saving.</p>
       <div class="actions">
         <button id="snapshotBtn" class="secondary" type="button">Create recovery snapshot</button>
@@ -474,9 +484,15 @@ async function renderDashboard() {
     <footer class="release-footer">Version 1.0 · Protected local-first study workspace</footer>
   `;
 
-  await attachAssistantWeaknessControls({ root: app, bank: activeBank });
+  // Bind core study controls before starting the optional assistant status
+  // request. The assistant section reference is render-specific, so a slow
+  // response cannot mutate a newer dashboard after the user changes decks.
+  const assistantSection = document.getElementById('assistantInsightsSection');
 
   document.getElementById('bankSelect').onchange = (event) => selectBank(event.target.value);
+  document.getElementById('manageDeckLibraryBtn').onclick = () => {
+    document.getElementById('deckLibraryManagement')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
   document.getElementById('startBtn').onclick = startSet;
   document.querySelectorAll('.question-browser-number').forEach((button) => {
     button.ondblclick = () => openSpecificQuestion(button.dataset.questionId);
@@ -597,6 +613,7 @@ async function renderDashboard() {
   });
   randomizeOrder.addEventListener('change', updateBuilderAvailability);
   updateBuilderAvailability();
+  void attachAssistantWeaknessControls({ root: assistantSection, bank: activeBank });
 }
 
 async function startSet() {

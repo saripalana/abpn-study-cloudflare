@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('Tutor mode supports confirmed submission at any point, answer states, and completed-test history', async ({ page }) => {
   await page.goto('/');
-
+  await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
   await page.selectOption('#bankSelect', 'validation-bank');
   await page.locator('#countInput').fill('3');
   await page.selectOption('#modeSelect', 'tutor');

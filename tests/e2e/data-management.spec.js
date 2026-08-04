@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 
 async function useValidationBank(page) {
   await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
   await page.locator('#bankSelect').selectOption('validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
 }

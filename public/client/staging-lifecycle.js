@@ -78,9 +78,13 @@ export async function prepareStagingSession({
     return { staging: false, reset: false, sessionId: null };
   }
 
-  // Reuse the existing validation bank for visible acceptance in staging. It
-  // remains hidden in production and excluded from normal multi-deck study.
-  sessionStorageRef.setItem(VALIDATION_VISIBILITY_KEY, "true");
+  // The validation fixture is available only to the local automated browser
+  // harness. It must never appear in the private staging or production UI.
+  if (locationRef?.hostname === STAGING_HOSTNAME) {
+    sessionStorageRef.removeItem(VALIDATION_VISIBILITY_KEY);
+  } else {
+    sessionStorageRef.setItem(VALIDATION_VISIBILITY_KEY, "true");
+  }
 
   const existing = sessionStorageRef.getItem(SESSION_KEY);
   // sessionStorage survives a reload but disappears when the isolated browser
