@@ -54,7 +54,7 @@ async function exportBackup(button) {
   button.disabled = true;
   button.textContent = "Preparing backup…";
   try {
-    const backup = await createPortableBackup({ appVersion: "0.6.0" });
+    const backup = await createPortableBackup({ appVersion: "1.0.0" });
     downloadPortableBackup(backup);
     button.textContent = "Backup downloaded";
   } catch (error) {

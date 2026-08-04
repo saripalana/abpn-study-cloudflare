@@ -33,6 +33,10 @@
     button.textContent = "Import from file";
     button.setAttribute("aria-controls", input.id);
     button.setAttribute("aria-haspopup", "dialog");
+    // The file input change handler is installed by question-bank-controller.
+    // Keep startup import unavailable until that controller explicitly enables
+    // the currently rendered button, preventing a chosen file from being lost.
+    button.disabled = true;
 
     const note = document.createElement("p");
     note.className = "muted";

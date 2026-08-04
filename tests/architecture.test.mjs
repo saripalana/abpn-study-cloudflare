@@ -120,6 +120,18 @@ test("browser deployment assets have one deterministic source and no runtime pat
   assert.match(builder, /not idempotent/);
 });
 
+test("startup import remains disabled until its file handler is attached", async () => {
+  const [html, bridge, controller] = await Promise.all([
+    read("src/browser/index.html"),
+    read("src/browser/import-button-bridge.js"),
+    read("src/browser/question-bank-controller.js"),
+  ]);
+  assert.match(html, /id="importBankBtn"[\s\S]*?disabled/);
+  assert.match(bridge, /button\.disabled = true/);
+  assert.match(controller, /button\.disabled = false/);
+  assert.match(controller, /importInput\.addEventListener\("change"/);
+});
+
 test("Cloudflare Access JWT validation is the outer request gateway", async () => {
   const [accessWorker, wrangler, packageJson] = await Promise.all([
     read("src/access-worker.js"),

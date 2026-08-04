@@ -377,7 +377,7 @@ async function renderDashboard() {
         </section>
         <section class="card">
           <h3>Current release state</h3>
-          <p class="muted">The protected K&S package and validation bank are loaded independently so future banks can be added without mixing progress.</p>
+          <p class="muted"><strong>Version 1.0</strong> · The protected K&S package and validation bank are loaded independently so future banks can be added without mixing progress.</p>
         </section>
       </div>
     </section>

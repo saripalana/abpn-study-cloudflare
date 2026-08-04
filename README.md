@@ -4,7 +4,7 @@ Private, local-first ABPN Psychiatry study application with optional Cloudflare 
 
 ## Project status
 
-Protected production release. Cloudflare Access restricts the application to the approved identity, IndexedDB remains the primary local store, and bounded synchronization uses the verified D1 database with an immediate server-side kill switch and automatic local-only fallback. This repository is separate from and does not modify:
+Version 1.0 protected production release. Cloudflare Access restricts the application to the approved identity, IndexedDB remains the primary local store, and bounded synchronization uses the verified D1 database with an immediate server-side kill switch and automatic local-only fallback. This repository is separate from and does not modify:
 
 - `saripalana/ks-study-guide`
 - `saripalana/abpn-study-lite`
