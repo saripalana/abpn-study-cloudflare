@@ -6,7 +6,7 @@ import { SYNC_CLIENT_LIMITS, SyncClient, SyncRequestError } from "../src/client/
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-function recordingDb({ lastSeenAt = null } = {}) {
+function recordingDb({ lastSeenAt = null, activeDeviceId = null } = {}) {
   const executed = [];
   const prepare = (sql) => ({
     sql,
@@ -14,6 +14,9 @@ function recordingDb({ lastSeenAt = null } = {}) {
     bind(...values) { this.values = values; return this; },
     async first() {
       if (sql.includes("MAX(last_seen_at)")) return { last_seen_at: lastSeenAt };
+      if (sql.includes("SELECT id FROM devices WHERE user_id = ? LIMIT 1")) {
+        return activeDeviceId ? { id: activeDeviceId } : null;
+      }
       if (sql.includes("SELECT 1 AS ok")) return { ok: 1 };
       if (sql.includes("FROM app_usage")) return null;
       return null;
@@ -235,6 +238,35 @@ test("isolated staging reset removes every user-scoped test table and resets usa
     "devices", "users", "question_banks",
   ]) assert.match(sql, new RegExp(`DELETE FROM ${table}`));
   assert.match(sql, /UPDATE app_usage/);
+  assert.match(sql, /INSERT INTO users/);
+  assert.match(sql, /INSERT INTO devices/);
+  assert.ok(db.executed.some((entry) => entry.values.includes("staging-session-1234")));
+});
+
+test("a replaced staging session cannot sync or consume the current session quota", async () => {
+  const db = recordingDb({ activeDeviceId: "current-session-5678" });
+  const response = await worker.fetch(new Request("https://study.example/api/sync/push", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-abpn-device-id": "stale-session-1234",
+    },
+    body: JSON.stringify({ changes: [] }),
+  }), {
+    APP_ENV: "staging",
+    APP_RELEASE_MODE: "full",
+    CLOUD_SYNC_ENABLED: "true",
+    STUDY_USER_ID: "staging-user",
+    STAGING_DISPOSABLE_ENABLED: "true",
+    DB: db,
+  });
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    error: "Staging session is no longer active",
+    localOnly: true,
+    staleSession: true,
+  });
+  assert.equal(db.executed.length, 0);
 });
 
 test("stale staging state expires lazily while production health stays non-destructive", async () => {

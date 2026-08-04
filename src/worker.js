@@ -117,12 +117,12 @@ function requireDisposableStaging(request, env) {
   return sessionId;
 }
 
-async function clearDisposableStagingState(env) {
+async function clearDisposableStagingState(env, { activeSessionId = null } = {}) {
   const userId = env.STUDY_USER_ID;
   const now = new Date().toISOString();
   // Delete children before parents so cleanup remains valid across the current
   // legacy package schema and its immutable revision foreign-key constraints.
-  await env.DB.batch([
+  const statements = [
     env.DB.prepare("DELETE FROM deck_package_heads WHERE user_id = ?").bind(userId),
     env.DB.prepare("DELETE FROM deck_package_revision_chunks WHERE user_id = ?").bind(userId),
     env.DB.prepare("DELETE FROM deck_package_revisions WHERE user_id = ?").bind(userId),
@@ -143,7 +143,20 @@ async function clearDisposableStagingState(env) {
           suspension_reason = NULL, updated_at = ?
       WHERE id = 1
     `).bind(now),
-  ]);
+  ];
+  // The active staging lease is created in the same atomic batch as cleanup.
+  // Any older browser tab therefore loses authorization before it can sync.
+  if (activeSessionId) {
+    statements.push(
+      env.DB.prepare(
+        "INSERT INTO users (id, created_at, updated_at) VALUES (?, ?, ?)"
+      ).bind(userId, now, now),
+      env.DB.prepare(
+        "INSERT INTO devices (id, user_id, last_seen_at) VALUES (?, ?, ?)"
+      ).bind(activeSessionId, userId, now),
+    );
+  }
+  await env.DB.batch(statements);
 }
 
 async function expireDisposableStagingState(env) {
@@ -163,8 +176,8 @@ async function expireDisposableStagingState(env) {
 
 async function handleStagingSessionReset(request, env) {
   requireSyncReady(env);
-  requireDisposableStaging(request, env);
-  await clearDisposableStagingState(env);
+  const sessionId = requireDisposableStaging(request, env);
+  await clearDisposableStagingState(env, { activeSessionId: sessionId });
   return json({ ok: true, environment: "staging", state: "cleared" });
 }
 
@@ -343,6 +356,23 @@ async function parseBoundedJson(request) {
 }
 
 async function ensureUserAndDevice(env, userId, deviceId) {
+  if (disposableStagingEnabled(env)) {
+    const activeDevice = await env.DB.prepare(
+      "SELECT id FROM devices WHERE user_id = ? LIMIT 1"
+    ).bind(userId).first();
+    if (!activeDevice || activeDevice.id !== deviceId) {
+      throw json({
+        error: "Staging session is no longer active",
+        localOnly: true,
+        staleSession: true,
+      }, 409);
+    }
+    await env.DB.prepare(
+      "UPDATE devices SET last_seen_at = ? WHERE id = ? AND user_id = ?"
+    ).bind(new Date().toISOString(), deviceId, userId).run();
+    return;
+  }
+
   const otherUser = await env.DB.prepare("SELECT id FROM users WHERE id != ? LIMIT 1").bind(userId).first();
   if (otherUser) {
     throw json({
@@ -576,6 +606,7 @@ async function handleSyncPush(request, env) {
     throw json({ error: `A synchronization batch may contain at most ${SYNC_LIMITS.maxPushChanges} changes` }, 400);
   }
   const changes = body.changes;
+  await ensureUserAndDevice(env, userId, deviceId);
   await reserveUsage(env, {
     requests: 1,
     writeActions: changes.length ? 1 : 0,
@@ -584,7 +615,6 @@ async function handleSyncPush(request, env) {
   });
 
   if (!changes.length) return json({ acceptedIds: [], conflicts: [] });
-  await ensureUserAndDevice(env, userId, deviceId);
   const acceptedIds = [];
   const conflicts = [];
 
@@ -619,12 +649,12 @@ async function handleSyncPush(request, env) {
 async function handleSyncPull(request, env) {
   requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
+  await ensureUserAndDevice(env, userId, deviceId);
   await reserveUsage(env, {
     requests: 1,
     rowsRead: SYNC_LIMITS.maxPullRows + 1,
     rowsWritten: 2,
   });
-  await ensureUserAndDevice(env, userId, deviceId);
   const url = new URL(request.url);
   const rawCursor = Number(url.searchParams.get("cursor") || 0);
   const cursor = Number.isSafeInteger(rawCursor) && rawCursor >= 0 ? rawCursor : 0;

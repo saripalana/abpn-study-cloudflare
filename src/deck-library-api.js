@@ -151,8 +151,8 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
   // keeps the internal validation fixture governed by its existing protections.
   if (parts.length === 1 && parts[0] === "bootstrap") {
     if (request.method === "GET") {
-      await reserveUsage(env, { requests: 1, rowsRead: 1, rowsWritten: 0 });
       await ensureUserAndDevice(env, userId, deviceId);
+      await reserveUsage(env, { requests: 1, rowsRead: 1, rowsWritten: 0 });
       const state = await env.DB.prepare(
         "SELECT bootstrap_version, completed_at, updated_at FROM deck_library_state WHERE user_id = ?"
       ).bind(userId).first();
@@ -169,8 +169,8 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
         "Deck bootstrap request exceeds the 4 KiB limit",
       );
       const version = safeText(parsed?.version, "Deck bootstrap version", 100);
-      await reserveUsage(env, { requests: 1, writeActions: 1, rowsRead: 1, rowsWritten: 1 });
       await ensureUserAndDevice(env, userId, deviceId);
+      await reserveUsage(env, { requests: 1, writeActions: 1, rowsRead: 1, rowsWritten: 1 });
       const now = new Date().toISOString();
       await env.DB.prepare(`
         INSERT INTO deck_library_state (user_id, bootstrap_version, completed_at, updated_at)
@@ -186,8 +186,8 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
   }
 
   if (request.method === "GET" && parts.length === 0) {
-    await reserveUsage(env, { requests: 1, rowsRead: MAX_DECKS, rowsWritten: 0 });
     await ensureUserAndDevice(env, userId, deviceId);
+    await reserveUsage(env, { requests: 1, rowsRead: MAX_DECKS, rowsWritten: 0 });
     const rows = await env.DB.prepare(`
       SELECT r.*, h.updated_at AS head_updated_at
       FROM deck_package_heads AS h
@@ -212,14 +212,14 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
   if (request.method === "GET" && parts.length === 1) {
     const head = await getHead(env, userId, deckId);
     if (!head) return json({ error: "Deck not found" }, 404);
-    await reserveUsage(env, { requests: 1, rowsRead: Number(head.chunk_count) + 1, rowsWritten: 0 });
     await ensureUserAndDevice(env, userId, deviceId);
+    await reserveUsage(env, { requests: 1, rowsRead: Number(head.chunk_count) + 1, rowsWritten: 0 });
     return packageResponse(env, userId, deckId, head);
   }
 
   if (request.method === "GET" && parts.length === 2 && parts[1] === "revisions") {
-    await reserveUsage(env, { requests: 1, rowsRead: MAX_REVISIONS_PER_DECK, rowsWritten: 0 });
     await ensureUserAndDevice(env, userId, deviceId);
+    await reserveUsage(env, { requests: 1, rowsRead: MAX_REVISIONS_PER_DECK, rowsWritten: 0 });
     const head = await env.DB.prepare(
       "SELECT checksum FROM deck_package_heads WHERE user_id = ? AND deck_id = ?"
     ).bind(userId, deckId).first();
@@ -245,8 +245,8 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
     const checksum = safeChecksum(parts[2]);
     const revision = await getRevision(env, userId, deckId, checksum);
     if (!revision) return json({ error: "Deck revision not found" }, 404);
-    await reserveUsage(env, { requests: 1, rowsRead: Number(revision.chunk_count) + 1, rowsWritten: 0 });
     await ensureUserAndDevice(env, userId, deviceId);
+    await reserveUsage(env, { requests: 1, rowsRead: Number(revision.chunk_count) + 1, rowsWritten: 0 });
     return packageResponse(env, userId, deckId, revision);
   }
 
@@ -255,13 +255,13 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
     const checksum = safeChecksum(parsed?.checksum);
     const revision = await getRevision(env, userId, deckId, checksum);
     if (!revision) return json({ error: "Deck revision not found" }, 404);
+    await ensureUserAndDevice(env, userId, deviceId);
     await reserveUsage(env, {
       requests: 1,
       writeActions: 1,
       rowsRead: Number(revision.chunk_count) + 1,
       rowsWritten: Number(revision.chunk_count) * 2 + 4,
     });
-    await ensureUserAndDevice(env, userId, deviceId);
     const now = new Date().toISOString();
     await env.DB.batch([
       env.DB.prepare(`
@@ -342,13 +342,13 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
     if (!chunks.length || chunks.length > MAX_CHUNKS) throw new Error("Deck package requires too many storage chunks");
 
     const newRevision = !priorRevision;
+    await ensureUserAndDevice(env, userId, deviceId);
     await reserveUsage(env, {
       requests: 1,
       writeActions: 1,
       rowsRead: existing ? 2 : 3,
       rowsWritten: (newRevision ? chunks.length + 1 : 0) + chunks.length + 4,
     });
-    await ensureUserAndDevice(env, userId, deviceId);
     const now = new Date().toISOString();
     const statements = [];
 
@@ -419,6 +419,7 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
       FROM deck_package_revisions
       WHERE user_id = ? AND deck_id = ?
     `).bind(userId, deckId).first();
+    await ensureUserAndDevice(env, userId, deviceId);
     await reserveUsage(env, {
       requests: 1,
       writeActions: 1,
@@ -426,7 +427,6 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
       rowsWritten: Number(revisionSummary?.revision_count || 0) +
         Number(revisionSummary?.chunk_count || 0) + Number(existing.chunk_count || 0) + 4,
     });
-    await ensureUserAndDevice(env, userId, deviceId);
     await env.DB.batch([
       env.DB.prepare("DELETE FROM deck_package_heads WHERE user_id = ? AND deck_id = ?").bind(userId, deckId),
       env.DB.prepare("DELETE FROM deck_package_revisions WHERE user_id = ? AND deck_id = ?").bind(userId, deckId),
