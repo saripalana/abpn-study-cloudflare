@@ -71,7 +71,7 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
   await expect(page.getByText('Playwright import fixture')).toBeVisible();
   await expect(page.getByText('2 questions loaded.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download bank package' })).toBeVisible();
-  expect(dialogs.some((message) => message.includes('This material will remain separate from K&S'))).toBe(true);
+  expect(dialogs.some((message) => message.includes('same versioned Deck Library used by every other question bank'))).toBe(true);
 
   await page.locator('#countInput').fill('1');
   await page.selectOption('#modeSelect', 'tutor');
@@ -122,11 +122,11 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
   await expect(page.locator('.history-item')).toHaveCount(1);
   await page.selectOption('#bankSelect', 'ks-psychiatry-core');
   await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
-  await expect(page.getByText('Protected source question bank')).toBeVisible();
+  await expect(page.getByText('Application-supplied Deck Library package')).toBeVisible();
   await expect(page.locator('.history-item')).toHaveCount(0);
 });
 
-test('rejects a package that attempts to overwrite a protected built-in bank', async ({ page }) => {
+test('rejects a package that attempts to overwrite the hidden validation fixture', async ({ page }) => {
   const dialogs = [];
   page.on('dialog', async (dialog) => {
     dialogs.push(dialog.message());
@@ -145,7 +145,7 @@ test('rejects a package that attempts to overwrite a protected built-in bank', a
   });
 
   await expect.poll(() => dialogs.length).toBeGreaterThan(0);
-  expect(dialogs.some((message) => /reserved by a protected built-in/i.test(message))).toBe(true);
+  expect(dialogs.some((message) => /reserved for a hidden system-validation fixture/i.test(message))).toBe(true);
   await expect(page.locator('#bankSelect option')).toHaveCount(2);
   await page.selectOption('#bankSelect', 'validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();

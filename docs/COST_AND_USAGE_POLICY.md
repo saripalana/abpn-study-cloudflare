@@ -82,7 +82,7 @@ The production application must implement all of the following before cloud sync
 - Maximum authorized user count: **1**
 - Maximum accepted record-synchronization request body: **2 MiB**
 - Maximum accepted deck-package request body: **20 MiB**
-- Maximum persistent user-added decks: **50**
+- Maximum persistent Deck Library packages: **50**
 - Maximum questions per deck: **5,000**
 - Maximum storage chunks per deck: **96**
 - Maximum synchronization write actions: **5 per minute**
@@ -98,9 +98,9 @@ The production application must implement all of the following before cloud sync
 - No public write endpoint
 - No unauthenticated read endpoint containing study data or deck content
 - Record-level progress synchronization only; never replace the complete database blindly
-- Deck updates must replace only the matching versioned deck package and must never overwrite a protected built-in deck
+- Deck updates may advance only the matching deck's immutable head after package validation; prior revisions remain recoverable
 
-Deck packages are chunked into bounded D1 rows. K&S remains repository-bundled and is never uploaded through the user-added Deck Library route.
+Deck packages are chunked into bounded D1 rows. K&S is supplied as the application seed and is installed and synchronized through the same bounded Deck Library route as every other user-facing bank.
 
 If an internal limit is reached, the app must stop cloud operations and continue in local-only mode. A deck added during a temporary outage is cached locally and queued for later publication.
 
@@ -147,7 +147,7 @@ A production deployment is blocked unless all of the following are true:
 - Worker routes are fail closed
 - D1 schema and queries have bounded row access
 - API payload and rate limits are tested
-- imported decks are isolated by deck ID and cannot replace protected built-in decks
+- every installed deck is isolated by deck ID and cannot overwrite another deck's immutable revisions
 - a clean second browser profile can retrieve a previously added deck
 - kill switch is tested
 - local-only operation is tested

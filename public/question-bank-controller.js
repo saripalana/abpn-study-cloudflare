@@ -30,7 +30,7 @@ function activeBankId() {
 }
 
 function classificationLabel(bank) {
-  if (bank.sourceType === "repository-protected") return "Protected source question bank";
+  if (bank.sourceType === "application-seed") return "Application-supplied Deck Library package";
   if (bank.sourceType === "system-validation") return "Built-in system validation bank";
   if (bank.contentClass === "assistant-supplemental") return "Assistant-created supplemental bank";
   return "User-imported source question bank";
@@ -173,7 +173,7 @@ async function importPackage(file) {
       "",
       incoming.contentClass === "assistant-supplemental"
         ? "This material will remain separate from source question banks and will be labeled as assistant supplemental content."
-        : "This material will remain separate from K&S, the validation bank, and assistant supplemental content.",
+        : "This source package will be installed through the same versioned Deck Library used by every other question bank.",
       "The deck is saved to your protected Cloudflare Deck Library and cached locally for offline study. Progress and completed tests remain separate by deck.",
     ].filter(Boolean).join("\n");
 
@@ -187,7 +187,7 @@ async function importPackage(file) {
       `${result.bank.title} · version ${result.bank.version}`,
       `${result.bank.questions.length} questions`,
       cloudPublication.queued ? "Saved locally and queued for Cloudflare when connectivity is restored." : "Saved in your protected Cloudflare Deck Library and cached locally.",
-      "The original K&S package and all other decks were left unchanged.",
+      "All other Deck Library packages were left unchanged.",
     ].join("\n"));
     location.reload();
   } catch (error) {
@@ -245,8 +245,8 @@ async function attachControls() {
 
     const protection = sectionByHeading("Data protection");
     const actions = protection?.querySelector(".actions");
-    const imported = !bank.protected && await getRecord(STORES.BANK_CONTENT, bank.id);
-    if (actions && imported && !actions.querySelector("#downloadBankPackageBtn")) {
+    const installed = bank.contentClass !== "system-validation" && await getRecord(STORES.BANK_CONTENT, bank.id);
+    if (actions && installed && !actions.querySelector("#downloadBankPackageBtn")) {
       const button = document.createElement("button");
       button.id = "downloadBankPackageBtn";
       button.type = "button";

@@ -12,7 +12,7 @@ export const QUESTION_BANK_PACKAGE_SCHEMA_VERSION = 1;
 export const MAX_QUESTION_BANK_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_QUESTIONS_PER_BANK = 5_000;
 
-const ALLOWED_SOURCE_TYPES = new Set(["user-imported", "assistant-supplemental"]);
+const ALLOWED_SOURCE_TYPES = new Set(["application-seed", "user-imported", "assistant-supplemental"]);
 const ALLOWED_CONTENT_CLASSES = new Set(["source-material", "assistant-supplemental"]);
 
 const transactionDone = (transaction) => new Promise((resolve, reject) => {
@@ -90,7 +90,7 @@ function normalizedPackageBank(bank) {
   const sourceType = text(bank.sourceType, "Bank sourceType", 50);
   const contentClass = text(bank.contentClass, "Bank contentClass", 50);
   if (!ALLOWED_SOURCE_TYPES.has(sourceType)) {
-    throw new Error("sourceType must be user-imported or assistant-supplemental.");
+    throw new Error("sourceType must be application-seed, user-imported, or assistant-supplemental.");
   }
   if (!ALLOWED_CONTENT_CLASSES.has(contentClass)) {
     throw new Error("contentClass must be source-material or assistant-supplemental.");
@@ -160,7 +160,7 @@ export async function prepareQuestionBankPackage(input, { reservedIds = [] } = {
   }
   const bank = normalizedPackageBank(input.bank);
   if (new Set(reservedIds).has(bank.id)) {
-    throw new Error(`The bank id ${bank.id} is reserved by a protected built-in question bank.`);
+    throw new Error(`The bank id ${bank.id} is reserved for a hidden system-validation fixture.`);
   }
   const checksum = await sha256Hex(bank);
   const importedAt = new Date().toISOString();
@@ -302,17 +302,32 @@ export async function installQuestionBankPackage(prepared, { reservedIds = [] } 
   return { ...analysis, bank: installed };
 }
 
+export async function installSeedQuestionBanks(seedDefinitions = []) {
+  const results = [];
+  for (const definition of seedDefinitions) {
+    const prepared = await prepareQuestionBankPackage({
+      format: QUESTION_BANK_PACKAGE_FORMAT,
+      schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
+      bank: { ...definition, protected: false },
+    });
+    const installed = await installQuestionBankPackage(prepared);
+    results.push({ id: definition.id, status: installed.status, bank: installed.bank });
+  }
+  return results;
+}
+
 export async function loadInstalledQuestionBanks(builtInDefinitions = []) {
   const imported = await getAllRecords(STORES.BANK_CONTENT);
+  const installedIds = new Set(imported.map((bank) => bank.id));
   return [
-    ...builtInDefinitions,
+    ...builtInDefinitions.filter((bank) => !installedIds.has(bank.id)),
     ...imported.sort((left, right) => left.title.localeCompare(right.title)),
   ];
 }
 
 export async function exportInstalledQuestionBankPackage(bankId) {
   const bank = await getRecord(STORES.BANK_CONTENT, bankId);
-  if (!bank) throw new Error("Only locally imported question banks can be downloaded as packages.");
+  if (!bank) throw new Error("Only installed Deck Library question banks can be downloaded as packages.");
   return {
     format: QUESTION_BANK_PACKAGE_FORMAT,
     schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,

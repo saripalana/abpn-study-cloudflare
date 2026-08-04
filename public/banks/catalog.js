@@ -1,11 +1,14 @@
 import { KS_PSYCHIATRY_BANK } from './generated/ks-psychiatry-core.js';
 
-const PROTECTED_KS_BANK = {
+// Application-supplied seeds use the same versioned Deck Library package
+// contract as file and GitHub installs. "Seed" describes only how the first
+// revision is supplied; it does not create a separate storage pathway.
+const KS_SEED_BANK = {
   ...KS_PSYCHIATRY_BANK,
-  sourceType: 'repository-protected',
+  sourceType: 'application-seed',
   contentClass: 'source-material',
   sourceLabel: 'K&S source package',
-  protected: true
+  protected: false
 };
 
 const VALIDATION_BANK = {
@@ -25,4 +28,4 @@ const VALIDATION_BANK = {
   ]
 };
 
-export const QUESTION_BANKS = [PROTECTED_KS_BANK, VALIDATION_BANK];
+export const QUESTION_BANKS = [KS_SEED_BANK, VALIDATION_BANK];

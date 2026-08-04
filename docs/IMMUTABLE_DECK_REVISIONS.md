@@ -2,7 +2,7 @@
 
 ## Purpose
 
-User-added deck updates must never destroy the previously imported source package. Each distinct checksum is stored as an immutable revision, while a separate head record identifies the currently active revision.
+Deck updates must never destroy a previously installed source package. K&S, Spiegel, and every future source use this same contract: each distinct checksum is stored as an immutable revision, while a separate head record identifies the currently active revision. An application-supplied seed differs only in how its first revision arrives.
 
 ## API
 

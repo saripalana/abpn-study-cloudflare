@@ -53,7 +53,7 @@ function validatePackage(parsed, expectedId) {
   if (!bank || typeof bank !== "object") throw new Error("Deck package bank is missing");
   const id = safeId(bank.id);
   if (id !== expectedId) throw new Error("Deck id does not match the request path");
-  if (bank.protected) throw new Error("Protected built-in decks cannot be replaced through the deck library");
+  if (bank.protected) throw new Error("Deck packages must use the shared immutable revision protection contract");
   if (!Array.isArray(bank.questions) || !bank.questions.length || bank.questions.length > 5000) {
     throw new Error("Deck must contain between 1 and 5,000 questions");
   }
@@ -326,7 +326,7 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
         "SELECT COUNT(*) AS deck_count FROM deck_package_heads WHERE user_id = ?"
       ).bind(userId).first();
       if (Number(count?.deck_count || 0) >= MAX_DECKS) {
-        return json({ error: `The Deck Library may contain at most ${MAX_DECKS} user-added decks.` }, 409);
+        return json({ error: `The Deck Library may contain at most ${MAX_DECKS} decks.` }, 409);
       }
     }
 

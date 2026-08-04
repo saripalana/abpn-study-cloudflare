@@ -241,7 +241,7 @@ test("enforces the maximum number of user-added decks", async () => {
   assert.match((await response.json()).error, /at most 50/i);
 });
 
-test("rejects attempts to replace a protected built-in deck", async () => {
+test("rejects packages that bypass the shared immutable revision contract", async () => {
   const env = { DB: fakeDb() };
   await assert.rejects(
     handleDeckLibraryRequest(
@@ -249,7 +249,7 @@ test("rejects attempts to replace a protected built-in deck", async () => {
       env,
       helpers(),
     ),
-    /Protected built-in decks cannot be replaced/,
+    /shared immutable revision protection contract/,
   );
 });
 

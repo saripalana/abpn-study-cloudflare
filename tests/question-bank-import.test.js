@@ -51,6 +51,16 @@ test("prepares a normalized package with a deterministic checksum", async () => 
   assert.equal(Object.hasOwn(first.bank.questions[0], "linkedOrder"), false);
 });
 
+test("application seeds use the same normalized unprivileged package contract", async () => {
+  const prepared = await prepareQuestionBankPackage(packageDefinition({
+    id: "seed-bank",
+    sourceType: "application-seed",
+  }));
+  assert.equal(prepared.bank.sourceType, "application-seed");
+  assert.equal(prepared.bank.protected, false);
+  assert.match(prepared.bank.checksum, /^[a-f0-9]{64}$/);
+});
+
 test("preserves explicit linked-question metadata without adding it to unlinked questions", async () => {
   const linked = await prepareQuestionBankPackage(packageDefinition({ questions: [
     { id: "case-1", chapterTitle: "Case", linkedGroupId: "case-a", linkedOrder: 0, question: "Start?", choices: ["A", "B"], correctLetter: "A", explanation: "" },
@@ -63,12 +73,12 @@ test("preserves explicit linked-question metadata without adding it to unlinked 
   assert.equal(Object.hasOwn(linked.bank.questions[2], "linkedGroupId"), false);
 });
 
-test("protected built-in bank ids cannot be imported", async () => {
+test("hidden system fixture ids remain reserved from user packages", async () => {
   await assert.rejects(
-    () => prepareQuestionBankPackage(packageDefinition({ id: "ks-psychiatry-core" }), {
-      reservedIds: ["ks-psychiatry-core", "validation-bank"],
+    () => prepareQuestionBankPackage(packageDefinition({ id: "validation-bank" }), {
+      reservedIds: ["validation-bank"],
     }),
-    /reserved by a protected built-in/i
+    /reserved for a hidden system-validation fixture/i
   );
 });
 

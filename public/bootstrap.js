@@ -5,11 +5,14 @@ import {
   refreshCloudDeckLibrary,
 } from "./client/deck-library.js";
 import { loadInstalledQuestionBanks } from "./client/question-bank-import.js";
+import { installSeedQuestionBanks } from "./client/question-bank-import.js";
 import { initExamCountdown } from "./client/exam-countdown.js";
 import { ensureStagingSession } from "./client/staging-lifecycle.js";
 
 const app = document.getElementById("app");
 const BUILT_IN_QUESTION_BANKS = [...QUESTION_BANKS];
+const SEED_QUESTION_BANKS = BUILT_IN_QUESTION_BANKS.filter((bank) => bank.contentClass !== "system-validation");
+const SYSTEM_VALIDATION_FIXTURES = BUILT_IN_QUESTION_BANKS.filter((bank) => bank.contentClass === "system-validation");
 const LOCAL_STARTUP_TIMEOUT_MS = 2_000;
 const CLOUD_STARTUP_TIMEOUT_MS = 5_000;
 
@@ -29,7 +32,10 @@ function withStartupTimeout(operation, timeoutMs, message) {
 
 async function loadAvailableDecks(timeoutMs = LOCAL_STARTUP_TIMEOUT_MS) {
   return withStartupTimeout(
-    loadInstalledQuestionBanks(BUILT_IN_QUESTION_BANKS),
+    (async () => {
+      await installSeedQuestionBanks(SEED_QUESTION_BANKS);
+      return loadInstalledQuestionBanks(SYSTEM_VALIDATION_FIXTURES);
+    })(),
     timeoutMs,
     "Local deck startup timed out.",
   );
@@ -57,7 +63,11 @@ try {
   // controllers. This prevents a late catalog refresh from racing a file
   // picker, answer, resume action, or backup while preserving the already
   // rendered local-first dashboard during an offline timeout.
-  const reservedIds = QUESTION_BANKS.filter((bank) => bank.protected).map((bank) => bank.id);
+  // Only the hidden system fixture is reserved. Every user-facing deck,
+  // including application-supplied seeds, synchronizes through one library.
+  const reservedIds = QUESTION_BANKS
+    .filter((bank) => bank.contentClass === "system-validation")
+    .map((bank) => bank.id);
   try {
     await withStartupTimeout((async () => {
       await flushPendingCloudDeckUploads();
