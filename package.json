@@ -7,7 +7,7 @@
     "build": "node scripts/build-browser-assets.mjs --write",
     "build:check": "node scripts/build-browser-assets.mjs --check",
     "build:idempotence": "node scripts/build-browser-assets.mjs --verify-idempotent",
-    "bank:import": "node scripts/import-ks-bank.mjs && npm run build",
+    "bank:import": "node scripts/import-approved-banks.mjs && npm run build",
     "dev": "npm run bank:import && wrangler dev",
     "dev:test": "npm run bank:import && wrangler dev --local --port 8787 --var APP_RELEASE_MODE:full --var CLOUD_SYNC_ENABLED:false --var ACCESS_JWT_REQUIRED:false",
     "staging:check": "npm run verify && wrangler deploy --dry-run --config wrangler.staging.toml",

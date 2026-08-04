@@ -109,7 +109,7 @@ test("all user-facing banks use one protected persistent Deck Library", async ()
     read("src/worker.js"),
     read("src/deck-library-api.js"),
     read("src/starter-deck-source.js"),
-    read("scripts/import-ks-bank.mjs"),
+    read("scripts/import-approved-banks.mjs"),
     read("public/banks/generated/ks-psychiatry-core.manifest.json"),
     read("public/client/deck-library.js"),
     read("public/bootstrap.js"),
@@ -130,6 +130,8 @@ test("all user-facing banks use one protected persistent Deck Library", async ()
   assert.equal(ksManifest.commit, "ddfcba21e97973f77c08311400d05310a4ea1ee3");
   assert.equal(ksManifest.expectedGitBlobSha, "f4180d69a4a6bbd8a7f764bb88e7f2f404f7431f");
   assert.equal(ksManifest.questionCount, 602);
+  assert.match(importer, /repository: 'dancingremote\/spiegel-test-prep'/);
+  assert.match(importer, /expectedQuestionCount: 1060/);
   assert.match(browserClient, /publishCloudDeckPackage/);
   assert.match(browserClient, /refreshCloudDeckLibrary/);
   assert.match(browserClient, /getCloudDeckBootstrapState/);
@@ -148,6 +150,13 @@ test("system validation is omitted from remote staging and production selectors"
   assert.match(app, /\['127\.0\.0\.1', 'localhost'\]\.includes/);
   assert.match(app, /deckSelectorBanks = allowSystemValidation \? banks : banks\.filter\(isUserSelectableDeck\)/);
   assert.doesNotMatch(app, /banks\.map\(\(bank\).*deckOptionHiddenAttribute/);
+});
+
+test("fresh staging and proposed production use the same approved two-deck catalog", async () => {
+  const catalog = await read("public/banks/catalog.js");
+  assert.match(catalog, /KS_SEED_BANK/);
+  assert.match(catalog, /SPIEGEL_SEED_BANK/);
+  assert.match(catalog, /QUESTION_BANKS = \[KS_SEED_BANK, SPIEGEL_SEED_BANK, VALIDATION_BANK\]/);
 });
 
 test("optional assistant status cannot block core dashboard controls", async () => {
