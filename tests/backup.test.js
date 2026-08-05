@@ -87,3 +87,12 @@ test("a successful first Google Drive backup immediately enables restore", async
   assert.match(controller, /status\.textContent = `Last complete backup:[\s\S]*?restoreButton\.disabled = false;/);
   assert.match(controller, /saveGoogleDrive\(driveSave, driveRestore, driveStatus\)/);
 });
+
+test("a successful device backup records and displays its download time", async () => {
+  const controller = await readFile(new URL("../src/browser/backup-controller.js", import.meta.url), "utf8");
+  assert.match(controller, /LAST_DEVICE_BACKUP_AT_KEY = "abpn-study:last-device-backup-at"/);
+  assert.match(controller, /async function exportBackup\(button, status\)/);
+  assert.match(controller, /localStorage\.setItem\(LAST_DEVICE_BACKUP_AT_KEY, downloadedAt\)/);
+  assert.match(controller, /Last complete backup downloaded:/);
+  assert.match(controller, /exportBackup\(downloadButton, deviceStatus\)/);
+});
