@@ -7,6 +7,7 @@ import {
 } from "./client/recovery-bundle.js";
 
 const app = document.getElementById("app");
+const LAST_DEVICE_BACKUP_AT_KEY = "abpn-study:last-device-backup-at";
 const importInput = document.createElement("input");
 importInput.type = "file";
 importInput.accept = "application/json,.json";
@@ -29,13 +30,18 @@ function restoreConfirmation(backup) {
   ].join("\n");
 }
 
-async function exportBackup(button) {
+async function exportBackup(button, status) {
   const original = button.textContent;
   button.disabled = true;
   button.textContent = "Preparing backup…";
   try {
     const backup = await createRecoveryBundle({ appVersion: "1.0.0" });
     await downloadRecoveryBundle(backup);
+    const downloadedAt = new Date().toISOString();
+    // Browsers cannot confirm where the user saved a download, but successful
+    // handoff to the download manager can be recorded for visible continuity.
+    localStorage.setItem(LAST_DEVICE_BACKUP_AT_KEY, downloadedAt);
+    status.textContent = `Last complete backup downloaded: ${new Date(downloadedAt).toLocaleString()} · your device`;
     button.textContent = "Complete backup downloaded";
   } catch (error) {
     alert(`Backup could not be created: ${error.message}`);
@@ -216,15 +222,19 @@ function attachBackupControls() {
   driveRestore.onclick = () => restoreGoogleDrive(driveRestore, driveStatus);
 
   const downloadButton = button("exportBackupBtn", "Download complete backup", null);
-  downloadButton.onclick = () => exportBackup(downloadButton);
   const restoreButton = button("restoreBackupBtn", "Restore downloaded backup", () => importInput.click());
+  const lastDeviceBackupAt = localStorage.getItem(LAST_DEVICE_BACKUP_AT_KEY);
   const deviceCard = destinationCard({
     title: "Download or restore",
     destination: "Your device",
     detail: "One complete portable file for independent recovery. Save it wherever you choose; restore merges safely and preserves newer work.",
-    statusText: "File destination: your browser’s Downloads folder.",
+    statusText: lastDeviceBackupAt
+      ? `Last complete backup downloaded: ${new Date(lastDeviceBackupAt).toLocaleString()} · your device`
+      : "File destination: your browser’s Downloads folder. No device backup downloaded yet.",
     actions: [downloadButton, restoreButton],
   });
+  const deviceStatus = deviceCard.querySelector(".recovery-status");
+  downloadButton.onclick = () => exportBackup(downloadButton, deviceStatus);
 
   container.append(cloudCard, driveCard, deviceCard);
   void refreshCloudStatus(cloudStatus);

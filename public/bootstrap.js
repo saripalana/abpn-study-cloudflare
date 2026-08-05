@@ -7,7 +7,10 @@ import {
 import { loadInstalledQuestionBanks } from "./client/question-bank-import.js";
 import { installSeedQuestionBanks } from "./client/question-bank-import.js";
 import { initExamCountdown } from "./client/exam-countdown.js";
-import { ensureStagingSession } from "./client/staging-lifecycle.js";
+import {
+  ensureStagingSession,
+  importLiveBackupIntoStaging,
+} from "./client/staging-lifecycle.js";
 
 const app = document.getElementById("app");
 const BUILT_IN_QUESTION_BANKS = [...QUESTION_BANKS];
@@ -20,7 +23,7 @@ const CLOUD_STARTUP_TIMEOUT_MS = 5_000;
 // health check is slow. The staging gate still completes before decks or study
 // state are loaded below.
 initExamCountdown();
-await ensureStagingSession();
+const stagingPreparation = await ensureStagingSession();
 
 function withStartupTimeout(operation, timeoutMs, message) {
   let timeoutId;
@@ -58,6 +61,26 @@ try {
   const startupCatalog = catalogSignature(QUESTION_BANKS);
   const { applicationReady, refreshApplication } = await import("./app.js");
   await applicationReady;
+
+  // The working dashboard renders first. Only a brand-new disposable staging
+  // session then imports the latest complete live backup and refreshes once.
+  // Reloads retain that temporary session; closing it causes the next launch
+  // to clear staging and import a fresh live copy again.
+  if (stagingPreparation.importLiveBackup) {
+    try {
+      const imported = await importLiveBackupIntoStaging(stagingPreparation.sessionId);
+      if (imported) {
+        const copiedDefinitions = await loadAvailableDecks();
+        QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...copiedDefinitions);
+        await refreshApplication();
+      }
+    } catch (error) {
+      // A damaged or incompatible live backup must never take the otherwise
+      // working staging dashboard offline. Integrity validation still rejects
+      // the bundle; staging simply remains on its clean isolated seed state.
+      console.error("Live backup import was rejected; staging remains usable.", error);
+    }
+  }
 
   // Finish the one bounded cloud-catalog pass before attaching interactive
   // controllers. This prevents a late catalog refresh from racing a file

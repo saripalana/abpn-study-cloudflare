@@ -40,6 +40,14 @@ async function sha256(value) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+// IndexedDB may return structured-clone values that JSON later normalizes
+// (for example, omitted object properties or undefined array entries). Cloud
+// backups transport JSON, so integrity must cover the exact JSON-safe data
+// that is uploaded and later restored rather than the pre-serialization value.
+export function normalizeRecoveryData(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function safeSettings() {
   const settings = {};
   for (let index = 0; index < localStorage.length; index += 1) {
@@ -90,8 +98,9 @@ export async function validateRecoveryBundle(bundle) {
 
 export async function createRecoveryBundle({ appVersion = "unknown" } = {}) {
   const entries = await Promise.all(Object.keys(STORE_FIELDS).map(async (storeName) => [STORE_FIELDS[storeName], await getAllRecords(storeName)]));
-  const data = Object.fromEntries(entries);
-  data.settings = safeSettings();
+  const sourceData = Object.fromEntries(entries);
+  sourceData.settings = safeSettings();
+  const data = normalizeRecoveryData(sourceData);
   const createdAt = new Date().toISOString();
   return {
     format: RECOVERY_BUNDLE_FORMAT,
