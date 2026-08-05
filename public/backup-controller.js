@@ -122,7 +122,7 @@ async function restoreCloudflare(button, status) {
   } finally { button.disabled = false; }
 }
 
-async function saveGoogleDrive(button, status) {
+async function saveGoogleDrive(button, restoreButton, status) {
   const original = button.textContent;
   button.disabled = true;
   button.textContent = "Backing up…";
@@ -131,6 +131,10 @@ async function saveGoogleDrive(button, status) {
     const response = await cloudRequest("/api/recovery/google-drive", { method: "PUT", body: JSON.stringify(bundle) });
     const result = await response.json();
     status.textContent = `Last complete backup: ${new Date(result.createdAt).toLocaleString()} · dedicated Google Drive folder · verified`;
+    // The initial status request enables restore for backups that already exist.
+    // A newly created first backup must make restore available immediately too,
+    // without requiring a page reload or a second status request.
+    restoreButton.disabled = false;
   } catch (error) { status.textContent = `Google Drive backup failed safely: ${error.message}`; }
   finally { button.disabled = false; button.textContent = original; }
 }
@@ -208,7 +212,7 @@ function attachBackupControls() {
     className: "recovery-card-pending",
   });
   const driveStatus = driveCard.querySelector(".recovery-status");
-  driveSave.onclick = () => saveGoogleDrive(driveSave, driveStatus);
+  driveSave.onclick = () => saveGoogleDrive(driveSave, driveRestore, driveStatus);
   driveRestore.onclick = () => restoreGoogleDrive(driveRestore, driveStatus);
 
   const downloadButton = button("exportBackupBtn", "Download complete backup", null);

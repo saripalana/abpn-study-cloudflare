@@ -80,3 +80,10 @@ test("complete recovery controller includes decks, integrity validation, safe me
   assert.match(controller, /validateRecoveryBundle/);
   assert.match(controller, /setTimeout\(\(\) => location\.reload\(\), 0\)/);
 });
+
+test("a successful first Google Drive backup immediately enables restore", async () => {
+  const controller = await readFile(new URL("../src/browser/backup-controller.js", import.meta.url), "utf8");
+  assert.match(controller, /async function saveGoogleDrive\(button, restoreButton, status\)/);
+  assert.match(controller, /status\.textContent = `Last complete backup:[\s\S]*?restoreButton\.disabled = false;/);
+  assert.match(controller, /saveGoogleDrive\(driveSave, driveRestore, driveStatus\)/);
+});
