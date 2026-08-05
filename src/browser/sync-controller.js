@@ -52,7 +52,7 @@ async function renderStoredSyncState() {
 }
 
 async function runSync({ background = false } = {}) {
-  if (syncing) return;
+  if (syncing) return { status: "already-running" };
   syncing = true;
   syncButton.disabled = true;
   if (!background) showStatus("Syncing…", "Checking the protected Cloudflare synchronization service.");
@@ -72,10 +72,11 @@ async function runSync({ background = false } = {}) {
         `${result.pushed || 0} local change(s) uploaded, ${result.pulled || 0} remote change(s) received, ${result.pending || 0} still waiting, ${conflicts} conflict(s).`
       );
     }
+    return result;
   } catch (error) {
     if (error?.responseBody?.staleSession) {
       showStaleStagingState(error.message);
-      return;
+      return { status: "stale-session", error };
     }
     const state = error.syncState || await getSyncState();
     if (state.suspended) {
@@ -83,6 +84,7 @@ async function runSync({ background = false } = {}) {
     } else {
       showStatus("Sync failed · local data safe", error.message || "Cloud synchronization failed. Local study data remains available.");
     }
+    return { status: "failed", error };
   } finally {
     syncing = false;
     syncButton.disabled = false;
@@ -98,7 +100,11 @@ syncButton.onclick = () => {
   void runSync();
 };
 window.addEventListener("online", () => void runSync({ background: true }), { passive: true });
-window.addEventListener("load", () => void runSync({ background: true }), { once: true });
 setInterval(() => void runSync({ background: true }), SYNC_CLIENT_LIMITS.minimumBackgroundIntervalMs);
 
 void renderStoredSyncState();
+
+// Recovery shadowing must capture the state after the opening cloud merge, not
+// race it. Bootstrap awaits this one bounded, failure-safe synchronization
+// before it attaches the backup controller.
+export const initialSyncReady = runSync({ background: true });

@@ -51,6 +51,13 @@ async function listBackups(config, token) {
   return (await response.json()).files || [];
 }
 
+function productionBackups(files) {
+  const labeled = files.filter((file) => file.appProperties?.abpnEnvironment === "production");
+  // Existing verified backups predate environment labeling. Use them only
+  // until the first labeled production shadow snapshot is available.
+  return labeled.length ? labeled : files.filter((file) => !file.appProperties?.abpnEnvironment);
+}
+
 async function pruneBackups(files, token, keepId) {
   const cutoff = Date.now() - RETENTION_MILLISECONDS;
   const newestByDay = new Set();
@@ -90,10 +97,11 @@ export async function handleGoogleDriveRecoveryRequest(request, env, helpers) {
     return json({ configured: false, error: "Restricted Google Drive recovery is not configured" }, request.method === "GET" && url.pathname.endsWith("google-drive") ? 200 : 503);
   }
   const token = await accessToken(config);
+  const environment = env.APP_ENV === "staging" ? "staging" : "production";
+  const files = productionBackups(await listBackups(config, token));
 
   if (request.method === "GET" && url.pathname === "/api/recovery/google-drive") {
-    const files = await listBackups(config, token);
-    return json({ configured: true, backups: files.map((file) => ({
+    return json({ configured: true, environment, writeAllowed: environment === "production", shadowSource: environment === "staging", backups: files.map((file) => ({
       id: file.id,
       name: file.name,
       createdAt: file.createdTime,
@@ -103,18 +111,21 @@ export async function handleGoogleDriveRecoveryRequest(request, env, helpers) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/recovery/google-drive/latest") {
-    const [latest] = await listBackups(config, token);
+    const [latest] = files;
     if (!latest) return json({ error: "No Google Drive recovery backup exists" }, 404);
     return driveFetch(`${DRIVE_FILES_ENDPOINT}/${encodeURIComponent(latest.id)}?alt=media`, token);
   }
 
   if (request.method === "PUT" && url.pathname === "/api/recovery/google-drive") {
+    if (environment !== "production") {
+      return json({ error: "Staging may read the production shadow but cannot overwrite it" }, 403);
+    }
     const { text, bytes, bundle } = await readBundle(request);
     const boundary = `abpn-recovery-${crypto.randomUUID()}`;
     const metadata = {
       name: `abpn-study-complete-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
       parents: [config.folderId],
-      appProperties: { abpnRecovery: "complete", integrityDigest: bundle.integrity.digest },
+      appProperties: { abpnRecovery: "complete", abpnEnvironment: "production", integrityDigest: bundle.integrity.digest },
     };
     const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${text}\r\n--${boundary}--`;
     const response = await driveFetch(`${DRIVE_UPLOAD_ENDPOINT}?uploadType=multipart&fields=id,name,createdTime,size,appProperties`, token, {
@@ -123,7 +134,9 @@ export async function handleGoogleDriveRecoveryRequest(request, env, helpers) {
       body,
     });
     const file = await response.json();
-    await pruneBackups(await listBackups(config, token), token, file.id);
+    // Retention owns only production-shadow snapshots. Historical staging
+    // artifacts remain outside this path until their separately gated cleanup.
+    await pruneBackups(productionBackups(await listBackups(config, token)), token, file.id);
     return json({ ok: true, configured: true, id: file.id, name: file.name, createdAt: file.createdTime, byteCount: bytes, retention: "one-per-day-for-three-days" });
   }
 

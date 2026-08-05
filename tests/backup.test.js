@@ -96,3 +96,19 @@ test("a successful device backup records and displays its download time", async 
   assert.match(controller, /Last complete backup downloaded:/);
   assert.match(controller, /exportBackup\(downloadButton, deviceStatus\)/);
 });
+
+test("production refreshes the recovery shadow only after opening sync and staging cannot write it", async () => {
+  const [bootstrap, syncController, controller, driveApi] = await Promise.all([
+    readFile(new URL("../src/browser/bootstrap.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/browser/sync-controller.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/browser/backup-controller.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/google-drive-recovery-api.js", import.meta.url), "utf8"),
+  ]);
+  assert.match(syncController, /export const initialSyncReady = runSync\(\{ background: true \}\)/);
+  assert.match(bootstrap, /const \{ initialSyncReady \} = await import\("\.\/sync-controller\.js"\);\s+await initialSyncReady;\s+await import\("\.\/backup-controller\.js"\)/);
+  assert.match(controller, /latestDigest !== bundle\.integrity\.digest/);
+  assert.match(controller, /Production shadow updated:/);
+  assert.match(driveApi, /abpnEnvironment: "production"/);
+  assert.match(driveApi, /Staging may read the production shadow but cannot overwrite it/);
+  assert.match(driveApi, /pruneBackups\(productionBackups\(await listBackups/);
+});

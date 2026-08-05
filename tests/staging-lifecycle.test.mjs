@@ -45,7 +45,9 @@ test("a new staging browser session clears test state but preserves the exam dat
   const result = await prepareStagingSession({
     fetchImpl: async (url, options = {}) => {
       calls.push({ url, options });
-      return url === "/api/health" ? health("staging") : new Response(JSON.stringify({ ok: true }));
+      if (url === "/api/health") return health("staging");
+      if (url.endsWith("/latest")) return new Response(JSON.stringify({ error: "none" }), { status: 404 });
+      return new Response(JSON.stringify({ ok: true }));
     },
     localStorageRef: local,
     sessionStorageRef: session,
@@ -56,7 +58,7 @@ test("a new staging browser session clears test state but preserves the exam dat
     createId: () => "staging-session-1234",
     deleteDatabase: async () => { deletedDatabase += 1; },
   });
-  assert.deepEqual(result, { staging: true, reset: true, sessionId: "staging-session-1234" });
+  assert.deepEqual(result, { staging: true, reset: true, sessionId: "staging-session-1234", shadowRestored: false });
   assert.equal(calls[1].url, "/api/staging/session");
   assert.equal(calls[1].options.method, "DELETE");
   assert.equal(calls[1].options.headers["x-abpn-staging-session"], "staging-session-1234");
@@ -74,7 +76,9 @@ test("private staging never exposes the internal validation fixture", async () =
   await prepareStagingSession({
     fetchImpl: async (url) => url === "/api/health"
       ? health("staging")
-      : new Response(JSON.stringify({ ok: true })),
+      : url.endsWith("/latest")
+        ? new Response(JSON.stringify({ error: "none" }), { status: 404 })
+        : new Response(JSON.stringify({ ok: true })),
     localStorageRef: memoryStorage(),
     sessionStorageRef: session,
     cacheStorage: null,
@@ -89,9 +93,9 @@ test("reloads preserve the current isolated staging session", async () => {
   const session = memoryStorage({ [STAGING_SESSION_KEY]: "staging-session-existing" });
   let cleanupCalls = 0;
   const result = await prepareStagingSession({
-    fetchImpl: async (url) => {
-      if (url !== "/api/health") cleanupCalls += 1;
-      return health("staging");
+    fetchImpl: async (url, options = {}) => {
+      if (url !== "/api/health" && options.method !== "GET") cleanupCalls += 1;
+      return url === "/api/health" ? health("staging") : new Response(JSON.stringify({ ok: true }));
     },
     localStorageRef: memoryStorage({ current: "session-state" }),
     sessionStorageRef: session,
@@ -100,6 +104,51 @@ test("reloads preserve the current isolated staging session", async () => {
   });
   assert.deepEqual(result, { staging: true, reset: false, sessionId: "staging-session-existing" });
   assert.equal(cleanupCalls, 0);
+});
+
+test("an expired staging lease automatically starts a clean isolated session", async () => {
+  const local = memoryStorage({ expired: "remove-me", "abpn-study:exam-date": "2030-12-31" });
+  const session = memoryStorage({ [STAGING_SESSION_KEY]: "expired-session-1234" });
+  const calls = [];
+  let deletedDatabase = 0;
+  const result = await prepareStagingSession({
+    fetchImpl: async (url, options = {}) => {
+      calls.push({ url, options });
+      if (url === "/api/health") return health("staging");
+      if (url === "/api/staging/session" && options.method === "GET") {
+        return new Response(JSON.stringify({ staleSession: true }), { status: 409 });
+      }
+      if (url.endsWith("/latest")) return new Response(JSON.stringify({ error: "none" }), { status: 404 });
+      return new Response(JSON.stringify({ ok: true }));
+    },
+    localStorageRef: local,
+    sessionStorageRef: session,
+    cacheStorage: null,
+    createId: () => "replacement-session-5678",
+    deleteDatabase: async () => { deletedDatabase += 1; },
+  });
+  assert.deepEqual(result, { staging: true, reset: true, sessionId: "replacement-session-5678", shadowRestored: false });
+  assert.equal(calls[1].options.method, "GET");
+  assert.equal(calls[2].options.method, "DELETE");
+  assert.equal(local.values.get("expired"), undefined);
+  assert.equal(local.values.get("abpn-study:exam-date"), "2030-12-31");
+  assert.equal(session.values.get(STAGING_SESSION_KEY), "replacement-session-5678");
+  assert.equal(deletedDatabase, 1);
+});
+
+test("a production-shadow provider failure stops staging instead of showing empty state", async () => {
+  await assert.rejects(() => prepareStagingSession({
+    fetchImpl: async (url) => {
+      if (url === "/api/health") return health("staging");
+      if (url.endsWith("/latest")) return new Response(JSON.stringify({ error: "provider unavailable" }), { status: 503 });
+      return new Response(JSON.stringify({ ok: true }));
+    },
+    localStorageRef: memoryStorage(),
+    sessionStorageRef: memoryStorage(),
+    cacheStorage: null,
+    createId: () => "staging-session-1234",
+    deleteDatabase: async () => {},
+  }), /Production shadow snapshot could not be loaded safely/);
 });
 
 test("failed remote cleanup fails closed before local state is changed", async () => {
