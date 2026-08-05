@@ -24,6 +24,25 @@ test('downloads one complete, integrity-protected recovery bundle', async ({ pag
   expect(backup.data.syncOutbox).toBeUndefined();
 });
 
+test('a bundle with IndexedDB structured-clone values survives JSON transport validation', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { STORES, putRecord } = await import('/client/storage.js');
+    const { createRecoveryBundle, validateRecoveryBundle } = await import('/client/recovery-bundle.js');
+    await putRecord(STORES.META, {
+      key: 'recovery-json-transport-regression',
+      value: { omitted: undefined, array: [undefined], notANumber: Number.NaN },
+    });
+    const created = await createRecoveryBundle({ appVersion: 'e2e-json-transport' });
+    const transported = JSON.parse(JSON.stringify(created));
+    await validateRecoveryBundle(transported);
+    const record = transported.data.metadata.find((item) => item.key === 'recovery-json-transport-regression');
+    return { digest: transported.integrity.digest, value: record.value };
+  });
+  expect(result.digest).toMatch(/^[a-f0-9]{64}$/);
+  expect(result.value).toEqual({ array: [null], notANumber: null });
+});
+
 test('restores a complete bundle non-destructively and creates a safety snapshot', async ({ page }) => {
   await page.goto('/');
   const fixture = await page.evaluate(async () => {

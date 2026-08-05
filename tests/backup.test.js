@@ -81,6 +81,22 @@ test("complete recovery controller includes decks, integrity validation, safe me
   assert.match(controller, /setTimeout\(\(\) => location\.reload\(\), 0\)/);
 });
 
+test("recovery integrity covers the exact JSON-safe transport representation", async () => {
+  const { normalizeRecoveryData } = await import("../src/client/recovery-bundle.js");
+  const source = {
+    objectValue: { keep: "yes", omitted: undefined },
+    arrayValue: ["keep", undefined],
+    numericValue: Number.NaN,
+  };
+  const normalized = normalizeRecoveryData(source);
+  assert.deepEqual(normalized, {
+    objectValue: { keep: "yes" },
+    arrayValue: ["keep", null],
+    numericValue: null,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(normalized)), normalized);
+});
+
 test("a successful first Google Drive backup immediately enables restore", async () => {
   const controller = await readFile(new URL("../src/browser/backup-controller.js", import.meta.url), "utf8");
   assert.match(controller, /async function saveGoogleDrive\(button, restoreButton, status\)/);

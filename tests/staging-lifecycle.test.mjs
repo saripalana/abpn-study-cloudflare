@@ -107,8 +107,17 @@ test("reloads preserve the current isolated staging session", async () => {
 });
 
 test("a missing live backup leaves a new temporary staging session usable", async () => {
-  const restored = await importLiveBackupIntoStaging("staging-session-1234", async () => new Response("{}", { status: 404 }));
+  const calls = [];
+  const restored = await importLiveBackupIntoStaging("staging-session-1234", async (url, options) => {
+    calls.push({ url, options });
+    return new Response("{}", { status: 404 });
+  });
   assert.equal(restored, false);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "/api/recovery/google-drive/latest");
+  assert.equal(calls[0].options.method, "GET");
+  assert.equal(calls[0].options.cache, "no-store");
+  assert.equal(calls[0].options.headers["x-abpn-staging-session"], "staging-session-1234");
 });
 
 test("failed remote cleanup fails closed before local state is changed", async () => {
