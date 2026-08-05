@@ -1,5 +1,61 @@
 import { test, expect } from '@playwright/test';
 
+async function startOrderedValidationSet(page, mode) {
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
+  await page.selectOption('#bankSelect', 'validation-bank');
+  await page.locator('#countInput').fill('2');
+  await page.selectOption('#modeSelect', mode);
+  await page.selectOption('#timingSelect', 'untimed');
+  await page.selectOption('#poolSelect', 'all');
+  await page.getByLabel('Randomize question order').uncheck();
+  await page.locator('#startBtn').click();
+}
+
+test('Tutor question map uses blue answered states and immediate incorrect dots', async ({ page }) => {
+  await startOrderedValidationSet(page, 'tutor');
+
+  await page.locator('.choice').first().click();
+  await expect(page.locator('.question-map button').nth(0)).toHaveClass(/answered/);
+  await expect(page.locator('.question-map button').nth(0)).toHaveClass(/incorrect-answer/);
+  await expect(page.locator('.question-map button').nth(0)).toHaveAttribute('aria-label', 'Question 1, answered, incorrect');
+
+  await page.locator('#nextBtn').click();
+  await page.locator('.choice').nth(1).click();
+  await expect(page.locator('.question-map button').nth(1)).toHaveClass(/answered/);
+  await expect(page.locator('.question-map button').nth(1)).not.toHaveClass(/incorrect-answer/);
+
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.locator('#submitBtn').click();
+  await expect(page.getByRole('heading', { name: 'Question results' })).toBeVisible();
+  await expect(page.locator('.results-question-map button')).toHaveCount(2);
+  await expect(page.locator('.results-question-map button').nth(0)).toHaveClass(/incorrect-answer/);
+  await expect(page.locator('.results-question-map button').nth(1)).not.toHaveClass(/incorrect-answer/);
+});
+
+test('Test question map hides correctness until submission and then shows the full result map', async ({ page }) => {
+  await startOrderedValidationSet(page, 'test');
+
+  await page.locator('.choice').first().click();
+  await expect(page.locator('.question-map button').nth(0)).toHaveClass(/answered/);
+  await expect(page.locator('.question-map button').nth(0)).not.toHaveClass(/incorrect-answer/);
+  await expect(page.locator('.question-map button').nth(0)).toHaveAttribute('aria-label', 'Question 1, answered');
+  await expect(page.getByText('Incorrect', { exact: true })).toHaveCount(0);
+
+  await page.locator('#nextBtn').click();
+  await page.locator('.choice').nth(1).click();
+  await expect(page.locator('.question-map button').nth(1)).toHaveClass(/answered/);
+  await expect(page.locator('.question-map button').nth(1)).not.toHaveClass(/incorrect-answer/);
+
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.locator('#submitBtn').click();
+  await expect(page.getByRole('heading', { name: 'Question results' })).toBeVisible();
+  await expect(page.locator('.results-question-map button')).toHaveCount(2);
+  await expect(page.locator('.results-question-map button').nth(0)).toHaveClass(/incorrect-answer/);
+  await expect(page.locator('.results-question-map button').nth(1)).not.toHaveClass(/incorrect-answer/);
+  await expect(page.getByText('Incorrect', { exact: true })).toBeVisible();
+});
+
 test('Tutor mode supports confirmed submission at any point, answer states, and completed-test history', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();

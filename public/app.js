@@ -734,6 +734,46 @@ function submissionConfirmation() {
   ].join('\n'));
 }
 
+// The in-set map deliberately separates completion from correctness. Test mode
+// may show that an answer exists, but it cannot disclose whether it is correct
+// until the full set has been submitted. Tutor mode may disclose a finalized
+// incorrect answer immediately because its explanation is already visible.
+function questionMapState(entry, { mode, submitted, flagged = false, current = false } = {}) {
+  const answered = hasQuestionAnswer(entry);
+  const discloseCorrectness = submitted || (mode === 'tutor' && entry?.finalized === true);
+  const incorrect = answered && discloseCorrectness && entry?.isCorrect === false;
+  return {
+    answered,
+    incorrect,
+    classes: [
+      answered ? 'answered' : 'unanswered',
+      incorrect ? 'incorrect-answer' : '',
+      flagged ? 'flagged' : '',
+      current ? 'current' : '',
+    ].filter(Boolean).join(' '),
+  };
+}
+
+function questionMapLegend({ discloseCorrectness = false } = {}) {
+  return `<div class="question-map-legend"><span><i class="legend-swatch answered"></i>Answered</span><span><i class="legend-swatch unanswered"></i>Unanswered</span>${discloseCorrectness ? '<span><i class="legend-incorrect-dot"></i>Incorrect</span>' : ''}<span><i class="legend-flag">★</i>Flagged</span></div>`;
+}
+
+function questionMapMarkup(items, { progressByBank = null, showCurrent = true, resultMap = false } = {}) {
+  const discloseCorrectness = activeSet.submitted || activeSet.mode === 'tutor';
+  const mapClass = resultMap ? 'question-map results-question-map' : 'question-map';
+  return `${questionMapLegend({ discloseCorrectness })}<div class="${mapClass}">${items.map((item, index) => {
+    const entry = activeSet.answers.get(item.answerKey);
+    const state = questionMapState(entry, {
+      mode: activeSet.mode,
+      submitted: activeSet.submitted,
+      flagged: Boolean(progressByBank?.get(item.bankId)?.get(item.questionId)?.isFlagged),
+      current: showCurrent && index === activeSet.index,
+    });
+    const status = state.answered ? (state.incorrect ? 'answered, incorrect' : 'answered') : 'unanswered';
+    return `<button type="button" data-index="${index}" class="${state.classes}" aria-label="Question ${index + 1}, ${status}">${index + 1}</button>`;
+  }).join('')}</div>`;
+}
+
 async function renderQuestion() {
   if (!activeSet) return renderDashboard();
   clearInterval(timer);
@@ -792,13 +832,7 @@ async function renderQuestion() {
       }).join('')}</div>
       ${reveal ? `<div class="explanation"><strong>${answeredCorrectly ? 'Correct' : `Correct answer${correctLetters.length === 1 ? '' : 's'}: ${esc(correctLetters.join(', '))}`}</strong>${question.answerText ? `<div class="answer-text">${esc(question.answerText)}</div>` : ''}<div>${esc(question.explanation)}</div></div>` : ''}
       <div class="actions question-actions"><button id="flagBtn" class="secondary" type="button">${flagged ? 'Unflag' : 'Flag'} question</button>${question.isMultiSelect && activeSet.mode === 'tutor' && !activeSet.submitted && !reveal ? `<button id="checkAnswerBtn" class="primary" type="button" ${hasAnswer ? '' : 'disabled'}>Check answer</button>` : ''}${!activeSet.submitted ? '<button id="submitBtn" class="danger" type="button">Submit set</button>' : ''}</div>
-      <div class="question-map-legend"><span><i class="legend-swatch answered"></i>Answered</span><span><i class="legend-swatch unanswered"></i>Unanswered</span><span><i class="legend-flag">★</i>Flagged</span></div>
-      <div class="question-map">${items.map((item, index) => {
-        const answeredStatus = hasQuestionAnswer(activeSet.answers.get(item.answerKey)) ? 'answered' : 'unanswered';
-        const flaggedStatus = progressByBank.get(item.bankId)?.get(item.questionId)?.isFlagged ? ' flagged' : '';
-        const currentStatus = index === activeSet.index ? ' current' : '';
-        return `<button type="button" data-index="${index}" class="${answeredStatus}${flaggedStatus}${currentStatus}">${index + 1}</button>`;
-      }).join('')}</div>
+      ${questionMapMarkup(items, { progressByBank })}
       <div class="exam-nav"><button id="prevBtn" class="secondary" type="button" ${activeSet.index === 0 ? 'disabled' : ''}>Previous</button><button id="exitBtn" class="secondary" type="button">${activeSet.submitted ? 'Back to dashboard' : 'Save and exit'}</button>${finalNavigation}</div>
     </section>`;
 
@@ -875,9 +909,17 @@ async function submitSet({ auto = false, showResults = true } = {}) {
 function renderResults() {
   clearInterval(timer);
   const result = calculateSessionResult(banks, activeSet, activeSet.answers, { hasAnswer: hasQuestionAnswer });
+  const items = setQuestionItems(banks, activeSet);
   const percentage = result.total ? Math.round(result.correct / result.total * 100) : 0;
   const averageTimeMs = result.answered ? totalAnswerTimeMs(activeSet.answers) / result.answered : 0;
-  app.innerHTML = `<section class="card results-card"><div class="eyebrow" style="color:var(--blue)">SET RESULTS</div><h2>${result.correct}/${result.total} correct (${percentage}%)</h2><p class="muted">${result.answered} answered · ${result.omitted} omitted · ${result.incorrect} incorrect</p><div class="result-stats"><div class="stat"><strong>${percentage}%</strong><span>Score</span></div><div class="stat"><strong>${result.omitted}</strong><span>Omitted</span></div><div class="stat"><strong>${result.answered ? formatSeconds(averageTimeMs) : '—'}</strong><span>Average time/question</span></div></div>${result.byBank.length > 1 ? `<table class="summary-table"><thead><tr><th>Deck</th><th>Correct</th><th>Answered</th></tr></thead><tbody>${result.byBank.map((bank) => `<tr><td>${esc(bank.title)}</td><td>${bank.correct}/${bank.total}</td><td>${bank.answered}</td></tr>`).join('')}</tbody></table>` : ''}<p class="notice">This completed test is saved locally in History / Previous tests and can be reviewed again later.</p><div class="actions"><button id="reviewBtn" class="secondary" type="button">Review questions</button><button id="finishBtn" class="primary" type="button">Back to dashboard</button></div></section>`;
+  app.innerHTML = `<section class="card results-card"><div class="eyebrow" style="color:var(--blue)">SET RESULTS</div><h2>${result.correct}/${result.total} correct (${percentage}%)</h2><p class="muted">${result.answered} answered · ${result.omitted} omitted · ${result.incorrect} incorrect</p><div class="result-stats"><div class="stat"><strong>${percentage}%</strong><span>Score</span></div><div class="stat"><strong>${result.omitted}</strong><span>Omitted</span></div><div class="stat"><strong>${result.answered ? formatSeconds(averageTimeMs) : '—'}</strong><span>Average time/question</span></div></div>${result.byBank.length > 1 ? `<table class="summary-table"><thead><tr><th>Deck</th><th>Correct</th><th>Answered</th></tr></thead><tbody>${result.byBank.map((bank) => `<tr><td>${esc(bank.title)}</td><td>${bank.correct}/${bank.total}</td><td>${bank.answered}</td></tr>`).join('')}</tbody></table>` : ''}<section class="results-question-list" aria-labelledby="resultsQuestionListTitle"><h3 id="resultsQuestionListTitle">Question results</h3><p class="muted">Select a number to review that question.</p>${questionMapMarkup(items, { showCurrent: false, resultMap: true })}</section><p class="notice">This completed test is saved locally in History / Previous tests and can be reviewed again later.</p><div class="actions"><button id="reviewBtn" class="secondary" type="button">Review questions</button><button id="finishBtn" class="primary" type="button">Back to dashboard</button></div></section>`;
+  document.querySelectorAll('.results-question-map button').forEach((button) => {
+    button.onclick = async () => {
+      activeSet.index = Number(button.dataset.index);
+      await saveActiveSet('completed');
+      await renderQuestion();
+    };
+  });
   document.getElementById('reviewBtn').onclick = async () => { activeSet.index = 0; await saveActiveSet('completed'); await renderQuestion(); };
   document.getElementById('finishBtn').onclick = async () => { activeSet = null; await renderDashboard(); };
 }
