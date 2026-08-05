@@ -67,10 +67,19 @@ try {
   // Reloads retain that temporary session; closing it causes the next launch
   // to clear staging and import a fresh live copy again.
   if (stagingPreparation.importLiveBackup) {
-    await importLiveBackupIntoStaging(stagingPreparation.sessionId);
-    const copiedDefinitions = await loadAvailableDecks();
-    QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...copiedDefinitions);
-    await refreshApplication();
+    try {
+      const imported = await importLiveBackupIntoStaging(stagingPreparation.sessionId);
+      if (imported) {
+        const copiedDefinitions = await loadAvailableDecks();
+        QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...copiedDefinitions);
+        await refreshApplication();
+      }
+    } catch (error) {
+      // A damaged or incompatible live backup must never take the otherwise
+      // working staging dashboard offline. Integrity validation still rejects
+      // the bundle; staging simply remains on its clean isolated seed state.
+      console.error("Live backup import was rejected; staging remains usable.", error);
+    }
   }
 
   // Finish the one bounded cloud-catalog pass before attaching interactive
