@@ -51,7 +51,7 @@ test("staging starts clean and reloads retain only the current isolated session"
   await page.locator("#countInput").fill("1");
   await page.locator("#modeSelect").selectOption("tutor");
   await page.locator("#timingSelect").selectOption("untimed");
-  await page.getByRole("button", { name: "Start randomized set" }).click();
+  await page.getByRole("button", { name: "Start set" }).click();
   await page.locator(".choice").first().click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Submit set" }).click();

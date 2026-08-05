@@ -6,7 +6,7 @@ Private, local-first ABPN Psychiatry study application with optional Cloudflare 
 
 Version 1.0 protected production release. Cloudflare Access restricts the application to the approved identity, IndexedDB remains the primary local store, and bounded synchronization uses the verified D1 database with an immediate server-side kill switch and automatic local-only fallback. This repository is separate from and does not modify:
 
-- `saripalana/ks-study-guide`
+- `dancingremote/ks-study-guide` (authoritative read-only K&S source)
 - `saripalana/abpn-study-lite`
 
 ## Design goals
@@ -14,14 +14,15 @@ Version 1.0 protected production release. Cloudflare Access restricts the applic
 - Preserve the existing ABPN study workflow and K&S deck.
 - Treat K&S, Spiegel, and every future imported package as decks in one shared Deck Library.
 - Give every deck the same practice, tutor, test, subject-filter, flag, history, backup, reset, and analytics behavior.
+- Make question order explicit: All defaults to randomized, filtered pools default to source order, and the user can override either choice without separating linked-question groups.
 - Keep progress, completed tests, and question identifiers isolated by deck ID.
 - Work offline using IndexedDB.
-- Cache every deck locally and persist user-added decks across authorized devices through Cloudflare Workers and D1.
+- Cache every deck locally and persist every installed Deck Library package across authorized devices through Cloudflare Workers and D1.
 - Avoid Google OAuth, Google Drive, Google Cloud, and Google-specific dependencies.
 - Use one clear synchronization control with connection-aware status.
 - Preserve completed sets, timers, flags, answers, analytics, and reset history.
 - The private application offers an optional assistant weakness summary that remains enabled until explicitly revoked. Revocation blocks access but preserves the aggregate; only the separate delete control removes it. The feature exposes only allowlisted category-level aggregate metrics and records publication, access, and deletion counts. It is enabled in production only after this reviewed staging acceptance and remains off until the user checks the permission control.
-- Never silently overwrite newer study data or a protected built-in deck.
+- Never silently overwrite newer study data or an installed immutable deck revision.
 
 ## Architecture
 
@@ -57,7 +58,7 @@ Generated dependencies, browser-test downloads, screenshots, reports, Wrangler o
 
 GitHub remains the permanent source/version-history recovery layer and is not pruned by local/Drive backup retention. Local and Google Drive backups cover database exports, temporary-archive recovery bundles, and other non-Git artifacts.
 
-K&S and the validation deck are bundled protected packages. User-added file and GitHub decks use the same normalized runtime model, are cached in IndexedDB, and are stored as chunked versioned packages in the protected one-user D1 Deck Library. Existing locally imported decks are promoted automatically after this capability is deployed.
+K&S and Spiegel are approved catalog decks generated from immutable original `dancingremote` revisions through the same normalized, immutable-revision Deck Library contract as file and GitHub packages. Their adapters verify the pinned Git blobs, question counts, stable identities, and answer structure before generating packages; they never modify the source repositories. A fresh staging session therefore mirrors the deck catalog proposed for production while its progress, history, flags, sets, and other writable state remain disposable and isolated. Every user-facing bank is cached in IndexedDB and stored as a chunked versioned package in the protected one-user D1 library. The hidden validation fixture remains test-only and is not a user question bank. Existing locally imported decks are promoted automatically.
 
 ## Cost safety
 
@@ -76,7 +77,7 @@ Backup, restore, Worker rollback, and D1 migration recovery are controlled by [`
 5. Local data and cached decks remain usable during network outages.
 6. Sync conflicts are resolved at record level and are never handled by replacing the entire database blindly.
 7. Cost guardrails are release-blocking and cannot be bypassed for production deployment.
-8. K&S remains repository-versioned and protected; user-added deck packages are stored only behind the same one-user Cloudflare Access boundary and remain isolated by deck ID.
+8. K&S is an application-supplied seed that is installed through the same versioned Deck Library contract as Spiegel and future imports; every package is stored behind the same one-user Cloudflare Access boundary and isolated by deck ID.
 9. Portable study backups omit question content; each imported deck can be exported separately as its own versioned package.
 
 ## Development stages

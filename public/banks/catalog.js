@@ -1,11 +1,23 @@
 import { KS_PSYCHIATRY_BANK } from './generated/ks-psychiatry-core.js';
+import { SPIEGEL_TEST_PREP_BANK } from './generated/spiegel-test-prep.js';
 
-const PROTECTED_KS_BANK = {
+// Application-supplied seeds use the same versioned Deck Library package
+// contract as file and GitHub installs. "Seed" describes only how the first
+// revision is supplied; it does not create a separate storage pathway.
+const KS_SEED_BANK = {
   ...KS_PSYCHIATRY_BANK,
-  sourceType: 'repository-protected',
+  sourceType: 'application-seed',
   contentClass: 'source-material',
   sourceLabel: 'K&S source package',
-  protected: true
+  protected: false
+};
+
+// Approved catalog decks are always present in a fresh staging session and in
+// the proposed production build. Their study activity remains environment-
+// specific, while their immutable source package is deterministic.
+const SPIEGEL_SEED_BANK = {
+  ...SPIEGEL_TEST_PREP_BANK,
+  protected: false
 };
 
 const VALIDATION_BANK = {
@@ -25,4 +37,4 @@ const VALIDATION_BANK = {
   ]
 };
 
-export const QUESTION_BANKS = [PROTECTED_KS_BANK, VALIDATION_BANK];
+export const QUESTION_BANKS = [KS_SEED_BANK, SPIEGEL_SEED_BANK, VALIDATION_BANK];

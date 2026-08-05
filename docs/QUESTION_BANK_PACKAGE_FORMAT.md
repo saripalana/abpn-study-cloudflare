@@ -47,11 +47,20 @@ Question-bank packages add new content without modifying the protected K&S packa
 
 `linkedGroupId` and `linkedOrder` are optional only for independent questions. Questions that share a case, stem, or prerequisite context must use the same stable group ID and consecutive order. A study set selects the complete ordered group; it never guesses linkage from question wording.
 
-This version-1 JSON package is an ingestion/compatibility format. Every accepted package is validated and converted into the universal bank/revision/group/question/choice/rationale contract. K&S and other protected sources must pass through the same contract even when their source adapter is different.
+This version-1 JSON package is the common installation and portability format. Every accepted package is validated and converted into the universal bank/revision/group/question/choice/rationale contract. Application-supplied seeds such as K&S use this same contract; `application-seed` describes initial supply, not a privileged storage pathway.
 
 ## Content classification
 
-Every imported bank must use one of two explicit classifications.
+Every installed bank must use one of three explicit classifications.
+
+### Application seed
+
+```json
+"sourceType": "application-seed",
+"contentClass": "source-material"
+```
+
+Use this only for a bank supplied with the application. On first use it is installed into the same versioned Deck Library as every other bank, after which its active immutable revision is resolved normally.
 
 ### Source material
 
@@ -60,7 +69,7 @@ Every imported bank must use one of two explicit classifications.
 "contentClass": "source-material"
 ```
 
-Use this for a distinct source question bank. It remains separate from K&S and from assistant-created questions.
+Use this for a distinct imported source question bank. Its questions and progress remain isolated by bank ID while its installation, versioning, backup, protection, study, and analytics behavior remain identical to K&S.
 
 ### Assistant supplemental material
 

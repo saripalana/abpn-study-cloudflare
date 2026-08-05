@@ -104,11 +104,13 @@ test("worker exposes health and bidirectional sync endpoints behind release cont
   assert.match(worker, /ensureQuestionBank/);
 });
 
-test("all imported banks use the protected persistent deck library", async () => {
-  const [worker, api, sourceProxy, browserClient, bootstrap, migration, bootstrapMigration] = await Promise.all([
+test("all user-facing banks use one protected persistent Deck Library", async () => {
+  const [worker, api, sourceProxy, importer, generatedManifest, browserClient, bootstrap, migration, bootstrapMigration] = await Promise.all([
     read("src/worker.js"),
     read("src/deck-library-api.js"),
     read("src/starter-deck-source.js"),
+    read("scripts/import-approved-banks.mjs"),
+    read("public/banks/generated/ks-psychiatry-core.manifest.json"),
     read("public/client/deck-library.js"),
     read("public/bootstrap.js"),
     read("migrations/0004_cloud_deck_library.sql"),
@@ -119,19 +121,50 @@ test("all imported banks use the protected persistent deck library", async () =>
   assert.match(api, /MAX_DECK_PACKAGE_BYTES/);
   assert.match(api, /deck_package_chunks/);
   assert.match(api, /deck_library_state/);
-  assert.match(api, /Protected built-in decks cannot be replaced/);
-  assert.match(sourceProxy, /raw\.githubusercontent\.com\/saripalana\/ks-study-guide\/4d03f158/);
+  assert.match(api, /shared immutable revision protection contract/);
+  assert.match(sourceProxy, /raw\.githubusercontent\.com\/dancingremote\/ks-study-guide\/ddfcba21/);
   assert.match(sourceProxy, /redirect: "error"/);
+  assert.match(importer, /repository: 'dancingremote\/ks-study-guide'/);
+  const ksManifest = JSON.parse(generatedManifest);
+  assert.equal(ksManifest.repository, "dancingremote/ks-study-guide");
+  assert.equal(ksManifest.commit, "ddfcba21e97973f77c08311400d05310a4ea1ee3");
+  assert.equal(ksManifest.expectedGitBlobSha, "f4180d69a4a6bbd8a7f764bb88e7f2f404f7431f");
+  assert.equal(ksManifest.questionCount, 602);
+  assert.match(importer, /repository: 'dancingremote\/spiegel-test-prep'/);
+  assert.match(importer, /expectedQuestionCount: 1060/);
   assert.match(browserClient, /publishCloudDeckPackage/);
   assert.match(browserClient, /refreshCloudDeckLibrary/);
   assert.match(browserClient, /getCloudDeckBootstrapState/);
   assert.match(browserClient, /setCloudDeckBootstrapState/);
   assert.match(browserClient, /pendingDeckUpload/);
   assert.match(bootstrap, /flushPendingCloudDeckUploads/);
+  assert.match(bootstrap, /installSeedQuestionBanks/);
   assert.match(bootstrap, /refreshCloudDeckLibrary/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_packages/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS deck_package_chunks/);
   assert.match(bootstrapMigration, /CREATE TABLE IF NOT EXISTS deck_library_state/);
+});
+
+test("system validation is omitted from remote staging and production selectors", async () => {
+  const app = await read("src/browser/app.js");
+  assert.match(app, /\['127\.0\.0\.1', 'localhost'\]\.includes/);
+  assert.match(app, /deckSelectorBanks = allowSystemValidation \? banks : banks\.filter\(isUserSelectableDeck\)/);
+  assert.doesNotMatch(app, /banks\.map\(\(bank\).*deckOptionHiddenAttribute/);
+});
+
+test("fresh staging and proposed production use the same approved two-deck catalog", async () => {
+  const catalog = await read("public/banks/catalog.js");
+  assert.match(catalog, /KS_SEED_BANK/);
+  assert.match(catalog, /SPIEGEL_SEED_BANK/);
+  assert.match(catalog, /QUESTION_BANKS = \[KS_SEED_BANK, SPIEGEL_SEED_BANK, VALIDATION_BANK\]/);
+});
+
+test("optional assistant status cannot block core dashboard controls", async () => {
+  const app = await read("src/browser/app.js");
+  const controlBinding = app.indexOf("document.getElementById('startBtn').onclick = startSet");
+  const assistantBinding = app.indexOf("void attachAssistantWeaknessControls");
+  assert.ok(controlBinding > -1 && assistantBinding > controlBinding);
+  assert.match(app, /const assistantSection = document\.getElementById\('assistantInsightsSection'\)/);
 });
 
 test("browser deployment assets have one deterministic source and no runtime patch chain", async () => {

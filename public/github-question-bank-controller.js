@@ -71,7 +71,7 @@ async function installFetchedPackage(file, sourceUrl, { convertedFromLegacy = fa
     "",
     incoming.contentClass === "assistant-supplemental"
       ? "This material will remain separate from source question banks and will be labeled as assistant supplemental content."
-      : "This material will remain separate from K&S, the validation bank, and assistant supplemental content.",
+      : "This source bank will use the same versioned Deck Library contract as every other bank while remaining isolated by bank ID.",
     "The deck is saved to your protected Cloudflare Deck Library and cached locally for offline study. Progress and completed tests remain separate by deck.",
   ].filter(Boolean).join("\n");
 

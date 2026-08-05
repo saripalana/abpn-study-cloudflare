@@ -3,9 +3,22 @@ import { test, expect } from '@playwright/test';
 async function useValidationBank(page) {
   await page.goto('/');
   await expect(page.getByText('ABPN PSYCHIATRY STUDY')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
   await page.locator('#bankSelect').selectOption('validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
 }
+
+test('question order defaults to random for All and sequential for filtered pools', async ({ page }) => {
+  await useValidationBank(page);
+  const order = page.getByLabel('Randomize question order');
+  await expect(order).toBeChecked();
+  await page.locator('#poolSelect').selectOption('new');
+  await expect(order).not.toBeChecked();
+  await order.check();
+  await expect(order).toBeChecked();
+  await page.locator('#poolSelect').selectOption('all');
+  await expect(order).toBeChecked();
+});
 
 test('filters a practice set by subjects and remembers builder choices per bank', async ({ page }) => {
   await useValidationBank(page);
@@ -14,7 +27,7 @@ test('filters a practice set by subjects and remembers builder choices per bank'
   await page.locator('#subjectPicker summary').click();
   await page.getByRole('button', { name: 'Clear' }).click();
   await expect(page.locator('#eligibleCount')).toContainText('No questions match');
-  await expect(page.getByRole('button', { name: 'Start randomized set' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Start set' })).toBeDisabled();
 
   await page.locator('input[name="subjectFilter"][value="Question Banks"]').check();
   await expect(page.locator('#eligibleCount')).toContainText('1 question available');
@@ -37,7 +50,7 @@ test('filters a practice set by subjects and remembers builder choices per bank'
   await expect(page.locator('input[name="subjectFilter"][value="Application Safety"]')).not.toBeChecked();
   await expect(page.locator('input[name="subjectFilter"][value="Question Banks"]')).toBeChecked();
 
-  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.getByRole('button', { name: 'Start set' }).click();
   await expect(page.getByText('How should progress from two different question banks be stored?')).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
 
@@ -84,7 +97,7 @@ test('combines subject selection with wrong and flagged pools in the live builde
   await page.locator('#countInput').fill('2');
   await page.locator('#modeSelect').selectOption('tutor');
   await page.locator('#timingSelect').selectOption('untimed');
-  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.getByRole('button', { name: 'Start set' }).click();
 
   await page.locator('.choice').first().click();
   await page.getByRole('button', { name: 'Flag question' }).click();
@@ -102,7 +115,7 @@ test('combines subject selection with wrong and flagged pools in the live builde
   await page.getByRole('button', { name: 'Clear' }).click();
   await page.locator('input[name="subjectFilter"][value="Question Banks"]').check();
   await expect(page.locator('#eligibleCount')).toContainText('No questions match');
-  await expect(page.getByRole('button', { name: 'Start randomized set' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Start set' })).toBeDisabled();
 });
 
 test('offers a Used pool after a question has been completed', async ({ page }) => {
@@ -110,7 +123,7 @@ test('offers a Used pool after a question has been completed', async ({ page }) 
   await page.locator('#countInput').fill('1');
   await page.locator('#modeSelect').selectOption('tutor');
   await page.locator('#timingSelect').selectOption('untimed');
-  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.getByRole('button', { name: 'Start set' }).click();
   await page.locator('.choice').first().click();
 
   page.once('dialog', async (dialog) => dialog.accept());
@@ -125,7 +138,7 @@ test('test-mode set restores question, answers, and results after reload', async
   await page.locator('#countInput').fill('2');
   await page.locator('#modeSelect').selectOption('test');
   await page.locator('#timingSelect').selectOption('untimed');
-  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.getByRole('button', { name: 'Start set' }).click();
 
   await expect(page.getByRole('heading', { name: 'Question 1 of 2' })).toBeVisible();
   await page.locator('.choice').first().click();
@@ -165,7 +178,7 @@ test('tutor mode reveals feedback immediately and records analytics', async ({ p
   await page.locator('#countInput').fill('1');
   await page.locator('#modeSelect').selectOption('tutor');
   await page.locator('#timingSelect').selectOption('untimed');
-  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.getByRole('button', { name: 'Start set' }).click();
   await page.locator('.choice').first().click();
   await expect(page.locator('.explanation')).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
@@ -177,7 +190,7 @@ test('timed set continues counting down across reload', async ({ page }) => {
   await page.locator('#countInput').fill('1');
   await page.locator('#modeSelect').selectOption('test');
   await page.locator('#timingSelect').selectOption('timed');
-  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.getByRole('button', { name: 'Start set' }).click();
 
   const before = await page.locator('#timer').textContent();
   await page.waitForTimeout(2200);
@@ -194,7 +207,7 @@ test('bank switching does not expose another bank active set', async ({ page }) 
   await useValidationBank(page);
   await page.locator('#countInput').fill('1');
   await page.locator('#timingSelect').selectOption('untimed');
-  await page.getByRole('button', { name: 'Start randomized set' }).click();
+  await page.getByRole('button', { name: 'Start set' }).click();
   await page.getByRole('button', { name: 'Save and exit' }).click();
   await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
 
@@ -214,7 +227,7 @@ test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page },
   const dashboard = await page.evaluate(() => {
     const countInput = document.querySelector('#countInput');
     const bankSelect = document.querySelector('#bankSelect');
-    const startButton = [...document.querySelectorAll('button')].find((button) => button.textContent.includes('Start randomized set'));
+    const startButton = [...document.querySelectorAll('button')].find((button) => button.textContent.includes('Start set'));
     return {
       userAgent: navigator.userAgent,
       innerWidth: window.innerWidth,
@@ -245,7 +258,7 @@ test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page },
 
   await page.locator('#countInput').fill('1');
   await page.locator('#timingSelect').selectOption('untimed');
-  await page.getByRole('button', { name: 'Start randomized set' }).tap();
+  await page.getByRole('button', { name: 'Start set' }).tap();
   await expect(page.getByRole('heading', { name: 'Question 1 of 1' })).toBeVisible();
 
   const exam = await page.evaluate(() => ({

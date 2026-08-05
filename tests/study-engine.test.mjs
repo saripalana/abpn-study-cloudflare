@@ -26,6 +26,12 @@ test('combines subject filters with all new used wrong and flagged pools',()=>{c
 
 test('random selection never leaves the selected subjects',()=>{const [bank]=buildBankCatalog([definition]);const ids=chooseQuestionIds(bank,new Map(),'all',10,()=>0,['Psychosis']);assert.deepEqual(ids,['q3'])});
 
+test('sequential selection preserves source question order',()=>{
+  const [bank]=buildBankCatalog([definition]);
+  const ids=chooseQuestionIds(bank,new Map(),'all',2,()=>0,null,false);
+  assert.deepEqual(ids,['q1','q2']);
+});
+
 test('linked questions stay ordered and expand past the requested boundary',()=>{
   const [bank]=buildBankCatalog([{id:'linked',title:'Linked',questions:[
     {id:'case-1',chapterTitle:'Mood',linkedGroupId:'case-a',linkedOrder:0,question:'Case start?',choices:['A','B'],correctLetter:'A',explanation:'x'},

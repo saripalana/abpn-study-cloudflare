@@ -36,7 +36,9 @@ function statusText(status) {
 }
 
 export async function attachAssistantWeaknessControls({ root, bank }) {
-  const section = root?.querySelector?.("#assistantInsightsSection");
+  const section = root?.matches?.("#assistantInsightsSection")
+    ? root
+    : root?.querySelector?.("#assistantInsightsSection");
   if (!section) return;
   const permission = section.querySelector("#assistantInsightsPermission");
   const share = section.querySelector("#shareWeaknessBtn");

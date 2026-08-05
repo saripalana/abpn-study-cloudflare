@@ -100,6 +100,14 @@ body {
 .card h3 { margin: 0 0 6px; color: var(--navy); }
 .muted { color: var(--muted); }
 .bank-selector { min-width: 260px; }
+.deck-library-contract {
+  max-width: 720px;
+  margin: 12px 0 0;
+  color: var(--navy);
+  font-size: 12px;
+  font-weight: 700;
+}
+.deck-library-action { width: 100%; margin-top: 9px; }
 
 .bank-selector select,
 input,

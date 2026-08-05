@@ -38,11 +38,14 @@ jobs:
         run: exit 1
       - name: Reject stale generated browser assets
         run: git diff --exit-code -- src public package.json
-      - name: Confirm generated K&S manifest
+      - name: Confirm generated approved-deck manifests
         run: |
           test -f public/banks/generated/ks-psychiatry-core.js
           test -f public/banks/generated/ks-psychiatry-core.manifest.json
           grep -q '"questionCount": 602' public/banks/generated/ks-psychiatry-core.manifest.json
+          test -f public/banks/generated/spiegel-test-prep.js
+          test -f public/banks/generated/spiegel-test-prep.manifest.json
+          grep -q '"questionCount": 1060' public/banks/generated/spiegel-test-prep.manifest.json
       - name: Install Chromium and WebKit
         id: playwright_install
         continue-on-error: true

@@ -87,7 +87,42 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   });
   await firstPage.goto("/");
   await expect(firstPage.getByRole("heading", { name: "K&S Psychiatry Question Bank" })).toBeVisible();
+  await expect(firstPage.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
+  await expect(firstPage.getByText("Every installed question bank uses the same versioned storage, protection, backup, study, and analytics system.")).toBeVisible();
+  await expect(firstPage.getByLabel("Installed question banks")).toHaveValue("ks-psychiatry-core");
+  await expect(firstPage.locator('#bankSelect option[value="spiegel-test-prep"]')).toHaveCount(1);
+  await firstPage.getByRole("button", { name: "Manage Deck Library" }).click();
+  await expect(firstPage.locator("#deckLibraryManagement")).toBeVisible();
   await expect(firstPage.getByRole("button", { name: "Import from file" })).toBeEnabled();
+  await expect(firstPage.getByRole("button", { name: "Download bank package" })).toBeVisible();
+  await expect.poll(() => cloudStore.has("ks-psychiatry-core")).toBe(true);
+  await expect.poll(() => cloudStore.has("spiegel-test-prep")).toBe(true);
+  const seedStorage = await firstPage.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("abpn-study", 2);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const transaction = db.transaction(["questionBankContent", "questionBankRevisions"], "readonly");
+      const content = await new Promise((resolve, reject) => {
+        const request = transaction.objectStore("questionBankContent").get("ks-psychiatry-core");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const revisions = await new Promise((resolve, reject) => {
+        const request = transaction.objectStore("questionBankRevisions").index("byBank").getAll("ks-psychiatry-core");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      return { sourceType: content?.sourceType, checksum: content?.checksum, revisionCount: revisions.length };
+    } finally {
+      db.close();
+    }
+  });
+  expect(seedStorage.sourceType).toBe("application-seed");
+  expect(seedStorage.checksum).toMatch(/^[a-f0-9]{64}$/);
+  expect(seedStorage.revisionCount).toBeGreaterThanOrEqual(1);
 
   // File-picker activation is covered by import-button.spec.js. This test targets
   // library persistence, so inject the package through the stable file input.

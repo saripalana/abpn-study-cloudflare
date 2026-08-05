@@ -1,4 +1,6 @@
-const KS_SOURCE_URL = "https://raw.githubusercontent.com/saripalana/ks-study-guide/4d03f158c6fbfacd698796d94c213a49ac8a377d/data.js";
+// Recovery reads the immutable original K&S revision; the bundled Deck Library
+// package remains the offline-first runtime copy.
+const KS_SOURCE_URL = "https://raw.githubusercontent.com/dancingremote/ks-study-guide/ddfcba21e97973f77c08311400d05310a4ea1ee3/data.js";
 const KS_SOURCE_GIT_BLOB_SHA = "f4180d69a4a6bbd8a7f764bb88e7f2f404f7431f";
 const MAX_STARTER_SOURCE_BYTES = 20 * 1024 * 1024;
 
