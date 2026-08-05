@@ -109,6 +109,9 @@ export async function handleGoogleDriveRecoveryRequest(request, env, helpers) {
   }
 
   if (request.method === "PUT" && url.pathname === "/api/recovery/google-drive") {
+    if (env.APP_ENV === "staging") {
+      return json({ error: "Private staging uses the live backup as a read-only temporary source" }, 403);
+    }
     const { text, bytes, bundle } = await readBundle(request);
     const boundary = `abpn-recovery-${crypto.randomUUID()}`;
     const metadata = {

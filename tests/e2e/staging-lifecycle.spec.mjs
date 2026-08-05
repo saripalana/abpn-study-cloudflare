@@ -15,6 +15,11 @@ test("staging starts clean and reloads retain only the current isolated session"
       body: JSON.stringify({ ok: true, environment: "staging", state: "cleared" }),
     });
   });
+  await page.route("**/api/recovery/google-drive/latest", (route) => route.fulfill({
+    status: 404,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "No live backup fixture in this lifecycle test" }),
+  }));
   await page.addInitScript(() => {
     if (!sessionStorage.getItem("abpn-study:staging-session")) {
       localStorage.setItem("abpn-study:prior-test-artifact", "remove-me");
@@ -85,6 +90,11 @@ test("opening a new staging tab revokes the previous tab without accepting stale
       body: JSON.stringify({ ok: true, environment: "staging", state: "cleared" }),
     });
   });
+  await context.route("**/api/recovery/google-drive/latest", (route) => route.fulfill({
+    status: 404,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "No live backup fixture in this lifecycle test" }),
+  }));
   await context.route("**/api/sync/**", async (route) => {
     const request = route.request();
     if (request.headers()["x-abpn-device-id"] !== activeSession) {

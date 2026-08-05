@@ -247,6 +247,7 @@ test("one parallel staging stack is production-equivalent but write-isolated", a
   assert.match(lifecycle, /\/api\/staging\/session/);
   assert.match(lifecycle, /deleteStudyDatabase/);
   assert.match(bootstrap, /await ensureStagingSession\(\)/);
+  assert.match(bootstrap, /importLiveBackupIntoStaging/);
   const syncController = await read("src/browser/sync-controller.js");
   assert.match(syncController, /sessionStorage\.getItem\(STAGING_SESSION_KEY\)/);
 });

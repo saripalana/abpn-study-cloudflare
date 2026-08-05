@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prepareStagingSession, STAGING_SESSION_KEY } from "../src/client/staging-lifecycle.js";
+import {
+  importLiveBackupIntoStaging,
+  prepareStagingSession,
+  STAGING_SESSION_KEY,
+} from "../src/client/staging-lifecycle.js";
 
 function memoryStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -56,7 +60,7 @@ test("a new staging browser session clears test state but preserves the exam dat
     createId: () => "staging-session-1234",
     deleteDatabase: async () => { deletedDatabase += 1; },
   });
-  assert.deepEqual(result, { staging: true, reset: true, sessionId: "staging-session-1234" });
+  assert.deepEqual(result, { staging: true, reset: true, sessionId: "staging-session-1234", importLiveBackup: true });
   assert.equal(calls[1].url, "/api/staging/session");
   assert.equal(calls[1].options.method, "DELETE");
   assert.equal(calls[1].options.headers["x-abpn-staging-session"], "staging-session-1234");
@@ -98,8 +102,13 @@ test("reloads preserve the current isolated staging session", async () => {
     cacheStorage: null,
     deleteDatabase: async () => { cleanupCalls += 1; },
   });
-  assert.deepEqual(result, { staging: true, reset: false, sessionId: "staging-session-existing" });
+  assert.deepEqual(result, { staging: true, reset: false, sessionId: "staging-session-existing", importLiveBackup: false });
   assert.equal(cleanupCalls, 0);
+});
+
+test("a missing live backup leaves a new temporary staging session usable", async () => {
+  const restored = await importLiveBackupIntoStaging("staging-session-1234", async () => new Response("{}", { status: 404 }));
+  assert.equal(restored, false);
 });
 
 test("failed remote cleanup fails closed before local state is changed", async () => {

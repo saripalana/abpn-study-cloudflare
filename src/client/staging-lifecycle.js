@@ -89,14 +89,35 @@ export async function prepareStagingSession({
   const existing = sessionStorageRef.getItem(SESSION_KEY);
   // sessionStorage survives a reload but disappears when the isolated browser
   // tab/session closes. Its absence is the reliable next-launch cleanup signal.
-  if (existing) return { staging: true, reset: false, sessionId: existing };
+  if (existing) return { staging: true, reset: false, sessionId: existing, importLiveBackup: false };
 
   const sessionId = createId();
   await resetRemoteStagingState(fetchImpl, sessionId);
   await clearBrowserState({ localStorageRef, cacheStorage, deleteDatabase });
   localStorageRef.setItem(DEVICE_KEY, sessionId);
   sessionStorageRef.setItem(SESSION_KEY, sessionId);
-  return { staging: true, reset: true, sessionId };
+  return { staging: true, reset: true, sessionId, importLiveBackup: true };
+}
+
+export async function importLiveBackupIntoStaging(
+  sessionId,
+  fetchImpl = globalThis.fetch.bind(globalThis),
+) {
+  if (!sessionId) return false;
+  const response = await fetchImpl("/api/recovery/google-drive/latest", {
+    method: "GET",
+    cache: "no-store",
+    headers: {
+      accept: "application/json",
+      "x-abpn-device-id": sessionId,
+      "x-abpn-staging-session": sessionId,
+    },
+  });
+  if (response.status === 404) return false;
+  if (!response.ok) throw new Error("The latest live backup could not be copied into staging.");
+  const { restoreRecoveryBundle, validateRecoveryBundle } = await import("./recovery-bundle.js");
+  await restoreRecoveryBundle(await validateRecoveryBundle(await response.json()));
+  return true;
 }
 
 let sharedPreparation;
