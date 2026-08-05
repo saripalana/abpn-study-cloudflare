@@ -63,6 +63,45 @@ function sourceQuestionId(question, index) {
     : `spiegel-${index + 1}`;
 }
 
+// The legacy Spiegel source identifies practice-test sections but contains no
+// subject field. Classify it locally during conversion so study analytics use
+// clinical subjects instead of misleading labels such as "Test 1". Only the
+// resulting label is stored; source content is never sent to a service.
+const CLINICAL_SUBJECT_RULES = Object.freeze([
+  ['Mood disorders', /\b(depress\w*|mania|manic|bipolar|dysthymi\w*|cyclothymi\w*|lithium)\b/gi],
+  ['Psychotic disorders', /\b(psychos\w*|psychotic|schizophren\w*|delusion\w*|hallucinat\w*|antipsychotic)\b/gi],
+  ['Anxiety, trauma, and obsessive-compulsive disorders', /\b(anxiety|panic|phobi\w*|obsess\w*|compuls\w*|ptsd|posttraumatic|trauma\w*)\b/gi],
+  ['Substance-related and addictive disorders', /\b(alcohol|opioid|cocaine|amphetamine|substance|intoxicat\w*|withdrawal|addict\w*|nicotine|cannabis)\b/gi],
+  ['Child and adolescent psychiatry', /\b(child|adolescen\w*|autis\w*|adhd|attention.deficit|conduct disorder|oppositional|school refusal)\b/gi],
+  ['Neurocognitive disorders', /\b(dementia|delirium|alzheimer\w*|neurocognitive|memory loss|frontotemporal|lewy bod\w*)\b/gi],
+  ['Neurology', /\b(seizure|epilep\w*|stroke|migraine|parkinson\w*|multiple sclerosis|neuropath\w*|movement disorder|huntington\w*)\b/gi],
+  ['Sleep-wake disorders', /\b(insomnia|narcolep\w*|parasomnia|sleep apnea|sleep.walk|night terror|rem sleep)\b/gi],
+  ['Eating and feeding disorders', /\b(anorexi\w*|bulimi\w*|binge.eating|feeding disorder|body mass index|weight loss)\b/gi],
+  ['Personality disorders', /\b(personality disorder|borderline|narcissis\w*|antisocial|histrionic|schizoid|schizotypal|avoidant personality|dependent personality)\b/gi],
+  ['Somatic symptom and dissociative disorders', /\b(somatic|conversion disorder|dissociat\w*|factitious|malinger\w*|illness anxiety)\b/gi],
+  ['Psychotherapy', /\b(psychotherap\w*|cognitive.behavior|psychoanaly\w*|transference|countertransference|defense mechanism|motivational interview)\b/gi],
+  ['Psychopharmacology', /\b(antidepressant|ssri|snri|maoi|benzodiazepine|psychotropic|pharmacokinetic|side effect|drug interaction)\b/gi],
+  ['Consultation-liaison psychiatry', /\b(transplant|dialysis|cancer|hiv|pregnan\w*|postpartum|medical illness|consultation.liaison)\b/gi],
+  ['Emergency psychiatry', /\b(suicid\w*|homicid\w*|agitat\w*|violent|restraint|psychiatric emergency)\b/gi],
+  ['Forensic psychiatry and ethics', /\b(capacity|competenc\w*|confidential\w*|informed consent|malpractice|duty to warn|forensic|insanity defense|ethic\w*)\b/gi],
+  ['Human development', /\b(attachment|developmental stage|piaget|erikson|object permanence|temperament|bonding)\b/gi],
+  ['Research methods and statistics', /\b(sensitivity|specificity|relative risk|odds ratio|confidence interval|p.value|statistical|study design|randomized controlled)\b/gi],
+]);
+
+export function inferClinicalSubject(question) {
+  const explicit = String(question?.subjectTitle || question?.subject || question?.domain || question?.topic || '').trim();
+  if (explicit) return explicit;
+  const localText = [question?.question, ...(question?.choices || []), question?.answerText, question?.explanation]
+    .filter(Boolean).join(' ');
+  let best = { title: 'General psychiatry', score: 0 };
+  for (const [title, pattern] of CLINICAL_SUBJECT_RULES) {
+    pattern.lastIndex = 0;
+    const score = [...localText.matchAll(pattern)].length;
+    if (score > best.score) best = { title, score };
+  }
+  return best.title;
+}
+
 function convertQuestion(question, index) {
   const choices = Array.isArray(question?.choices) ? question.choices.map(String) : [];
   const choiceLetters = Array.isArray(question?.choiceLetters) && question.choiceLetters.length === choices.length
@@ -80,6 +119,7 @@ function convertQuestion(question, index) {
     id: sourceQuestionId(question, index),
     chapter: String(question?.sectionType || ""),
     chapterTitle: section || "Spiegel Test Prep",
+    subjectTitle: inferClinicalSubject(question),
     question: String(question?.question || ""),
     vignetteStem: String(question?.vignetteStem || ""),
     choices,
@@ -106,7 +146,7 @@ export async function convertLegacySpiegelScript(source, sourceUrl) {
       title: "Spiegel Test Prep Question Bank",
       shortTitle: "Spiegel Test Prep",
       description: `Psychiatry Test Preparation & Review Manual study questions imported from the legacy Spiegel Test Prep site. Includes ${multiSelectCount} select-all-that-apply question${multiSelectCount === 1 ? "" : "s"}.`,
-      version: `legacy-${sourceChecksum.slice(0, 12)}`,
+      version: `legacy-subjects-${sourceChecksum.slice(0, 12)}`,
       sourceType: "user-imported",
       contentClass: "source-material",
       sourceLabel: "Spiegel Test Prep · dancingremote/spiegel-test-prep",

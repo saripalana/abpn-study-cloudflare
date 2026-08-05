@@ -51,6 +51,18 @@ export function normalizeQuestion(question, index, bankId) {
     id,
     chapter: question.chapter ?? "",
     chapterTitle: String(question.chapterTitle || question.category || "Uncategorized").trim() || "Uncategorized",
+    // subjectTitle is the clinical analytics dimension. chapterTitle remains
+    // the source/deck grouping so imported practice-test numbers never become
+    // misleading study subjects.
+    subjectTitle: String(
+      question.subjectTitle
+      || question.subject
+      || question.domain
+      || question.topic
+      || question.chapterTitle
+      || question.category
+      || "Uncategorized"
+    ).trim() || "Uncategorized",
     question: String(question.question),
     vignetteStem: String(question.vignetteStem || ""),
     linkedGroupId,
@@ -108,7 +120,7 @@ export function eligibleQuestionIds(bank, progress, pool = "all", categories = n
     : new Set(Array.from(categories, (category) => String(category)));
 
   return bank.questions.filter((question) => {
-    if (selectedCategories && !selectedCategories.has(question.chapterTitle)) return false;
+    if (selectedCategories && !selectedCategories.has(question.subjectTitle || question.chapterTitle)) return false;
     const record = progress.get(question.id);
     if (pool === "new") return !record || !record.timesUsed;
     if (pool === "used") return Number(record?.timesUsed || 0) > 0;
@@ -174,10 +186,11 @@ export function calculateSetResult(questionIds, answers, bank) {
   return { total: questionIds.length, answered, omitted: questionIds.length - answered, correct, incorrect: answered - correct };
 }
 
-export function categoryStatistics(bank, progress) {
+function groupedStatistics(bank, progress, titleForQuestion) {
   const groups = new Map();
   for (const question of bank.questions) {
-    const row = groups.get(question.chapterTitle) || { title: question.chapterTitle, total: 0, answered: 0, correct: 0, totalTimeMs: 0 };
+    const title = titleForQuestion(question) || "Uncategorized";
+    const row = groups.get(title) || { title, total: 0, answered: 0, correct: 0, totalTimeMs: 0 };
     row.total += 1;
     const record = progress.get(question.id);
     if (record?.timesUsed) {
@@ -185,11 +198,21 @@ export function categoryStatistics(bank, progress) {
       if (record.isCorrect === true) row.correct += 1;
       row.totalTimeMs += Number(record.totalTimeMs || 0);
     }
-    groups.set(question.chapterTitle, row);
+    groups.set(title, row);
   }
   return [...groups.values()].map((row) => ({
     ...row,
     accuracy: row.answered ? row.correct / row.answered : null,
     averageTimeMs: row.answered ? row.totalTimeMs / row.answered : null
   })).sort((a, b) => b.answered - a.answered || a.title.localeCompare(b.title));
+}
+
+// Source sections and clinical subjects are separate dimensions. Both remain
+// available so a user can review performance by original test and by topic.
+export function categoryStatistics(bank, progress) {
+  return groupedStatistics(bank, progress, (question) => question.chapterTitle);
+}
+
+export function subjectStatistics(bank, progress) {
+  return groupedStatistics(bank, progress, (question) => question.subjectTitle || question.chapterTitle);
 }

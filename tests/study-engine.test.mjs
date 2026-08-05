@@ -5,7 +5,8 @@ import {
   chooseQuestionIds,
   eligibleQuestionIds,
   calculateSetResult,
-  categoryStatistics
+  categoryStatistics,
+  subjectStatistics
 } from '../src/client/study-engine.js';
 
 const definition={id:'bank-one',title:'Bank One',questions:[
@@ -44,3 +45,5 @@ test('linked questions stay ordered and expand past the requested boundary',()=>
 test('calculates answered omitted correct and incorrect totals',()=>{const [bank]=buildBankCatalog([definition]);const answers=new Map([['q1',{selectedAnswer:'A'}],['q2',{selectedAnswer:'A'}]]);assert.deepEqual(calculateSetResult(['q1','q2','q3'],answers,bank),{total:3,answered:2,omitted:1,correct:1,incorrect:1})});
 
 test('builds category accuracy and timing statistics',()=>{const [bank]=buildBankCatalog([definition]);const progress=new Map([['q1',{timesUsed:1,isCorrect:true,totalTimeMs:1000}],['q2',{timesUsed:1,isCorrect:false,totalTimeMs:3000}]]);const mood=categoryStatistics(bank,progress).find(row=>row.title==='Mood');assert.equal(mood.answered,2);assert.equal(mood.correct,1);assert.equal(mood.accuracy,.5);assert.equal(mood.averageTimeMs,2000)});
+
+test('keeps source test sections separate from clinical subject analytics',()=>{const [bank]=buildBankCatalog([{id:'dimensions',title:'Dimensions',questions:[{id:'q1',chapterTitle:'Test 1',subjectTitle:'Mood disorders',question:'One?',choices:['A','B'],correctLetter:'A',explanation:'x'},{id:'q2',chapterTitle:'Test 1',subjectTitle:'Psychotic disorders',question:'Two?',choices:['A','B'],correctLetter:'B',explanation:'y'}]}]);const progress=new Map([['q1',{timesUsed:1,isCorrect:true,totalTimeMs:1000}],['q2',{timesUsed:1,isCorrect:false,totalTimeMs:1000}]]);assert.deepEqual(categoryStatistics(bank,progress).map(row=>row.title),['Test 1']);assert.deepEqual(subjectStatistics(bank,progress).map(row=>row.title).sort(),['Mood disorders','Psychotic disorders'])});
