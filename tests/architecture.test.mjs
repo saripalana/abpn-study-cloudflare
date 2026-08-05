@@ -4,25 +4,22 @@ import { readFile } from "node:fs/promises";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("Cloudflare version contains no Google service dependencies", async () => {
-  const files = await Promise.all([
-    read("src/access-worker.js"),
+test("Google Drive recovery is server-only, restricted, and never exposes credentials to browser assets", async () => {
+  const [adapter, worker, browser, storage, production] = await Promise.all([
+    read("src/google-drive-recovery-api.js"),
     read("src/worker.js"),
+    read("public/backup-controller.js"),
     read("src/client/storage.js"),
-    read("src/client/sync.js"),
     read("wrangler.toml"),
   ]);
-  const combined = files.join("\n").toLowerCase();
-  for (const forbidden of [
-    "googleapis.com",
-    "accounts.google.com",
-    "gapi.",
-    "google drive",
-    "drive.file",
-    "oauth2",
-  ]) {
-    assert.equal(combined.includes(forbidden), false, `Unexpected Google dependency: ${forbidden}`);
-  }
+  assert.match(adapter, /GOOGLE_DRIVE_REFRESH_TOKEN/);
+  assert.match(adapter, /GOOGLE_DRIVE_RECOVERY_FOLDER_ID/);
+  assert.match(adapter, /appProperties.*abpnRecovery/s);
+  assert.match(adapter, /one-per-day-for-three-days/);
+  assert.match(worker, /handleGoogleDriveRecoveryRequest/);
+  assert.doesNotMatch(browser, /GOOGLE_DRIVE_(CLIENT|REFRESH|FOLDER)/);
+  assert.doesNotMatch(storage, /googleapis\.com|oauth2\.googleapis\.com/);
+  assert.doesNotMatch(production, /GOOGLE_DRIVE_CLIENT_SECRET|GOOGLE_DRIVE_REFRESH_TOKEN/);
 });
 
 test("local storage uses separate bank-bound progress keys", async () => {

@@ -40,10 +40,9 @@ test("staging starts clean and reloads retain only the current isolated session"
   await page.locator("#bankSelect").selectOption("validation-bank");
   await expect(page.getByRole("heading", { name: "System Validation Question Bank" })).toBeVisible();
   for (const label of [
-    "Create recovery snapshot",
     "Import from file",
-    "Download backup",
-    "Restore backup",
+    "Download complete backup",
+    "Restore downloaded backup",
     "Reset current deck",
   ]) {
     await expect(page.getByRole("button", { name: label })).toBeVisible();
@@ -57,7 +56,9 @@ test("staging starts clean and reloads retain only the current isolated session"
   await page.getByRole("button", { name: "Submit set" }).click();
   await page.getByRole("button", { name: "Back to dashboard" }).click();
   await expect(page.locator(".history-item")).toHaveCount(1);
-  await expect(page.locator("#analyticsSection table.summary-table")).toHaveCount(2);
+  await expect(page.locator("#analyticsSection table.summary-table")).toHaveCount(3);
+  await expect(page.getByRole("heading", { name: "Performance by subject" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Performance by test section" })).toBeVisible();
 
   await page.evaluate(() => localStorage.setItem("abpn-study:current-test-artifact", "keep-on-reload"));
   await page.reload();
@@ -120,10 +121,9 @@ test("opening a new staging tab revokes the previous tab without accepting stale
   await expect(currentPage.locator("#bankSelect")).toBeVisible();
   await expect(currentPage.locator('#bankSelect option[value="validation-bank"]')).not.toHaveAttribute("hidden", "");
   for (const label of [
-    "Create recovery snapshot",
     "Import from file",
-    "Download backup",
-    "Restore backup",
+    "Download complete backup",
+    "Restore downloaded backup",
     "Reset current deck",
   ]) {
     await expect(currentPage.getByRole("button", { name: label })).toBeVisible();

@@ -30,7 +30,7 @@ export function buildWeaknessSnapshot(bank, progress, suppliedOptions = {}) {
   const groups = new Map();
 
   for (const question of bank.questions) {
-    const title = String(question.chapterTitle || 'Uncategorized');
+    const title = String(question.subjectTitle || question.chapterTitle || 'Uncategorized');
     const row = groups.get(title) || {
       title,
       totalQuestions: 0,

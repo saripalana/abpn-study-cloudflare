@@ -8,6 +8,7 @@ import {
   eligibleQuestionIds,
   calculateSetResult,
   categoryStatistics,
+  subjectStatistics,
   hasQuestionAnswer,
   isQuestionAnswerCorrect,
   selectedAnswerLetters
@@ -53,6 +54,9 @@ let banks;
 let activeBank;
 let allowSystemValidation = false;
 let activeSet = null;
+// Review filters are deliberately transient. They change only the review UI and
+// are never written into the saved test, question bank, or progress records.
+let reviewQuestionIndexes = null;
 let timer = null;
 let startedQuestionAt = Date.now();
 
@@ -86,7 +90,8 @@ const formatDateTime = (value) => {
 function categoryEntries(bank) {
   const counts = new Map();
   for (const question of bank.questions) {
-    counts.set(question.chapterTitle, Number(counts.get(question.chapterTitle) || 0) + 1);
+    const subject = question.subjectTitle || question.chapterTitle || 'Uncategorized';
+    counts.set(subject, Number(counts.get(subject) || 0) + 1);
   }
   return [...counts].map(([title, count]) => ({ title, count }));
 }
@@ -276,7 +281,8 @@ async function renderDashboard() {
   const attempts = usedRecords.reduce((total, record) => total + Number(record.timesUsed || 0), 0);
   const totalTimeMs = usedRecords.reduce((total, record) => total + Number(record.totalTimeMs || 0), 0);
   const averageTimeMs = attempts ? totalTimeMs / attempts : 0;
-  const rows = categoryStatistics(activeBank, progress).filter((row) => row.answered);
+  const subjectRows = subjectStatistics(activeBank, progress).filter((row) => row.answered);
+  const sectionRows = categoryStatistics(activeBank, progress).filter((row) => row.answered);
   const weakness = buildWeaknessSnapshot(activeBank, progress);
   const weaknessRows = weakness.domains.filter((domain) => domain.usedQuestions > 0);
   const history = await completedSetHistory(activeBank.id);
@@ -291,7 +297,8 @@ async function renderDashboard() {
     const used = Number(record?.timesUsed || 0) > 0;
     const status = !used ? 'New' : record?.isCorrect === true ? 'Correct' : record?.isCorrect === false ? 'Wrong' : 'Unanswered';
     const preview = question.vignetteStem || question.question;
-    return `<button class="question-browser-number ${status.toLowerCase()}" type="button" aria-label="Question ${index + 1}, ${status}. Double-click to open." title="${esc(question.chapterTitle)} · ${status}" data-question-id="${esc(question.id)}" data-search="${esc(`${index + 1} ${question.chapterTitle} ${preview} ${status}`.toLowerCase())}">${index + 1}</button>`;
+    const subject = question.subjectTitle || question.chapterTitle || 'Uncategorized';
+    return `<button class="question-browser-number ${status.toLowerCase()}" type="button" aria-label="Question ${index + 1}, ${status}. Double-click to open." title="${esc(subject)} · ${status}" data-question-id="${esc(question.id)}" data-search="${esc(`${index + 1} ${subject} ${preview} ${status}`.toLowerCase())}">${index + 1}</button>`;
   }).join('');
 
   app.innerHTML = `
@@ -423,15 +430,27 @@ async function renderDashboard() {
       <div class="section-heading">
         <div>
           <div class="eyebrow" style="color:var(--blue)">ANALYTICS</div>
-          <h3>Performance by category</h3>
+          <h3>Performance by subject</h3>
         </div>
       </div>
-      ${rows.length ? `
+      ${subjectRows.length ? `
         <table class="summary-table">
-          <thead><tr><th>Category</th><th>Used</th><th>Accuracy</th></tr></thead>
-          <tbody>${rows.map((row) => `<tr><td>${esc(row.title)}</td><td>${row.answered}/${row.total}</td><td>${Math.round(row.accuracy * 100)}%</td></tr>`).join('')}</tbody>
+          <thead><tr><th>Subject</th><th>Used</th><th>Accuracy</th></tr></thead>
+          <tbody>${subjectRows.map((row) => `<tr><td>${esc(row.title)}</td><td>${row.answered}/${row.total}</td><td>${Math.round(row.accuracy * 100)}%</td></tr>`).join('')}</tbody>
         </table>
       ` : '<div class="empty">Complete questions to build analytics.</div>'}
+      <div class="section-heading analytics-subsection">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">SOURCE VIEW</div>
+          <h3>Performance by test section</h3>
+        </div>
+      </div>
+      ${sectionRows.length ? `
+        <table class="summary-table">
+          <thead><tr><th>Test section</th><th>Used</th><th>Accuracy</th></tr></thead>
+          <tbody>${sectionRows.map((row) => `<tr><td>${esc(row.title)}</td><td>${row.answered}/${row.total}</td><td>${Math.round(row.accuracy * 100)}%</td></tr>`).join('')}</tbody>
+        </table>
+      ` : '<div class="empty">Complete questions to build test-section analytics.</div>'}
       <div class="section-heading analytics-subsection">
         <div>
           <div class="eyebrow" style="color:var(--blue)">LOCAL-ONLY · LIMITED EVIDENCE</div>
@@ -473,11 +492,15 @@ async function renderDashboard() {
     <section id="deckLibraryManagement" class="card dashboard-section">
       <div class="eyebrow" style="color:var(--blue)">DECK LIBRARY</div>
       <h3>Data protection</h3>
-      <p class="muted">Install, export, and protect every question bank through this shared Deck Library.</p>
-      <p class="notice">Progress saves to IndexedDB immediately. Cloud synchronization is additive and does not replace local-first saving.</p>
-      <div class="actions">
-        <button id="snapshotBtn" class="secondary" type="button">Create recovery snapshot</button>
+      <p class="muted">Three clear recovery destinations protect the same complete study workspace. Synchronization remains separate from point-in-time backups.</p>
+      <p class="notice"><strong>Automatic local saving:</strong> answers and progress save to this browser immediately. A recoverable snapshot is also created before destructive actions.</p>
+      <div id="recoveryDestinations" class="recovery-destinations" aria-live="polite"></div>
+      <div class="deck-management-block">
+        <h4>Question-bank management</h4>
+        <p class="muted">Install or export individual versioned question-bank packages. These controls do not replace a complete workspace backup.</p>
+        <div id="deckManagementActions" class="actions">
         <button id="importBankBtn" class="secondary" type="button" disabled>Import question bank</button>
+        </div>
       </div>
     </section>
 
@@ -512,10 +535,6 @@ async function renderDashboard() {
     document.getElementById('questionBrowserEmpty').hidden = visible > 0;
   };
   document.getElementById('resumeBtn')?.addEventListener('click', renderQuestion);
-  document.getElementById('snapshotBtn').onclick = async () => {
-    await createRecoverySnapshot('manual');
-    alert('Recovery snapshot created.');
-  };
   document.getElementById('importBankBtn').onclick = () => {
     alert('Additional bank import validation will be added before external banks are accepted.');
   };
@@ -734,6 +753,52 @@ function submissionConfirmation() {
   ].join('\n'));
 }
 
+// The in-set map deliberately separates completion from correctness. Test mode
+// may show that an answer exists, but it cannot disclose whether it is correct
+// until the full set has been submitted. Tutor mode may disclose a finalized
+// incorrect answer immediately because its explanation is already visible.
+function questionMapState(entry, { mode, submitted, flagged = false, current = false } = {}) {
+  const answered = hasQuestionAnswer(entry);
+  const discloseCorrectness = submitted || (mode === 'tutor' && entry?.finalized === true);
+  const incorrect = answered && discloseCorrectness && entry?.isCorrect === false;
+  return {
+    answered,
+    incorrect,
+    classes: [
+      answered ? 'answered' : 'unanswered',
+      incorrect ? 'incorrect-answer' : '',
+      flagged ? 'flagged' : '',
+      current ? 'current' : '',
+    ].filter(Boolean).join(' '),
+  };
+}
+
+function questionMapLegend({ discloseCorrectness = false } = {}) {
+  return `<div class="question-map-legend"><span><i class="legend-swatch answered"></i>Answered</span><span><i class="legend-swatch unanswered"></i>Unanswered</span>${discloseCorrectness ? '<span><i class="legend-incorrect-dot"></i>Incorrect</span>' : ''}<span><i class="legend-flag">★</i>Flagged</span></div>`;
+}
+
+function questionMapMarkup(items, {
+  progressByBank = null,
+  showCurrent = true,
+  resultMap = false,
+  sessionIndexes = items.map((_, index) => index),
+} = {}) {
+  const discloseCorrectness = activeSet.submitted || activeSet.mode === 'tutor';
+  const mapClass = resultMap ? 'question-map results-question-map' : 'question-map';
+  return `${questionMapLegend({ discloseCorrectness })}<div class="${mapClass}">${sessionIndexes.map((sessionIndex) => {
+    const item = items[sessionIndex];
+    const entry = activeSet.answers.get(item.answerKey);
+    const state = questionMapState(entry, {
+      mode: activeSet.mode,
+      submitted: activeSet.submitted,
+      flagged: Boolean(progressByBank?.get(item.bankId)?.get(item.questionId)?.isFlagged),
+      current: showCurrent && sessionIndex === activeSet.index,
+    });
+    const status = state.answered ? (state.incorrect ? 'answered, incorrect' : 'answered') : 'unanswered';
+    return `<button type="button" data-index="${sessionIndex}" class="${state.classes}" aria-label="Question ${sessionIndex + 1}, ${status}">${sessionIndex + 1}</button>`;
+  }).join('')}</div>`;
+}
+
 async function renderQuestion() {
   if (!activeSet) return renderDashboard();
   clearInterval(timer);
@@ -757,29 +822,45 @@ async function renderQuestion() {
   for (const bankId of [...new Set(items.map((item) => item.bankId))]) progressByBank.set(bankId, await progressMap(bankId));
   const progress = progressByBank.get(context.bankId) || new Map();
   const flagged = progress.get(context.questionId)?.isFlagged;
-  const isLastQuestion = activeSet.index === items.length - 1;
+  const allSessionIndexes = items.map((_, index) => index);
+  const reviewIndexes = activeSet.submitted && Array.isArray(reviewQuestionIndexes)
+    ? reviewQuestionIndexes.filter((index) => Number.isInteger(index) && index >= 0 && index < items.length)
+    : allSessionIndexes;
+  if (!reviewIndexes.length) return renderResults();
+  if (!reviewIndexes.includes(activeSet.index)) activeSet.index = reviewIndexes[0];
+  const reviewPosition = reviewIndexes.indexOf(activeSet.index);
+  const isFirstQuestion = reviewPosition === 0;
+  const isLastQuestion = reviewPosition === reviewIndexes.length - 1;
   const answeredCount = items.filter((item) => hasQuestionAnswer(activeSet.answers.get(item.answerKey))).length;
   const unansweredCount = Math.max(0, items.length - answeredCount);
   const correctLetters = selectedAnswerLetters(question.correctLetters?.length ? question.correctLetters : question.correctLetter);
   const answeredCorrectly = hasAnswer && isQuestionAnswerCorrect(question, selectedLetters);
   const answerLocked = activeSet.submitted || (activeSet.mode === 'tutor' && reveal);
-  const finalNavigation = activeSet.submitted && isLastQuestion
-    ? '<button id="resultsBtn" class="primary" type="button">View results</button>'
-    : `<button id="nextBtn" class="primary" type="button" ${isLastQuestion ? 'disabled' : ''}>Next</button>`;
+  const finalNavigation = `<button id="nextBtn" class="primary" type="button" ${isLastQuestion ? 'disabled' : ''}>Next</button>`;
+  const reviewLabel = activeSet.submitted && Array.isArray(reviewQuestionIndexes)
+    ? `<span class="pill">Incorrect review ${reviewPosition + 1} of ${reviewIndexes.length}</span>`
+    : '';
 
   startedQuestionAt = Date.now();
   app.innerHTML = `
     <section class="card exam">
-      <div class="exam-head"><div>
-        <div class="eyebrow" style="color:var(--blue)">${esc(context.displayDeckTitle)}</div>
-        <h2>Question ${activeSet.index + 1} of ${items.length}</h2>
-        <div class="question-status-row"><span class="question-state ${hasAnswer ? 'answered' : 'unanswered'}">${hasAnswer ? 'Answered' : 'Unanswered'}</span><span class="muted">${answeredCount} answered · ${unansweredCount} unanswered</span></div>
-      </div><div id="timer" class="timer">${activeSet.timed ? formatTime(activeSet.remainingSeconds) : 'Untimed'}</div></div>
-      <div class="progress"><span style="width:${(activeSet.index + 1) / items.length * 100}%"></span></div>
-      ${question.vignetteStem ? `<div class="vignette-stem"><strong>Clinical vignette</strong><div>${esc(question.vignetteStem)}</div></div>` : ''}
-      <div class="question">${esc(question.question)}</div>
-      ${question.isMultiSelect ? '<p class="multi-select-hint">Select all that apply. Full credit requires the exact set of correct choices.</p>' : ''}
-      <div class="choices">${question.choices.map((choice, index) => {
+      <div class="exam-workspace">
+        <aside class="exam-question-sidebar" aria-label="Question navigation">
+          <div class="question-rail-title">QUESTIONS</div>
+          ${reviewLabel}
+          ${questionMapMarkup(items, { progressByBank, sessionIndexes: reviewIndexes })}
+        </aside>
+        <div class="exam-question-main">
+          <div class="exam-head"><div>
+            <div class="eyebrow" style="color:var(--blue)">${esc(context.displayDeckTitle)}</div>
+            <h2>Question ${activeSet.index + 1} of ${items.length}</h2>
+            <div class="question-status-row"><span class="question-state ${hasAnswer ? 'answered' : 'unanswered'}">${hasAnswer ? 'Answered' : 'Unanswered'}</span><span class="muted">${answeredCount} answered · ${unansweredCount} unanswered</span></div>
+          </div><div id="timer" class="timer">${activeSet.timed ? formatTime(activeSet.remainingSeconds) : 'Untimed'}</div></div>
+          <div class="progress"><span style="width:${(activeSet.index + 1) / items.length * 100}%"></span></div>
+          ${question.vignetteStem ? `<div class="vignette-stem"><strong>Clinical vignette</strong><div>${esc(question.vignetteStem)}</div></div>` : ''}
+          <div class="question">${esc(question.question)}</div>
+          ${question.isMultiSelect ? '<p class="multi-select-hint">Select all that apply. Full credit requires the exact set of correct choices.</p>' : ''}
+          <div class="choices">${question.choices.map((choice, index) => {
         const letter = question.choiceLetters[index];
         const selected = selectedLetters.includes(letter);
         const correct = correctLetters.includes(letter);
@@ -789,17 +870,12 @@ async function renderQuestion() {
         if (reveal && selected && !correct) classes += ' incorrect';
         if (reveal && correct && !selected) classes += ' missed-correct';
         return `<button class="${classes}" data-answer="${esc(letter)}" aria-pressed="${selected}" ${answerLocked ? 'disabled' : ''}><span class="letter">${esc(letter)}</span><span>${esc(choice)}</span></button>`;
-      }).join('')}</div>
-      ${reveal ? `<div class="explanation"><strong>${answeredCorrectly ? 'Correct' : `Correct answer${correctLetters.length === 1 ? '' : 's'}: ${esc(correctLetters.join(', '))}`}</strong>${question.answerText ? `<div class="answer-text">${esc(question.answerText)}</div>` : ''}<div>${esc(question.explanation)}</div></div>` : ''}
-      <div class="actions question-actions"><button id="flagBtn" class="secondary" type="button">${flagged ? 'Unflag' : 'Flag'} question</button>${question.isMultiSelect && activeSet.mode === 'tutor' && !activeSet.submitted && !reveal ? `<button id="checkAnswerBtn" class="primary" type="button" ${hasAnswer ? '' : 'disabled'}>Check answer</button>` : ''}${!activeSet.submitted ? '<button id="submitBtn" class="danger" type="button">Submit set</button>' : ''}</div>
-      <div class="question-map-legend"><span><i class="legend-swatch answered"></i>Answered</span><span><i class="legend-swatch unanswered"></i>Unanswered</span><span><i class="legend-flag">★</i>Flagged</span></div>
-      <div class="question-map">${items.map((item, index) => {
-        const answeredStatus = hasQuestionAnswer(activeSet.answers.get(item.answerKey)) ? 'answered' : 'unanswered';
-        const flaggedStatus = progressByBank.get(item.bankId)?.get(item.questionId)?.isFlagged ? ' flagged' : '';
-        const currentStatus = index === activeSet.index ? ' current' : '';
-        return `<button type="button" data-index="${index}" class="${answeredStatus}${flaggedStatus}${currentStatus}">${index + 1}</button>`;
-      }).join('')}</div>
-      <div class="exam-nav"><button id="prevBtn" class="secondary" type="button" ${activeSet.index === 0 ? 'disabled' : ''}>Previous</button><button id="exitBtn" class="secondary" type="button">${activeSet.submitted ? 'Back to dashboard' : 'Save and exit'}</button>${finalNavigation}</div>
+          }).join('')}</div>
+          ${reveal ? `<div class="explanation"><strong>${answeredCorrectly ? 'Correct' : `Correct answer${correctLetters.length === 1 ? '' : 's'}: ${esc(correctLetters.join(', '))}`}</strong>${question.answerText ? `<div class="answer-text">${esc(question.answerText)}</div>` : ''}<div>${esc(question.explanation)}</div></div>` : ''}
+          <div class="actions question-actions"><button id="flagBtn" class="secondary" type="button">${flagged ? 'Unflag' : 'Flag'} question</button>${question.isMultiSelect && activeSet.mode === 'tutor' && !activeSet.submitted && !reveal ? `<button id="checkAnswerBtn" class="primary" type="button" ${hasAnswer ? '' : 'disabled'}>Check answer</button>` : ''}${!activeSet.submitted ? '<button id="submitBtn" class="danger" type="button">Submit set</button>' : ''}</div>
+          <div class="exam-nav"><button id="prevBtn" class="secondary" type="button" ${isFirstQuestion ? 'disabled' : ''}>Previous</button><button id="exitBtn" class="secondary" type="button">${activeSet.submitted ? 'Back to test summary' : 'Save and exit'}</button>${finalNavigation}</div>
+        </div>
+      </div>
     </section>`;
 
   document.querySelectorAll('.choice').forEach((button) => { button.onclick = () => answerQuestion(context, button.dataset.answer); });
@@ -811,10 +887,9 @@ async function renderQuestion() {
   };
   document.getElementById('submitBtn')?.addEventListener('click', async () => { if (submissionConfirmation()) await submitSet({ showResults: true }); });
   document.querySelectorAll('.question-map button').forEach((button) => { button.onclick = async () => { activeSet.index = Number(button.dataset.index); await saveActiveSet(); await renderQuestion(); }; });
-  document.getElementById('prevBtn').onclick = async () => { activeSet.index -= 1; await saveActiveSet(); await renderQuestion(); };
-  document.getElementById('nextBtn')?.addEventListener('click', async () => { activeSet.index += 1; await saveActiveSet(); await renderQuestion(); });
-  document.getElementById('exitBtn').onclick = async () => { if (activeSet.submitted) activeSet = null; else await saveActiveSet(); await renderDashboard(); };
-  document.getElementById('resultsBtn')?.addEventListener('click', renderResults);
+  document.getElementById('prevBtn').onclick = async () => { activeSet.index = reviewIndexes[reviewPosition - 1]; await saveActiveSet(); await renderQuestion(); };
+  document.getElementById('nextBtn')?.addEventListener('click', async () => { activeSet.index = reviewIndexes[reviewPosition + 1]; await saveActiveSet(); await renderQuestion(); });
+  document.getElementById('exitBtn').onclick = async () => { if (activeSet.submitted) renderResults(); else { await saveActiveSet(); await renderDashboard(); } };
   if (activeSet.timed && !activeSet.submitted) timer = setInterval(async () => {
     activeSet.remainingSeconds = Math.max(0, activeSet.remainingSeconds - 1);
     const element = document.getElementById('timer'); if (element) element.textContent = formatTime(activeSet.remainingSeconds);
@@ -874,12 +949,26 @@ async function submitSet({ auto = false, showResults = true } = {}) {
 
 function renderResults() {
   clearInterval(timer);
+  reviewQuestionIndexes = null;
   const result = calculateSessionResult(banks, activeSet, activeSet.answers, { hasAnswer: hasQuestionAnswer });
+  const items = setQuestionItems(banks, activeSet);
+  const incorrectIndexes = items.map((item, index) => ({ item, index }))
+    .filter(({ item }) => activeSet.answers.get(item.answerKey)?.isCorrect === false)
+    .map(({ index }) => index);
   const percentage = result.total ? Math.round(result.correct / result.total * 100) : 0;
   const averageTimeMs = result.answered ? totalAnswerTimeMs(activeSet.answers) / result.answered : 0;
-  app.innerHTML = `<section class="card results-card"><div class="eyebrow" style="color:var(--blue)">SET RESULTS</div><h2>${result.correct}/${result.total} correct (${percentage}%)</h2><p class="muted">${result.answered} answered · ${result.omitted} omitted · ${result.incorrect} incorrect</p><div class="result-stats"><div class="stat"><strong>${percentage}%</strong><span>Score</span></div><div class="stat"><strong>${result.omitted}</strong><span>Omitted</span></div><div class="stat"><strong>${result.answered ? formatSeconds(averageTimeMs) : '—'}</strong><span>Average time/question</span></div></div>${result.byBank.length > 1 ? `<table class="summary-table"><thead><tr><th>Deck</th><th>Correct</th><th>Answered</th></tr></thead><tbody>${result.byBank.map((bank) => `<tr><td>${esc(bank.title)}</td><td>${bank.correct}/${bank.total}</td><td>${bank.answered}</td></tr>`).join('')}</tbody></table>` : ''}<p class="notice">This completed test is saved locally in History / Previous tests and can be reviewed again later.</p><div class="actions"><button id="reviewBtn" class="secondary" type="button">Review questions</button><button id="finishBtn" class="primary" type="button">Back to dashboard</button></div></section>`;
-  document.getElementById('reviewBtn').onclick = async () => { activeSet.index = 0; await saveActiveSet('completed'); await renderQuestion(); };
-  document.getElementById('finishBtn').onclick = async () => { activeSet = null; await renderDashboard(); };
+  app.innerHTML = `<section class="card results-card"><div class="eyebrow" style="color:var(--blue)">SET RESULTS</div><h2>${result.correct}/${result.total} correct (${percentage}%)</h2><p class="muted">${result.answered} answered · ${result.omitted} omitted · ${result.incorrect} incorrect</p><div class="result-stats"><div class="stat"><strong>${percentage}%</strong><span>Score</span></div><div class="stat"><strong>${result.omitted}</strong><span>Omitted</span></div><div class="stat"><strong>${result.answered ? formatSeconds(averageTimeMs) : '—'}</strong><span>Average time/question</span></div></div>${result.byBank.length > 1 ? `<table class="summary-table"><thead><tr><th>Deck</th><th>Correct</th><th>Answered</th></tr></thead><tbody>${result.byBank.map((bank) => `<tr><td>${esc(bank.title)}</td><td>${bank.correct}/${bank.total}</td><td>${bank.answered}</td></tr>`).join('')}</tbody></table>` : ''}<section class="results-question-list" aria-labelledby="resultsQuestionListTitle"><h3 id="resultsQuestionListTitle">Question results</h3><p class="muted">Select a number to review that question.</p>${questionMapMarkup(items, { showCurrent: false, resultMap: true })}</section><p class="notice">This completed test is saved locally in History / Previous tests and can be reviewed again later.</p><div class="actions"><button id="reviewIncorrectBtn" class="secondary" type="button" ${incorrectIndexes.length ? '' : 'disabled'}>Review incorrect questions (${incorrectIndexes.length})</button><button id="reviewBtn" class="secondary" type="button">Review all questions</button><button id="finishBtn" class="primary" type="button">Back to dashboard</button></div></section>`;
+  document.querySelectorAll('.results-question-map button').forEach((button) => {
+    button.onclick = async () => {
+      activeSet.index = Number(button.dataset.index);
+      reviewQuestionIndexes = null;
+      await saveActiveSet('completed');
+      await renderQuestion();
+    };
+  });
+  document.getElementById('reviewIncorrectBtn').onclick = async () => { reviewQuestionIndexes = incorrectIndexes; activeSet.index = incorrectIndexes[0]; await saveActiveSet('completed'); await renderQuestion(); };
+  document.getElementById('reviewBtn').onclick = async () => { reviewQuestionIndexes = null; activeSet.index = 0; await saveActiveSet('completed'); await renderQuestion(); };
+  document.getElementById('finishBtn').onclick = async () => { reviewQuestionIndexes = null; activeSet = null; await renderDashboard(); };
 }
 
 async function openCompletedSet(setId) {
@@ -887,12 +976,13 @@ async function openCompletedSet(setId) {
   if (!saved || saved.status !== 'completed' || !(saved.bankId === activeBank.id || saved.selectedBankIds?.includes?.(activeBank.id))) return alert('That completed test could not be found for the selected question bank.');
   const hydrated = await hydrateStoredSet(saved);
   if (!hydrated) return alert('That completed test contains question references that are no longer available.');
+  reviewQuestionIndexes = null;
   activeSet = hydrated; activeSet.submitted = true; renderResults();
 }
 
 homeBtn.onclick = async () => {
   if (activeSet && !activeSet.submitted) await saveActiveSet();
-  if (activeSet?.submitted) activeSet = null;
+  if (activeSet?.submitted) { reviewQuestionIndexes = null; activeSet = null; }
   await renderDashboard();
 };
 

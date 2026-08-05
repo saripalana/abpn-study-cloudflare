@@ -190,7 +190,7 @@ async function attachControls() {
     }
 
     const protectionSection = sectionByHeading("Data protection");
-    const protectionActions = protectionSection?.querySelector(".actions");
+    const protectionActions = protectionSection?.querySelector("#deckManagementActions");
     if (protectionActions && !protectionActions.querySelector("#resetBankBtn")) {
       const resetButton = document.createElement("button");
       resetButton.id = "resetBankBtn";

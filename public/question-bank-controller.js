@@ -244,7 +244,7 @@ async function attachControls() {
     appendOriginNote(app.querySelector(".hero > div:first-child"), bank);
 
     const protection = sectionByHeading("Data protection");
-    const actions = protection?.querySelector(".actions");
+    const actions = protection?.querySelector("#deckManagementActions");
     const installed = bank.contentClass !== "system-validation" && await getRecord(STORES.BANK_CONTENT, bank.id);
     if (actions && installed && !actions.querySelector("#downloadBankPackageBtn")) {
       const button = document.createElement("button");

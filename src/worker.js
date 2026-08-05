@@ -1,6 +1,8 @@
 import { handleDeckLibraryRequest } from "./deck-library-api.js";
 import { handleStarterDeckSourceRequest } from "./starter-deck-source.js";
 import { handleAssistantWeaknessRequest } from "./assistant-weakness-api.js";
+import { handleRecoveryBundleRequest } from "./recovery-bundle-api.js";
+import { handleGoogleDriveRecoveryRequest } from "./google-drive-recovery-api.js";
 
 // ABPN_CLOUD_DECK_LIBRARY_V1
 const json = (data, status = 200, extraHeaders = {}) => new Response(JSON.stringify(data), {
@@ -127,6 +129,8 @@ async function clearDisposableStagingState(env, { activeSessionId = null } = {})
     env.DB.prepare("DELETE FROM assistant_weakness_audit WHERE user_id = ?").bind(userId),
     env.DB.prepare("DELETE FROM assistant_weakness_snapshots WHERE user_id = ?").bind(userId),
     env.DB.prepare("DELETE FROM assistant_weakness_permissions WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM complete_recovery_chunks WHERE bundle_id IN (SELECT id FROM complete_recovery_bundles WHERE user_id = ?)").bind(userId),
+    env.DB.prepare("DELETE FROM complete_recovery_bundles WHERE user_id = ?").bind(userId),
     env.DB.prepare("DELETE FROM deck_package_heads WHERE user_id = ?").bind(userId),
     env.DB.prepare("DELETE FROM deck_package_revision_chunks WHERE user_id = ?").bind(userId),
     env.DB.prepare("DELETE FROM deck_package_revisions WHERE user_id = ?").bind(userId),
@@ -787,6 +791,23 @@ async function routeApi(request, env) {
     parseBoundedJson,
   });
   if (assistantResponse) return assistantResponse;
+
+  const recoveryResponse = await handleRecoveryBundleRequest(request, env, {
+    json,
+    requireSyncReady,
+    requireContext,
+    reserveUsage,
+    ensureUserAndDevice,
+  });
+  if (recoveryResponse) return recoveryResponse;
+
+  const googleDriveResponse = await handleGoogleDriveRecoveryRequest(request, env, {
+    json,
+    requireSyncReady,
+    requireContext,
+    ensureUserAndDevice,
+  });
+  if (googleDriveResponse) return googleDriveResponse;
 
   if (request.method === "GET" && url.pathname === "/api/health") return handleHealth(env);
   if (request.method === "DELETE" && url.pathname === "/api/staging/session") {

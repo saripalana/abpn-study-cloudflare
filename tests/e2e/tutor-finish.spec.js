@@ -1,5 +1,103 @@
 import { test, expect } from '@playwright/test';
 
+async function startOrderedValidationSet(page, mode) {
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
+  await page.selectOption('#bankSelect', 'validation-bank');
+  await page.locator('#countInput').fill('2');
+  await page.selectOption('#modeSelect', mode);
+  await page.selectOption('#timingSelect', 'untimed');
+  await page.selectOption('#poolSelect', 'all');
+  await page.getByLabel('Randomize question order').uncheck();
+  await page.locator('#startBtn').click();
+}
+
+test('Tutor question map uses blue answered states and immediate incorrect dots', async ({ page }) => {
+  await startOrderedValidationSet(page, 'tutor');
+
+  await page.locator('.choice').first().click();
+  await expect(page.locator('.question-map button').nth(0)).toHaveClass(/answered/);
+  await expect(page.locator('.question-map button').nth(0)).toHaveClass(/incorrect-answer/);
+  await expect(page.locator('.question-map button').nth(0)).toHaveAttribute('aria-label', 'Question 1, answered, incorrect');
+
+  await page.locator('#nextBtn').click();
+  await page.locator('.choice').nth(1).click();
+  await expect(page.locator('.question-map button').nth(1)).toHaveClass(/answered/);
+  await expect(page.locator('.question-map button').nth(1)).not.toHaveClass(/incorrect-answer/);
+
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.locator('#submitBtn').click();
+  await expect(page.getByRole('heading', { name: 'Question results' })).toBeVisible();
+  await expect(page.locator('.results-question-map button')).toHaveCount(2);
+  await expect(page.locator('.results-question-map button').nth(0)).toHaveClass(/incorrect-answer/);
+  await expect(page.locator('.results-question-map button').nth(1)).not.toHaveClass(/incorrect-answer/);
+});
+
+test('Test question map hides correctness until submission and then shows the full result map', async ({ page }) => {
+  await startOrderedValidationSet(page, 'test');
+
+  await page.locator('.choice').first().click();
+  await expect(page.locator('.question-map button').nth(0)).toHaveClass(/answered/);
+  await expect(page.locator('.question-map button').nth(0)).not.toHaveClass(/incorrect-answer/);
+  await expect(page.locator('.question-map button').nth(0)).toHaveAttribute('aria-label', 'Question 1, answered');
+  await expect(page.getByText('Incorrect', { exact: true })).toHaveCount(0);
+
+  await page.locator('#nextBtn').click();
+  await page.locator('.choice').nth(1).click();
+  await expect(page.locator('.question-map button').nth(1)).toHaveClass(/answered/);
+  await expect(page.locator('.question-map button').nth(1)).not.toHaveClass(/incorrect-answer/);
+
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.locator('#submitBtn').click();
+  await expect(page.getByRole('heading', { name: 'Question results' })).toBeVisible();
+  await expect(page.locator('.results-question-map button')).toHaveCount(2);
+  await expect(page.locator('.results-question-map button').nth(0)).toHaveClass(/incorrect-answer/);
+  await expect(page.locator('.results-question-map button').nth(1)).not.toHaveClass(/incorrect-answer/);
+  await expect(page.getByText('Incorrect', { exact: true })).toBeVisible();
+});
+
+test('Completed-test review supports incorrect-only and all-question flows with a separate left rail', async ({ page }) => {
+  await startOrderedValidationSet(page, 'test');
+
+  await page.locator('.choice').first().click();
+  await page.locator('#nextBtn').click();
+  await page.locator('.choice').nth(1).click();
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.locator('#submitBtn').click();
+
+  await expect(page.getByRole('button', { name: 'Review incorrect questions (1)' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Review all questions' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Review incorrect questions (1)' }).click();
+
+  await expect(page.getByRole('button', { name: 'Back to test summary' })).toBeVisible();
+  await expect(page.getByText('Incorrect review 1 of 1')).toBeVisible();
+  await expect(page.locator('.exam-question-sidebar .question-map button')).toHaveCount(1);
+  await expect(page.locator('.exam-question-sidebar .question-map button')).toHaveText('1');
+  await expect(page.locator('#prevBtn')).toBeDisabled();
+  await expect(page.locator('#nextBtn')).toBeDisabled();
+
+  const layout = await page.evaluate(() => {
+    const sidebar = document.querySelector('.exam-question-sidebar');
+    const main = document.querySelector('.exam-question-main');
+    const sidebarBox = sidebar.getBoundingClientRect();
+    const mainBox = main.getBoundingClientRect();
+    return {
+      overflowY: getComputedStyle(sidebar).overflowY,
+      sidebarLeft: sidebarBox.left,
+      mainLeft: mainBox.left,
+      narrow: matchMedia('(max-width: 560px)').matches,
+    };
+  });
+  expect(layout.overflowY).toBe('auto');
+  if (!layout.narrow) expect(layout.sidebarLeft).toBeLessThan(layout.mainLeft);
+
+  await page.getByRole('button', { name: 'Back to test summary' }).click();
+  await expect(page.getByText('SET RESULTS')).toBeVisible();
+  await page.getByRole('button', { name: 'Review all questions' }).click();
+  await expect(page.locator('.exam-question-sidebar .question-map button')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Back to test summary' })).toBeVisible();
+});
+
 test('Tutor mode supports confirmed submission at any point, answer states, and completed-test history', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
@@ -78,14 +176,15 @@ test('Tutor mode supports confirmed submission at any point, answer states, and 
   await expect(page.locator('.history-item')).toHaveCount(1);
   await expect(page.locator('.history-item')).toContainText('1 answered');
   await expect(page.locator('.history-item')).toContainText('2 omitted');
-  await expect(page.getByText('Performance by category')).toBeVisible();
+  await expect(page.getByText('Performance by subject')).toBeVisible();
+  await expect(page.getByText('Performance by test section')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Weakness priorities' })).toBeVisible();
   await expect(page.getByText('LOCAL-ONLY · LIMITED EVIDENCE')).toBeVisible();
   await expect(page.getByText(/limited · 1\/\d+ used/)).toBeVisible();
 
   await page.getByRole('button', { name: 'Review test' }).click();
   await expect(page.getByText('SET RESULTS')).toBeVisible();
-  await page.getByRole('button', { name: 'Review questions' }).click();
+  await page.getByRole('button', { name: 'Review all questions' }).click();
   await expect(page.locator('.choice:disabled')).toHaveCount(4);
   await expect(page.locator('.question-map button.answered')).toHaveCount(1);
   await expect(page.locator('.question-map button.unanswered')).toHaveCount(2);

@@ -97,6 +97,6 @@ test("combined K&S and added-deck set survives reload, submission, history, and 
   await reviewButton.click();
   await expect(page.getByText("SET RESULTS")).toBeVisible();
   await expect(page.getByRole("heading", { name: /1\/2 correct/ })).toBeVisible();
-  await page.getByRole("button", { name: "Review questions" }).click();
+  await page.getByRole("button", { name: "Review all questions" }).click();
   await expect(page.locator(".exam .eyebrow")).toBeVisible();
 });

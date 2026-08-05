@@ -69,9 +69,21 @@ test("browser and source backup implementations remain identical", async () => {
   assert.equal(browser, source);
 });
 
-test("backup restore resolves installed deck references and defers Safari reload", async () => {
+test("complete recovery controller includes decks, integrity validation, safe merge, and deferred Safari reload", async () => {
   const controller = await readFile(new URL("../public/backup-controller.js", import.meta.url), "utf8");
-  assert.match(controller, /getAllRecords\(STORES\.BANK_CONTENT\)/);
-  assert.match(controller, /knownQuestionIdsByBank: await knownQuestionIdsByBank\(\)/);
+  const contract = await readFile(new URL("../public/client/recovery-bundle.js", import.meta.url), "utf8");
+  assert.match(contract, /\[STORES\.BANK_CONTENT\]: "bankContent"/);
+  assert.match(contract, /\[STORES\.BANK_REVISIONS\]: "bankRevisions"/);
+  assert.match(contract, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(contract, /newer records replace older ones/);
+  assert.doesNotMatch(contract, /STORES\.OUTBOX.*:/);
+  assert.match(controller, /validateRecoveryBundle/);
   assert.match(controller, /setTimeout\(\(\) => location\.reload\(\), 0\)/);
+});
+
+test("a successful first Google Drive backup immediately enables restore", async () => {
+  const controller = await readFile(new URL("../src/browser/backup-controller.js", import.meta.url), "utf8");
+  assert.match(controller, /async function saveGoogleDrive\(button, restoreButton, status\)/);
+  assert.match(controller, /status\.textContent = `Last complete backup:[\s\S]*?restoreButton\.disabled = false;/);
+  assert.match(controller, /saveGoogleDrive\(driveSave, driveRestore, driveStatus\)/);
 });

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   convertLegacySpiegelScript,
+  inferClinicalSubject,
   parseLegacySpiegelQuestions,
 } from "../public/client/legacy-spiegel-import.js";
 import {
@@ -50,10 +51,21 @@ test("converts Spiegel questions into an isolated, versioned ABPN bank", async (
   assert.equal(converted.format, "abpn-question-bank");
   assert.equal(converted.bank.id, "spiegel-test-prep");
   assert.equal(converted.bank.questions.length, 2);
-  assert.match(converted.bank.version, /^legacy-[a-f0-9]{12}$/);
+  assert.match(converted.bank.version, /^legacy-subjects-[a-f0-9]{12}$/);
   assert.equal(converted.bank.questions[1].isMultiSelect, true);
   assert.deepEqual(converted.bank.questions[1].correctLetters, ["A", "C"]);
   assert.equal(converted.bank.questions[1].vignetteStem, sourceQuestions[1].vignetteStem);
+  assert.equal(converted.bank.questions[0].subjectTitle, "General psychiatry");
+  assert.notEqual(converted.bank.questions[0].subjectTitle, "Test 1");
+});
+
+test("uses a clinical subject for legacy analytics without treating a test number as a subject", () => {
+  assert.equal(inferClinicalSubject({
+    section: "Test 4",
+    question: "A patient has a manic episode.",
+    choices: ["Lithium", "Observation"],
+    explanation: "This presentation is bipolar disorder.",
+  }), "Mood disorders");
 });
 
 test("scores multi-select questions only when the exact correct set is selected", async () => {
