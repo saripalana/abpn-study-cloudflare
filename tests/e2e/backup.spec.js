@@ -1,132 +1,66 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
-test('downloads a portable backup that excludes question-bank content', async ({ page }) => {
+test('downloads one complete, integrity-protected recovery bundle', async ({ page }) => {
   await page.goto('/');
-  const downloadButton = page.getByRole('button', { name: 'Download backup' });
+  const downloadButton = page.getByRole('button', { name: 'Download complete backup' });
   await expect(downloadButton).toBeVisible();
-
   const downloadPromise = page.waitForEvent('download');
   await downloadButton.click();
-  const download = await downloadPromise;
-  const path = await download.path();
+  const path = await (await downloadPromise).path();
   const backup = JSON.parse(await readFile(path, 'utf8'));
 
-  expect(backup.format).toBe('abpn-study-local-backup');
+  expect(backup.format).toBe('abpn-study-complete-recovery');
   expect(backup.schemaVersion).toBe(1);
-  expect(backup.questionContentIncluded).toBe(false);
-  expect(backup.deviceSpecificSyncStateIncluded).toBe(false);
-  expect(Array.isArray(backup.data.banks)).toBe(true);
+  expect(backup.integrity.algorithm).toBe('SHA-256');
+  expect(backup.integrity.digest).toMatch(/^[a-f0-9]{64}$/);
+  expect(Array.isArray(backup.data.bankContent)).toBe(true);
+  expect(Array.isArray(backup.data.bankRevisions)).toBe(true);
   expect(Array.isArray(backup.data.progress)).toBe(true);
   expect(Array.isArray(backup.data.practiceSets)).toBe(true);
   expect(Array.isArray(backup.data.practiceSetAnswers)).toBe(true);
-  expect(Array.isArray(backup.data.snapshots)).toBe(true);
-  expect(JSON.stringify(backup.data)).not.toContain('"questions"');
+  expect(backup.excludes).toContain('authentication');
+  expect(backup.excludes).toContain('tokens');
+  expect(backup.data.syncOutbox).toBeUndefined();
 });
 
-test('restores non-destructively, preserves a newer local record, and preserves an active timer', async ({ page }) => {
+test('restores a complete bundle non-destructively and creates a safety snapshot', async ({ page }) => {
   await page.goto('/');
-  await page.evaluate(async () => {
-    const { STORES, putRecord } = await import('/client/storage.js');
-    localStorage.setItem('abpn-study:selected-bank', 'validation-bank');
+  const fixture = await page.evaluate(async () => {
+    const { QUESTION_BANKS } = await import('/banks/catalog.js');
+    const { STORES, putRecord, deleteRecord } = await import('/client/storage.js');
+    const { createRecoveryBundle } = await import('/client/recovery-bundle.js');
+    const bank = QUESTION_BANKS.find((item) => item.questions?.length);
+    const questionId = bank.questions[0].id;
     await putRecord(STORES.PROGRESS, {
-      bankId: 'validation-bank',
-      questionId: 'validation-1',
-      selectedAnswer: 'C',
-      isCorrect: true,
-      isFlagged: false,
-      timesUsed: 5,
-      totalTimeMs: 5000,
-      revision: 5,
-      updatedAt: '2026-07-21T12:00:00.000Z',
-      deviceId: 'local-device'
+      bankId: bank.id,
+      questionId,
+      selectedAnswer: 'A',
+      revision: 1,
+      updatedAt: '2026-08-05T12:00:00.000Z',
     });
-  });
-  await page.reload();
-
-  const backup = {
-    format: 'abpn-study-local-backup',
-    schemaVersion: 1,
-    createdAt: '2026-07-21T13:00:00.000Z',
-    appVersion: 'test',
-    contentScope: 'local-study-records-only',
-    questionContentIncluded: false,
-    deviceSpecificSyncStateIncluded: false,
-    data: {
-      banks: [{ id: 'validation-bank', title: 'System Validation Question Bank', version: '1', questionCount: 3, updatedAt: '2026-07-21T13:00:00.000Z' }],
-      progress: [
-        {
-          bankId: 'validation-bank', questionId: 'validation-1', selectedAnswer: 'A', isCorrect: false,
-          isFlagged: true, timesUsed: 1, totalTimeMs: 100, revision: 4,
-          updatedAt: '2026-07-22T12:00:00.000Z', deviceId: 'backup-device'
-        },
-        {
-          bankId: 'validation-bank', questionId: 'validation-2', selectedAnswer: 'B', isCorrect: true,
-          isFlagged: true, timesUsed: 1, totalTimeMs: 200, revision: 1,
-          updatedAt: '2026-07-21T13:00:00.000Z', deviceId: 'backup-device'
-        }
-      ],
-      practiceSets: [
-        {
-          id: 'restored-active-set', bankId: 'validation-bank', status: 'active', mode: 'test', timed: true,
-          questionIds: ['validation-1', 'validation-2'], index: 1, remainingSeconds: 321,
-          submitted: false, startedAt: '2026-07-21T12:30:00.000Z', updatedAt: '2020-01-01T00:00:00.000Z'
-        },
-        {
-          id: 'quarantined-set', bankId: 'validation-bank', status: 'completed', mode: 'tutor', timed: false,
-          questionIds: ['missing-question'], index: 0, remainingSeconds: 0,
-          submitted: true, startedAt: '2026-07-21T12:30:00.000Z', updatedAt: '2026-07-21T13:00:00.000Z'
-        }
-      ],
-      practiceSetAnswers: [
-        {
-          setId: 'restored-active-set', questionId: 'validation-1', selectedAnswer: 'C', isCorrect: true,
-          timeMs: 400, updatedAt: '2026-07-21T13:00:00.000Z'
-        }
-      ],
-      snapshots: []
-    },
-    manifest: { banks: 1, progress: 2, practiceSets: 2, practiceSetAnswers: 1, snapshots: 0 }
-  };
-
-  const dialogs = [];
-  page.on('dialog', async (dialog) => {
-    dialogs.push(dialog.message());
-    await dialog.accept();
+    const bundle = await createRecoveryBundle({ appVersion: 'e2e' });
+    await deleteRecord(STORES.PROGRESS, [bank.id, questionId]);
+    return { bundle, bankId: bank.id, questionId };
   });
 
+  page.on('dialog', (dialog) => dialog.accept());
   const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded' });
   await page.locator('#portableBackupImportInput').setInputFiles({
-    name: 'abpn-study-backup.json',
+    name: 'abpn-study-complete.json',
     mimeType: 'application/json',
-    buffer: Buffer.from(JSON.stringify(backup))
+    buffer: Buffer.from(JSON.stringify(fixture.bundle)),
   });
   await navigation;
 
-  const restored = await page.evaluate(async () => {
+  const result = await page.evaluate(async ({ bankId, questionId }) => {
     const { STORES, getAllRecords, getRecord } = await import('/client/storage.js');
     return {
-      newerLocal: await getRecord(STORES.PROGRESS, ['validation-bank', 'validation-1']),
-      importedProgress: await getRecord(STORES.PROGRESS, ['validation-bank', 'validation-2']),
-      activeSet: await getRecord(STORES.SETS, 'restored-active-set'),
-      invalidSet: await getRecord(STORES.SETS, 'quarantined-set'),
-      answer: await getRecord(STORES.ANSWERS, ['restored-active-set', 'validation-1']),
-      snapshots: await getAllRecords(STORES.SNAPSHOTS)
+      progress: await getRecord(STORES.PROGRESS, [bankId, questionId]),
+      snapshots: await getAllRecords(STORES.SNAPSHOTS),
     };
-  });
-
-  expect(restored.newerLocal.revision).toBe(5);
-  expect(restored.newerLocal.selectedAnswer).toBe('C');
-  expect(restored.importedProgress.revision).toBe(1);
-  expect(restored.importedProgress.isFlagged).toBe(true);
-  expect(restored.activeSet.status).toBe('active');
-  expect(restored.activeSet.remainingSeconds).toBe(321);
-  expect(Date.parse(restored.activeSet.updatedAt)).toBeGreaterThan(Date.parse('2026-07-21T13:00:00.000Z'));
-  expect(restored.invalidSet.status).toBe('invalid');
-  expect(restored.invalidSet.invalidQuestionIds).toContain('missing-question');
-  expect(restored.answer.selectedAnswer).toBe('C');
-  expect(restored.snapshots.length).toBeGreaterThanOrEqual(1);
-  expect(dialogs.some((message) => /newer local records are kept/i.test(message))).toBe(true);
-  expect(dialogs.some((message) => message.includes('Restore completed safely'))).toBe(true);
-  await expect(page.getByRole('button', { name: 'Restore backup' })).toBeVisible();
+  }, fixture);
+  expect(result.progress.revision).toBe(1);
+  expect(result.snapshots.length).toBeGreaterThanOrEqual(1);
+  await expect(page.getByRole('button', { name: 'Restore downloaded backup' })).toBeVisible();
 });

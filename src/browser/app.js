@@ -492,11 +492,15 @@ async function renderDashboard() {
     <section id="deckLibraryManagement" class="card dashboard-section">
       <div class="eyebrow" style="color:var(--blue)">DECK LIBRARY</div>
       <h3>Data protection</h3>
-      <p class="muted">Install, export, and protect every question bank through this shared Deck Library.</p>
-      <p class="notice">Progress saves to IndexedDB immediately. Cloud synchronization is additive and does not replace local-first saving.</p>
-      <div class="actions">
-        <button id="snapshotBtn" class="secondary" type="button">Create recovery snapshot</button>
+      <p class="muted">Three clear recovery destinations protect the same complete study workspace. Synchronization remains separate from point-in-time backups.</p>
+      <p class="notice"><strong>Automatic local saving:</strong> answers and progress save to this browser immediately. A recoverable snapshot is also created before destructive actions.</p>
+      <div id="recoveryDestinations" class="recovery-destinations" aria-live="polite"></div>
+      <div class="deck-management-block">
+        <h4>Question-bank management</h4>
+        <p class="muted">Install or export individual versioned question-bank packages. These controls do not replace a complete workspace backup.</p>
+        <div id="deckManagementActions" class="actions">
         <button id="importBankBtn" class="secondary" type="button" disabled>Import question bank</button>
+        </div>
       </div>
     </section>
 
@@ -531,10 +535,6 @@ async function renderDashboard() {
     document.getElementById('questionBrowserEmpty').hidden = visible > 0;
   };
   document.getElementById('resumeBtn')?.addEventListener('click', renderQuestion);
-  document.getElementById('snapshotBtn').onclick = async () => {
-    await createRecoverySnapshot('manual');
-    alert('Recovery snapshot created.');
-  };
   document.getElementById('importBankBtn').onclick = () => {
     alert('Additional bank import validation will be added before external banks are accepted.');
   };

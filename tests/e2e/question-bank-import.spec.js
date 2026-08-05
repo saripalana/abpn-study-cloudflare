@@ -108,12 +108,13 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
   expect(exported.bank.contentClass).toBe('source-material');
 
   const backupDownload = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download backup' }).click();
+  await page.getByRole('button', { name: 'Download complete backup' }).click();
   const downloadedBackup = await backupDownload;
   const backupPath = await downloadedBackup.path();
   const backup = JSON.parse(await readFile(backupPath, 'utf8'));
-  expect(backup.questionContentIncluded).toBe(false);
-  expect(JSON.stringify(backup.data)).not.toContain('"questions"');
+  expect(backup.format).toBe('abpn-study-complete-recovery');
+  expect(backup.integrity.digest).toMatch(/^[a-f0-9]{64}$/);
+  expect(backup.data.bankContent.some((bank) => bank.id === 'browser-import-bank')).toBe(true);
   expect(backup.data.banks.some((bank) => bank.id === 'browser-import-bank')).toBe(true);
 
   await page.reload();

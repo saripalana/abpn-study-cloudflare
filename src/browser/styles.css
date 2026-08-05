@@ -586,6 +586,27 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .results-question-map { margin-top: 12px; }
 
 .dashboard-section { margin-top: 18px; }
+.recovery-destinations {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0 20px;
+}
+.recovery-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--soft);
+}
+.recovery-card-pending { border-style: dashed; }
+.recovery-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.recovery-card h4 { margin: 0; }
+.recovery-card p { font-size: 12px; line-height: 1.45; }
+.recovery-card .actions { align-items: stretch; }
+.recovery-card .actions button { flex: 1 1 180px; }
+.recovery-status { min-height: 34px; }
+.deck-management-block { padding-top: 4px; border-top: 1px solid var(--border); }
 .analytics-subsection {
   margin-top: 24px;
   padding-top: 20px;
@@ -687,6 +708,7 @@ footer {
 }
 
 @media (max-width: 820px) {
+  .recovery-destinations { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 1fr; }
   .hero { flex-direction: column; }
   .bank-selector { width: 100%; min-width: 0; }
