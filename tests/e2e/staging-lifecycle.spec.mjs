@@ -8,13 +8,19 @@ test("staging starts clean and reloads retain only the current isolated session"
     body: JSON.stringify({ environment: "staging" }),
   }));
   await page.route("**/api/staging/session", async (route) => {
-    resetCalls += 1;
+    const isReset = route.request().method() === "DELETE";
+    if (isReset) resetCalls += 1;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ ok: true, environment: "staging", state: "cleared" }),
+      body: JSON.stringify({ ok: true, environment: "staging", state: isReset ? "cleared" : "active" }),
     });
   });
+  await page.route("**/api/recovery/google-drive/latest", (route) => route.fulfill({
+    status: 404,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "No production shadow snapshot exists" }),
+  }));
   await page.addInitScript(() => {
     if (!sessionStorage.getItem("abpn-study:staging-session")) {
       localStorage.setItem("abpn-study:prior-test-artifact", "remove-me");
@@ -78,13 +84,30 @@ test("opening a new staging tab revokes the previous tab without accepting stale
     body: JSON.stringify({ environment: "staging" }),
   }));
   await context.route("**/api/staging/session", async (route) => {
-    activeSession = route.request().headers()["x-abpn-staging-session"];
+    const request = route.request();
+    const session = request.headers()["x-abpn-staging-session"];
+    if (request.method() === "GET") {
+      await route.fulfill({
+        status: session === activeSession ? 200 : 409,
+        contentType: "application/json",
+        body: JSON.stringify(session === activeSession
+          ? { ok: true, environment: "staging", state: "active" }
+          : { error: "Staging session is no longer active", staleSession: true }),
+      });
+      return;
+    }
+    activeSession = session;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ ok: true, environment: "staging", state: "cleared" }),
     });
   });
+  await context.route("**/api/recovery/google-drive/latest", (route) => route.fulfill({
+    status: 404,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "No production shadow snapshot exists" }),
+  }));
   await context.route("**/api/sync/**", async (route) => {
     const request = route.request();
     if (request.headers()["x-abpn-device-id"] !== activeSession) {
