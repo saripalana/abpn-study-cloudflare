@@ -1,5 +1,4 @@
 import { deleteStudyDatabase } from "./storage.js";
-import { restoreRecoveryBundle, validateRecoveryBundle } from "./recovery-bundle.js";
 
 // Staging mirrors production behavior but never retains a prior test session.
 // Production is deliberately a no-op: cleanup requires an exact health result
@@ -59,38 +58,6 @@ async function resetRemoteStagingState(fetchImpl, sessionId) {
   if (!response.ok) throw new Error("Staging session cleanup failed safely");
 }
 
-async function stagingSessionIsActive(fetchImpl, sessionId) {
-  const response = await fetchImpl("/api/staging/session", {
-    method: "GET",
-    headers: {
-      accept: "application/json",
-      "x-abpn-device-id": sessionId,
-      "x-abpn-staging-session": sessionId,
-    },
-    cache: "no-store",
-  });
-  if (response.status === 409) return false;
-  if (!response.ok) throw new Error("Staging session validation failed safely");
-  return true;
-}
-
-async function seedFromProductionSnapshot(fetchImpl, sessionId) {
-  const response = await fetchImpl("/api/recovery/google-drive/latest", {
-    headers: {
-      accept: "application/json",
-      "x-abpn-device-id": sessionId,
-    },
-    cache: "no-store",
-  });
-  // A first-ever installation may legitimately have no snapshot. A configured
-  // provider failure must stop staging rather than present an empty workspace
-  // as a faithful production shadow.
-  if (response.status === 404) return false;
-  if (!response.ok) throw new Error("Production shadow snapshot could not be loaded safely");
-  await restoreRecoveryBundle(await validateRecoveryBundle(await response.json()));
-  return true;
-}
-
 export async function prepareStagingSession({
   fetchImpl = globalThis.fetch.bind(globalThis),
   localStorageRef = globalThis.localStorage,
@@ -121,20 +88,15 @@ export async function prepareStagingSession({
 
   const existing = sessionStorageRef.getItem(SESSION_KEY);
   // sessionStorage survives a reload but disappears when the isolated browser
-  // tab/session closes. The server lease may expire while a tab remains open,
-  // so every reload validates it before any application state is read.
-  if (existing && await stagingSessionIsActive(fetchImpl, existing)) {
-    return { staging: true, reset: false, sessionId: existing };
-  }
-  if (existing) sessionStorageRef.removeItem(SESSION_KEY);
+  // tab/session closes. Its absence is the reliable next-launch cleanup signal.
+  if (existing) return { staging: true, reset: false, sessionId: existing };
 
   const sessionId = createId();
   await resetRemoteStagingState(fetchImpl, sessionId);
   await clearBrowserState({ localStorageRef, cacheStorage, deleteDatabase });
   localStorageRef.setItem(DEVICE_KEY, sessionId);
   sessionStorageRef.setItem(SESSION_KEY, sessionId);
-  const shadowRestored = await seedFromProductionSnapshot(fetchImpl, sessionId);
-  return { staging: true, reset: true, sessionId, shadowRestored };
+  return { staging: true, reset: true, sessionId };
 }
 
 let sharedPreparation;

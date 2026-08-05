@@ -92,8 +92,7 @@ try {
 
   // Controllers load only after the dashboard and its bounded catalog refresh
   // are stable, so every visible control is attached to the current render.
-  const { initialSyncReady } = await import("./sync-controller.js");
-  await initialSyncReady;
+  await import("./sync-controller.js");
   await import("./backup-controller.js");
   await import("./data-management-controller.js");
   await import("./question-bank-controller.js");

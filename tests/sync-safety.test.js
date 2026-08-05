@@ -217,35 +217,6 @@ test("disposable session reset is impossible outside isolated staging", async ()
   assert.equal(db.executed.length, 0);
 });
 
-test("staging session status distinguishes the active lease from an expired lease", async () => {
-  const activeDb = recordingDb({ activeDeviceId: "staging-session-1234" });
-  const env = {
-    APP_ENV: "staging",
-    APP_RELEASE_MODE: "full",
-    CLOUD_SYNC_ENABLED: "true",
-    STUDY_USER_ID: "staging-user",
-    STAGING_DISPOSABLE_ENABLED: "true",
-    DB: activeDb,
-  };
-  const makeRequest = () => new Request("https://study.example/api/staging/session", {
-    headers: {
-      "x-abpn-device-id": "staging-session-1234",
-      "x-abpn-staging-session": "staging-session-1234",
-    },
-  });
-  const active = await worker.fetch(makeRequest(), env);
-  assert.equal(active.status, 200);
-  assert.deepEqual(await active.json(), { ok: true, environment: "staging", state: "active" });
-
-  const expired = await worker.fetch(makeRequest(), { ...env, DB: recordingDb() });
-  assert.equal(expired.status, 409);
-  assert.deepEqual(await expired.json(), {
-    error: "Staging session is no longer active",
-    localOnly: true,
-    staleSession: true,
-  });
-});
-
 test("isolated staging reset removes every user-scoped test table and resets usage", async () => {
   const db = recordingDb();
   const response = await worker.fetch(new Request("https://study.example/api/staging/session", {

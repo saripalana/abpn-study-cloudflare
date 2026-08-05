@@ -189,22 +189,6 @@ async function handleStagingSessionReset(request, env) {
   return json({ ok: true, environment: "staging", state: "cleared" });
 }
 
-async function handleStagingSessionStatus(request, env) {
-  requireSyncReady(env);
-  const sessionId = requireDisposableStaging(request, env);
-  const activeDevice = await env.DB.prepare(
-    "SELECT id FROM devices WHERE user_id = ? LIMIT 1"
-  ).bind(env.STUDY_USER_ID).first();
-  if (!activeDevice || activeDevice.id !== sessionId) {
-    return json({
-      error: "Staging session is no longer active",
-      localOnly: true,
-      staleSession: true,
-    }, 409);
-  }
-  return json({ ok: true, environment: "staging", state: "active" });
-}
-
 function utcBuckets(now = new Date()) {
   const iso = now.toISOString();
   return { day: iso.slice(0, 10), minute: iso.slice(0, 16), now: iso };
@@ -826,9 +810,6 @@ async function routeApi(request, env) {
   if (googleDriveResponse) return googleDriveResponse;
 
   if (request.method === "GET" && url.pathname === "/api/health") return handleHealth(env);
-  if (request.method === "GET" && url.pathname === "/api/staging/session") {
-    return handleStagingSessionStatus(request, env);
-  }
   if (request.method === "DELETE" && url.pathname === "/api/staging/session") {
     return handleStagingSessionReset(request, env);
   }

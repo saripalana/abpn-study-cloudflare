@@ -241,27 +241,11 @@ function attachBackupControls() {
   void cloudRequest("/api/recovery/google-drive").then(async (response) => {
     const result = await response.json();
     if (!result.configured) return;
-    driveSave.disabled = !result.writeAllowed;
+    driveSave.disabled = false;
     driveRestore.disabled = !result.backups?.length;
     driveCard.classList.remove("recovery-card-pending");
-    if (result.shadowSource) {
-      driveSave.textContent = "Production shadow is read-only";
-      driveStatus.textContent = result.backups?.length
-        ? `Staging opened from production snapshot: ${new Date(result.backups[0].createdAt).toLocaleString()} · isolated copy`
-        : "No production shadow snapshot is available yet.";
-      return;
-    }
-    const bundle = await createRecoveryBundle({ appVersion: "1.0.0" });
-    const latestDigest = result.backups?.[0]?.integrityDigest;
-    if (latestDigest !== bundle.integrity.digest) {
-      const saved = await cloudRequest("/api/recovery/google-drive", { method: "PUT", body: JSON.stringify(bundle) });
-      const snapshot = await saved.json();
-      driveStatus.textContent = `Production shadow updated: ${new Date(snapshot.createdAt).toLocaleString()} · Google Drive · verified`;
-      driveRestore.disabled = false;
-      return;
-    }
     driveStatus.textContent = result.backups?.length
-      ? `Production shadow current: ${new Date(result.backups[0].createdAt).toLocaleString()} · Google Drive · verified`
+      ? `Last complete backup: ${new Date(result.backups[0].createdAt).toLocaleString()} · one per day retained for 3 days`
       : "Connected to the dedicated ABPN recovery folder. No complete backup yet.";
   }).catch((error) => { driveStatus.textContent = `Google Drive status unavailable: ${error.message}`; });
 }
