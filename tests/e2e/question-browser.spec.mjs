@@ -41,7 +41,7 @@ test("question numbers reflect correct wrong unanswered and new progress", async
   const rows = page.locator(".question-browser-number");
   const ids = await Promise.all([0, 1, 2, 3].map((index) => rows.nth(index).getAttribute("data-question-id")));
   expect(ids.every(Boolean)).toBe(true);
-  const bankId = await page.locator("#bankSelect").inputValue();
+  const bankId = await page.locator("#app").getAttribute("data-active-bank-id");
   await page.evaluate(async ({ ids, bankId }) => {
     const { updateQuestionProgress } = await import("/client/storage.js");
     const base = { isFlagged: false, timesUsed: 1, totalTimeMs: 1000 };

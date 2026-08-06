@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { expectActiveBank, selectActiveBank } from './helpers/active-bank.mjs';
 
 function question(id, text, correctLetter = 'B') {
   return {
@@ -65,7 +66,7 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
   await expect(page.locator('#bankImportInput')).not.toHaveAttribute('hidden', '');
   await importPackageThroughButton(page, packageData());
 
-  await expect(page.locator('#bankSelect')).toHaveValue('browser-import-bank');
+  await expectActiveBank(page, 'browser-import-bank');
   await expect(page.getByRole('heading', { name: 'Browser Imported Question Bank' })).toBeVisible();
   await expect(page.getByText('User-imported source question bank')).toBeVisible();
   await expect(page.getByText('Playwright import fixture')).toBeVisible();
@@ -91,7 +92,7 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
     ]
   });
   await importPackageThroughButton(page, additive, 'question-bank-v1.1.json');
-  await expect(page.locator('#bankSelect')).toHaveValue('browser-import-bank');
+  await expectActiveBank(page, 'browser-import-bank');
   await expect(page.getByText('3 questions loaded.', { exact: false })).toBeVisible();
   await expect(page.locator('.history-item')).toHaveCount(1);
   expect(dialogs.some((message) => message.includes('New questions added: 1'))).toBe(true);
@@ -118,10 +119,10 @@ test('imports, studies, updates, exports, and reloads a separate question bank',
   expect(backup.data.banks.some((bank) => bank.id === 'browser-import-bank')).toBe(true);
 
   await page.reload();
-  await expect(page.locator('#bankSelect')).toHaveValue('browser-import-bank');
+  await expectActiveBank(page, 'browser-import-bank');
   await expect(page.getByText('3 questions loaded.', { exact: false })).toBeVisible();
   await expect(page.locator('.history-item')).toHaveCount(1);
-  await page.selectOption('#bankSelect', 'ks-psychiatry-core');
+  await selectActiveBank(page, 'ks-psychiatry-core');
   await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
   await expect(page.getByText('Application-supplied Deck Library package')).toBeVisible();
   await expect(page.locator('.history-item')).toHaveCount(0);
@@ -147,8 +148,7 @@ test('rejects a package that attempts to overwrite the hidden validation fixture
 
   await expect.poll(() => dialogs.length).toBeGreaterThan(0);
   expect(dialogs.some((message) => /reserved for a hidden system-validation fixture/i.test(message))).toBe(true);
-  await expect(page.locator('#bankSelect option')).toHaveCount(3);
-  await page.selectOption('#bankSelect', 'validation-bank');
+  await selectActiveBank(page, 'validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
   await expect(page.getByText('3 questions loaded.', { exact: false })).toBeVisible();
 });

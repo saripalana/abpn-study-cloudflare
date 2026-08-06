@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { expectActiveBank, selectActiveBank } from "./helpers/active-bank.mjs";
 
 const corsHeaders = { "access-control-allow-origin": "*" };
 
@@ -48,7 +49,7 @@ test("imports a compatible question bank from a GitHub repository address", asyn
   await page.locator("#githubBankUrlInput").fill("https://github.com/example/abpn-bank");
   await page.getByRole("button", { name: "Import from GitHub" }).click();
 
-  await expect(page.locator("#bankSelect")).toHaveValue("github-browser-bank");
+  await expectActiveBank(page, "github-browser-bank");
   await expect(page.getByRole("heading", { name: "GitHub Browser Question Bank" })).toBeVisible();
   await expect(page.getByText("GitHub browser fixture")).toBeVisible();
   await expect(page.getByText("1 questions loaded.", { exact: false })).toBeVisible();
@@ -56,8 +57,7 @@ test("imports a compatible question bank from a GitHub repository address", asyn
 
 test("loads the approved Spiegel package without requiring a repeated import", async ({ page }) => {
   await page.goto("/");
-  await page.locator("#bankSelect").selectOption("spiegel-test-prep");
-  await expect(page.locator("#bankSelect")).toHaveValue("spiegel-test-prep");
+  await selectActiveBank(page, "spiegel-test-prep");
   await expect(page.getByRole("heading", { name: "Spiegel Test Prep Question Bank" })).toBeVisible();
   await expect(page.getByText("Spiegel Test Prep · dancingremote/spiegel-test-prep")).toBeVisible();
   await expect(page.getByText("1060 questions loaded.", { exact: false })).toBeVisible();

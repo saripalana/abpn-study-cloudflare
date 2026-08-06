@@ -142,11 +142,12 @@ test("all user-facing banks use one protected persistent Deck Library", async ()
   assert.match(bootstrapMigration, /CREATE TABLE IF NOT EXISTS deck_library_state/);
 });
 
-test("system validation is omitted from remote staging and production selectors", async () => {
+test("system validation remains local-only after redundant header selector removal", async () => {
   const app = await read("src/browser/app.js");
   assert.match(app, /\['127\.0\.0\.1', 'localhost'\]\.includes/);
-  assert.match(app, /deckSelectorBanks = allowSystemValidation \? banks : banks\.filter\(isUserSelectableDeck\)/);
-  assert.doesNotMatch(app, /banks\.map\(\(bank\).*deckOptionHiddenAttribute/);
+  assert.match(app, /resolveUserActiveDeck\(banks, selected, 'ks-psychiatry-core', allowSystemValidation\)/);
+  assert.doesNotMatch(app, /id="bankSelect"/);
+  assert.doesNotMatch(app, /Manage Deck Library/);
 });
 
 test("fresh staging and proposed production use the same approved two-deck catalog", async () => {

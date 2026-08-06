@@ -1,4 +1,4 @@
-import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from "./multi-deck-builder.js";
+import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings, selectedDecksForScope } from "./multi-deck-builder.js";
 import { createCombinedPracticeSet } from "./multi-deck-session.js";
 import { currentSetQuestion } from "./multi-deck-runtime.js";
 
@@ -36,8 +36,25 @@ export async function createPracticeSession({
   randomized = true,
 }) {
   const normalized = normalizeDeckScopeSettings({ decks, activeBankId: activeBank?.id, saved: settings });
-  if (normalized.scope === DECK_SCOPE_CURRENT) {
-    return createSingleDeckSet({ activeBank, pool, count, mode, timed, now, id, random, randomized });
+  const selectedDecks = selectedDecksForScope({ decks, activeBankId: activeBank?.id, settings: normalized });
+  if (normalized.scope === DECK_SCOPE_CURRENT || selectedDecks.length === 1) {
+    // Current scope must preserve the actual active bank, including protected
+    // validation banks that are intentionally excluded from the normal library.
+    const selectedBank = normalized.scope === DECK_SCOPE_CURRENT
+      ? activeBank
+      : selectedDecks[0];
+    return createSingleDeckSet({
+      activeBank: selectedBank,
+      pool,
+      count,
+      mode,
+      timed,
+      now,
+      id,
+      random,
+      randomized,
+      categories: categoriesByBank.get(selectedBank?.id) ?? null,
+    });
   }
 
   const { progressByBank } = await loadProgressForSelectedDecks({

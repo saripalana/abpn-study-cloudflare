@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { expectActiveBank } from "./helpers/active-bank.mjs";
 
 function deckPackage() {
   return {
@@ -89,9 +90,9 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   await expect(firstPage.getByRole("heading", { name: "K&S Psychiatry Question Bank" })).toBeVisible();
   await expect(firstPage.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
   await expect(firstPage.getByText("Every installed question bank uses the same versioned storage, protection, backup, study, and analytics system.")).toBeVisible();
-  await expect(firstPage.getByLabel("Installed question banks")).toHaveValue("ks-psychiatry-core");
-  await expect(firstPage.locator('#bankSelect option[value="spiegel-test-prep"]')).toHaveCount(1);
-  await firstPage.getByRole("button", { name: "Manage Deck Library" }).click();
+  await expectActiveBank(firstPage, "ks-psychiatry-core");
+  await expect(firstPage.getByLabel("Installed question banks")).toHaveCount(0);
+  await expect(firstPage.getByRole("button", { name: "Manage Deck Library" })).toHaveCount(0);
   await expect(firstPage.locator("#deckLibraryManagement")).toBeVisible();
   await expect(firstPage.getByRole("button", { name: "Import from file" })).toBeEnabled();
   await expect(firstPage.getByRole("button", { name: "Download bank package" })).toBeVisible();
@@ -136,8 +137,7 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   // application then performs its own reload, which the selector assertion observes.
   await expect.poll(() => cloudStore.has("cross-device-deck")).toBe(true);
   await expect.poll(() => importCompleted).toBe(true);
-  await expect(firstPage.locator('#bankSelect option[value="cross-device-deck"]')).toHaveCount(1);
-  await firstPage.selectOption("#bankSelect", "cross-device-deck");
+  await expectActiveBank(firstPage, "cross-device-deck");
   await expect(firstPage.getByRole("heading", { name: "Cross-device Deck" })).toBeVisible();
   await firstContext.close();
 
@@ -145,9 +145,28 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   const secondPage = await secondContext.newPage();
   await installDeckApiRoute(secondPage, cloudStore, observedHeaders);
   await secondPage.goto("/");
+  await expect(secondPage.getByRole("heading", { name: "K&S Psychiatry Question Bank" })).toBeVisible();
 
-  await expect(secondPage.locator('#bankSelect option[value="cross-device-deck"]')).toHaveCount(1);
-  await secondPage.selectOption("#bankSelect", "cross-device-deck");
+  await expect.poll(() => secondPage.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("abpn-study", 2);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const transaction = db.transaction("questionBankContent", "readonly");
+      return await new Promise((resolve, reject) => {
+        const request = transaction.objectStore("questionBankContent").get("cross-device-deck");
+        request.onsuccess = () => resolve(Boolean(request.result));
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
+  })).toBe(true);
+  await secondPage.evaluate(() => localStorage.setItem("abpn-study:selected-bank", "cross-device-deck"));
+  await secondPage.reload();
+  await expectActiveBank(secondPage, "cross-device-deck");
   await expect(secondPage.getByRole("heading", { name: "Cross-device Deck" })).toBeVisible();
   await expect(secondPage.getByText("1 questions loaded.", { exact: false })).toBeVisible();
   expect(observedHeaders.length).toBeGreaterThan(0);

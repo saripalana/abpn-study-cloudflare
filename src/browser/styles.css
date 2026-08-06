@@ -99,7 +99,6 @@ body {
 .card h2,
 .card h3 { margin: 0 0 6px; color: var(--navy); }
 .muted { color: var(--muted); }
-.bank-selector { min-width: 260px; }
 .deck-library-contract {
   max-width: 720px;
   margin: 12px 0 0;
@@ -107,9 +106,6 @@ body {
   font-size: 12px;
   font-weight: 700;
 }
-.deck-library-action { width: 100%; margin-top: 9px; }
-
-.bank-selector select,
 input,
 select {
   width: 100%;
@@ -711,7 +707,6 @@ footer {
   .recovery-destinations { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 1fr; }
   .hero { flex-direction: column; }
-  .bank-selector { width: 100%; min-width: 0; }
   .history-item { grid-template-columns: 68px minmax(0, 1fr); }
   .review-history-btn { grid-column: 1 / -1; width: 100%; }
 }

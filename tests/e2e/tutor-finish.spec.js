@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
+import { selectActiveBank } from './helpers/active-bank.mjs';
 
 async function startOrderedValidationSet(page, mode) {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
-  await page.selectOption('#bankSelect', 'validation-bank');
+  await selectActiveBank(page, 'validation-bank');
   await page.locator('#countInput').fill('2');
   await page.selectOption('#modeSelect', mode);
   await page.selectOption('#timingSelect', 'untimed');
@@ -101,7 +102,7 @@ test('Completed-test review supports incorrect-only and all-question flows with 
 test('Tutor mode supports confirmed submission at any point, answer states, and completed-test history', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
-  await page.selectOption('#bankSelect', 'validation-bank');
+  await selectActiveBank(page, 'validation-bank');
   await page.locator('#countInput').fill('3');
   await page.selectOption('#modeSelect', 'tutor');
   await page.selectOption('#timingSelect', 'untimed');
