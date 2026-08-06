@@ -60,6 +60,28 @@ test("preserves the current-deck creation path", async () => {
   assert.equal(set.bankId, "alpha");
 });
 
+test("creates a single-deck session when specific-deck mode selects one deck", async () => {
+  const set = await createPracticeSession({
+    decks,
+    activeBank: alpha,
+    settings: { scope: "custom", selectedBankIds: [alpha.id] },
+    loadProgress: async () => new Map(),
+    createSingleDeckSet: ({ activeBank, categories }) => ({
+      id: "specific-single",
+      bankId: activeBank.id,
+      questionIds: ["a2"],
+      categories,
+    }),
+    categoriesByBank: categoriesByDeckForSession(decks, alpha.id, ["Alpha subject"]),
+    pool: "new",
+    count: 1,
+    mode: "test",
+    timed: true,
+  });
+  assert.equal(set.bankId, "alpha");
+  assert.deepEqual(set.categories, ["Alpha subject"]);
+});
+
 test("creates collision-safe combined sessions", async () => {
   const set = await createPracticeSession({
     decks,

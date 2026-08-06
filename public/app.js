@@ -669,9 +669,9 @@ async function startSet() {
     id,
     random: Math.random,
     randomized,
-    createSingleDeckSet: async ({ activeBank: selectedBank, pool: selectedPool, count: requestedCount, mode: selectedMode, timed: isTimed, now: startedAt, id: setId, random, randomized: randomizeQuestions }) => {
+    createSingleDeckSet: async ({ activeBank: selectedBank, pool: selectedPool, count: requestedCount, mode: selectedMode, timed: isTimed, now: startedAt, id: setId, random, randomized: randomizeQuestions, categories: selectedCategories }) => {
       const progress = await progressMap(selectedBank.id);
-      const ids = chooseQuestionIds(selectedBank, progress, selectedPool, requestedCount, random, categories, randomizeQuestions);
+      const ids = chooseQuestionIds(selectedBank, progress, selectedPool, requestedCount, random, selectedCategories, randomizeQuestions);
       if (!ids.length) return null;
       return {
         id: setId,
