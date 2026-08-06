@@ -30,7 +30,7 @@ import { categoriesByDeckForSession } from './client/multi-deck-app-session.js';
 
 // ABPN_MULTI_SELECT_PATCH_V1
 import { buildWeaknessSnapshot } from './client/weakness-analytics.js';
-import { attachAssistantWeaknessControls } from './assistant-weakness-controller.js';
+import { attachAssistantWeaknessControls, scheduleStudyCoachRefresh } from './assistant-weakness-controller.js';
 import {
   STORES,
   getRecord,
@@ -452,25 +452,25 @@ async function renderDashboard() {
       ` : '<div class="empty">Complete questions to build local weakness priorities.</div>'}
     </section>
 
-    <section id="assistantInsightsSection" class="card dashboard-section">
+    <section id="studyCoachSection" class="card dashboard-section">
       <div class="section-heading">
         <div>
           <div class="eyebrow" style="color:var(--blue)">PRIVATE STAGING · OPTIONAL</div>
-          <h3>Assistant weakness insights</h3>
-          <p class="muted">Share only category-level scores and timing summaries. Questions, choices, answers, explanations, and notes are never included.</p>
+          <h3>Study Coach access</h3>
+          <p class="muted">While enabled, coaching data refreshes automatically after study changes. It includes performance, timing, flags, subjects, test sections, and attempted, flagged, or annotated question details with choices, answers, explanations, and notes. Credentials and unrelated browser or device data are never included.</p>
         </div>
       </div>
-      <label class="assistant-permission" for="assistantInsightsPermission">
-        <input id="assistantInsightsPermission" type="checkbox">
-        <span><strong>Allow content-free weakness access until I revoke it</strong><small>Revoking access does not delete the stored aggregate. Delete it only with the separate button below.</small></span>
+      <label class="assistant-permission" for="studyCoachPermission">
+        <input id="studyCoachPermission" type="checkbox">
+        <span><strong>Allow Study Coach access until I revoke it</strong><small>This broader permission requires a fresh approval. Revoking stops access without deleting the stored data; deletion remains a separate action.</small></span>
       </label>
       <div class="actions">
-        <button id="shareWeaknessBtn" class="primary" type="button" disabled>Share current summary</button>
-        <button id="verifyWeaknessAccessBtn" class="secondary" type="button" disabled>Verify assistant access</button>
-        <button id="revokeWeaknessBtn" class="secondary" type="button" disabled>Revoke access</button>
-        <button id="deleteWeaknessAggregateBtn" class="secondary danger" type="button" disabled>Delete shared aggregate</button>
+        <button id="refreshStudyCoachBtn" class="primary" type="button" disabled>Refresh now</button>
+        <button id="verifyStudyCoachAccessBtn" class="secondary" type="button" disabled>Verify access</button>
+        <button id="revokeStudyCoachBtn" class="secondary" type="button" disabled>Revoke access</button>
+        <button id="deleteStudyCoachDataBtn" class="secondary danger" type="button" disabled>Delete shared study data</button>
       </div>
-      <p id="assistantInsightsStatus" class="muted" aria-live="polite"></p>
+      <p id="studyCoachStatus" class="muted" aria-live="polite"></p>
     </section>
 
     <section id="deckLibraryManagement" class="card dashboard-section">
@@ -494,7 +494,7 @@ async function renderDashboard() {
   // Bind core study controls before starting the optional assistant status
   // request. The assistant section reference is render-specific, so a slow
   // response cannot mutate a newer dashboard after the user changes decks.
-  const assistantSection = document.getElementById('assistantInsightsSection');
+  const assistantSection = document.getElementById('studyCoachSection');
 
   document.getElementById('startBtn').onclick = startSet;
   document.querySelectorAll('.question-browser-number').forEach((button) => {
@@ -612,7 +612,7 @@ async function renderDashboard() {
   });
   randomizeOrder.addEventListener('change', updateBuilderAvailability);
   updateBuilderAvailability();
-  void attachAssistantWeaknessControls({ root: assistantSection, bank: activeBank });
+  void attachAssistantWeaknessControls({ root: assistantSection, banks });
 }
 
 async function startSet() {
@@ -863,6 +863,7 @@ async function renderQuestion() {
   document.getElementById('flagBtn').onclick = async () => {
     const old = progress.get(context.questionId);
     await updateQuestionProgress({ bankId: context.bankId, questionId: context.questionId, deviceId, patch: { isFlagged: !old?.isFlagged } });
+    scheduleStudyCoachRefresh({ banks });
     await renderQuestion();
   };
   document.getElementById('submitBtn')?.addEventListener('click', async () => { if (submissionConfirmation()) await submitSet({ showResults: true }); });
@@ -912,6 +913,7 @@ async function finalizeMultiSelectAnswer(context) {
 async function saveProgress(context, entry) {
   const current = (await progressMap(context.bankId)).get(context.questionId);
   await updateQuestionProgress({ bankId: context.bankId, questionId: context.questionId, deviceId, patch: { selectedAnswer: entry.selectedAnswer, isCorrect: entry.isCorrect, timesUsed: Number(current?.timesUsed || 0) + 1, totalTimeMs: Number(current?.totalTimeMs || 0) + Number(entry.timeMs || 0), lastUsedAt: new Date().toISOString() } });
+  scheduleStudyCoachRefresh({ banks });
 }
 
 async function submitSet({ auto = false, showResults = true } = {}) {

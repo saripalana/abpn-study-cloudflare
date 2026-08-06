@@ -101,35 +101,131 @@ export function buildWeaknessSnapshot(bank, progress, suppliedOptions = {}) {
   };
 }
 
+const MAX_COACHING_QUESTIONS = 200;
+const MAX_COMPLETED_TESTS = 100;
+// Leave headroom beneath the Worker's 2 MiB request limit for deck summaries
+// and HTTP/JSON overhead. Relevant items are ranked before this cap is applied.
+const MAX_COACHING_ITEM_BYTES = 1_500_000;
+
+function completedTestSummaries(sets = [], answers = []) {
+  const answersBySet = new Map();
+  for (const answer of answers) {
+    const rows = answersBySet.get(answer.setId) || [];
+    rows.push(answer);
+    answersBySet.set(answer.setId, rows);
+  }
+  return sets
+    .filter((set) => set?.status === "completed" || set?.submitted === true)
+    .sort((a, b) => Date.parse(b.completedAt || b.updatedAt || 0) - Date.parse(a.completedAt || a.updatedAt || 0))
+    .slice(0, MAX_COMPLETED_TESTS)
+    .map((set) => {
+      const rows = answersBySet.get(set.id) || [];
+      const answered = rows.filter((row) => row?.selectedAnswer != null && row.selectedAnswer !== "");
+      const questionCount = Array.isArray(set.questionIds) ? set.questionIds.length : answered.length;
+      return {
+        setId: String(set.id || "unknown"),
+        bankIds: [...new Set((set.selectedBankIds?.length ? set.selectedBankIds : [set.bankId]).filter(Boolean).map(String))],
+        mode: set.mode === "tutor" ? "tutor" : "test",
+        timed: Boolean(set.timed),
+        startedAt: set.startedAt || null,
+        completedAt: set.completedAt || set.updatedAt || null,
+        questionCount,
+        answered: answered.length,
+        correct: answered.filter((row) => row.isCorrect === true).length,
+        incorrect: answered.filter((row) => row.isCorrect === false).length,
+        omitted: Math.max(0, questionCount - answered.length),
+        totalTimeMs: answered.reduce((sum, row) => sum + Math.max(0, Number(row.timeMs || 0)), 0),
+      };
+    });
+}
+
 /**
- * Produces the only payload that may cross the assistant-insights boundary.
- * The allowlist is intentional: callers cannot accidentally serialize the
- * source bank, question identifiers, answers, rationales, notes, or attempts.
+ * Builds the explicit Study Coach payload. It contains every aggregate needed
+ * for coaching, while question content is limited to attempted, flagged, or
+ * annotated items and ranked with incorrect/flagged work first. This avoids a
+ * redundant full-bank copy and keeps the request within the Worker body limit.
  */
-export function buildContentFreeWeaknessAggregate(bank, progress, suppliedOptions = {}) {
-  const snapshot = buildWeaknessSnapshot(bank, progress, suppliedOptions);
+export function buildStudyCoachDataset(banks, progressRows, suppliedOptions = {}, history = {}) {
+  const progressByBank = new Map();
+  for (const row of progressRows || []) {
+    const bankProgress = progressByBank.get(row.bankId) || new Map();
+    bankProgress.set(row.questionId, row);
+    progressByBank.set(row.bankId, bankProgress);
+  }
+
+  const decks = [];
+  const coachingItems = [];
+  for (const bank of banks || []) {
+    const progress = progressByBank.get(bank.id) || new Map();
+    const snapshot = buildWeaknessSnapshot(bank, progress, suppliedOptions);
+    decks.push({
+      id: String(bank.id || "unknown"),
+      title: String(bank.title || "Study deck"),
+      version: String(bank.version || "1"),
+      totalQuestions: bank.questions.length,
+      usedQuestions: [...progress.values()].filter((row) => Number(row?.timesUsed || 0) > 0).length,
+      domains: snapshot.domains.map((domain) => ({
+        title: domain.title,
+        totalQuestions: domain.totalQuestions,
+        usedQuestions: domain.usedQuestions,
+        attempts: domain.attempts,
+        accuracy: domain.smoothedAccuracy,
+        averageTimeMs: domain.averageTimeMs,
+        evidence: domain.evidence,
+        priorityScore: domain.priorityScore,
+        mastered: domain.mastered,
+      })),
+    });
+
+    for (const question of bank.questions) {
+      const record = progress.get(question.id);
+      const note = String(record?.note || record?.notes || "").trim();
+      if (!record?.timesUsed && !record?.isFlagged && !note) continue;
+      coachingItems.push({
+        bankId: bank.id,
+        questionId: question.id,
+        subject: question.subjectTitle,
+        testSection: question.chapterTitle,
+        prompt: question.question,
+        vignetteStem: question.vignetteStem,
+        choices: question.choices.map((text, index) => ({ letter: question.choiceLetters[index], text })),
+        selectedAnswer: record?.selectedAnswer ?? null,
+        correctAnswer: [...question.correctLetters],
+        answerText: question.answerText,
+        explanation: question.explanation,
+        note,
+        isCorrect: record?.isCorrect ?? null,
+        isFlagged: Boolean(record?.isFlagged),
+        timesUsed: Math.max(0, Number(record?.timesUsed || 0)),
+        totalTimeMs: Math.max(0, Number(record?.totalTimeMs || 0)),
+        lastUsedAt: record?.lastUsedAt || null,
+      });
+    }
+  }
+
+  coachingItems.sort((a, b) =>
+    Number(b.isFlagged) - Number(a.isFlagged)
+    || Number(a.isCorrect !== false) - Number(b.isCorrect !== false)
+    || Date.parse(b.lastUsedAt || 0) - Date.parse(a.lastUsedAt || 0));
+
+  const selectedItems = [];
+  let selectedBytes = 0;
+  for (const item of coachingItems.slice(0, MAX_COACHING_QUESTIONS)) {
+    const itemBytes = new TextEncoder().encode(JSON.stringify(item)).byteLength;
+    if (selectedBytes + itemBytes > MAX_COACHING_ITEM_BYTES) break;
+    selectedItems.push(item);
+    selectedBytes += itemBytes;
+  }
+
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    consentVersion: 2,
     generatedAt: new Date(suppliedOptions.now || Date.now()).toISOString(),
-    evidenceModel: snapshot.evidenceModel,
-    deck: {
-      id: String(bank.id || "unknown").slice(0, 100),
-      title: String(bank.title || "Study deck").slice(0, 200),
-    },
-    summary: {
-      evidenceCoverage: snapshot.evidenceCoverage,
-      masteryCoverage: snapshot.masteryCoverage,
-    },
-    domains: snapshot.domains.map((domain) => ({
-      title: domain.title,
-      totalQuestions: domain.totalQuestions,
-      usedQuestions: domain.usedQuestions,
-      attempts: domain.attempts,
-      accuracy: domain.smoothedAccuracy,
-      averageTimeMs: domain.averageTimeMs,
-      evidence: domain.evidence,
-      priorityScore: domain.priorityScore,
-      mastered: domain.mastered,
-    })),
+    selectionPolicy: "attempted-flagged-annotated-priority",
+    decks,
+    completedTests: completedTestSummaries(history.sets, history.answers),
+    coachingItems: selectedItems,
+    totalEligibleCoachingItems: coachingItems.length,
+    truncated: coachingItems.length > selectedItems.length,
   };
 }

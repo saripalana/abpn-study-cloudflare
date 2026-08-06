@@ -32,7 +32,7 @@ test("local storage uses separate bank-bound progress keys", async () => {
   assert.match(storage, /id: `\$\{entityType\}:\$\{entityKey\}`/);
 });
 
-test("phase 1 weakness analytics remain local, derived, and content-free", async () => {
+test("local weakness analytics remain derived while Study Coach sharing is explicitly bounded", async () => {
   const [analytics, app] = await Promise.all([
     read("src/client/weakness-analytics.js"),
     read("public/app.js"),
@@ -40,28 +40,32 @@ test("phase 1 weakness analytics remain local, derived, and content-free", async
   assert.match(analytics, /limited-current-state/);
   assert.match(analytics, /priorityScore/);
   assert.doesNotMatch(analytics, /fetch\s*\(/);
-  assert.doesNotMatch(analytics, /selectedAnswer|correctLetter|question\.question/);
+  assert.match(analytics, /MAX_COACHING_QUESTIONS = 200/);
+  assert.match(analytics, /attempted-flagged-annotated-priority/);
   assert.match(app, /LOCAL-ONLY · LIMITED EVIDENCE/);
 });
 
-test("assistant weakness access is private, explicitly enabled, permissioned until revoked, separately deletable, and audited", async () => {
-  const [api, controller, staging, production, migration, deletionMigration] = await Promise.all([
+test("Study Coach access is private, freshly consented, automatically refreshed, separately deletable, and audited", async () => {
+  const [api, controller, staging, production, migration, deletionMigration, consentMigration] = await Promise.all([
     read("src/assistant-weakness-api.js"),
     read("src/browser/assistant-weakness-controller.js"),
     read("wrangler.staging.toml"),
     read("wrangler.toml"),
     read("migrations/0007_assistant_weakness_staging.sql"),
     read("migrations/0008_assistant_weakness_delete_count.sql"),
+    read("migrations/0010_study_coach_consent.sql"),
   ]);
   assert.match(api, /\["staging", "production"\]\.includes\(env\.APP_ENV\)/);
   assert.match(api, /UNTIL_REVOKED_AT/);
   assert.match(api, /retention: "until-revoked"/);
-  assert.match(api, /Explicit assistant-insights permission is required/);
+  assert.match(api, /Explicit Study Coach permission is required/);
+  assert.match(api, /CONSENT_VERSION = 2/);
   assert.match(api, /DELETE FROM assistant_weakness_snapshots/);
   assert.match(api, /delete_count = delete_count \+ 1/);
   assert.match(api, /snapshot-accessed/);
-  assert.match(controller, /On until you revoke it/);
-  assert.match(controller, /deleteWeaknessAggregateBtn/);
+  assert.match(controller, /On until revoked/);
+  assert.match(controller, /deleteStudyCoachDataBtn/);
+  assert.match(controller, /scheduleStudyCoachRefresh/);
   assert.match(staging, /ASSISTANT_WEAKNESS_ENABLED\s*=\s*"true"/);
   assert.match(production, /APP_ENV\s*=\s*"production"/);
   assert.match(production, /ASSISTANT_WEAKNESS_ENABLED\s*=\s*"true"/);
@@ -71,6 +75,8 @@ test("assistant weakness access is private, explicitly enabled, permissioned unt
   assert.doesNotMatch(migration, /\bDROP\b/i);
   assert.match(deletionMigration, /ADD COLUMN delete_count/);
   assert.doesNotMatch(deletionMigration, /\bDROP\b/i);
+  assert.match(consentMigration, /ADD COLUMN consent_version/);
+  assert.doesNotMatch(consentMigration, /\bDROP\b/i);
 });
 
 test("dependency installation is locked and the audited HTTP client is patched", async () => {
@@ -162,7 +168,7 @@ test("optional assistant status cannot block core dashboard controls", async () 
   const controlBinding = app.indexOf("document.getElementById('startBtn').onclick = startSet");
   const assistantBinding = app.indexOf("void attachAssistantWeaknessControls");
   assert.ok(controlBinding > -1 && assistantBinding > controlBinding);
-  assert.match(app, /const assistantSection = document\.getElementById\('assistantInsightsSection'\)/);
+  assert.match(app, /const assistantSection = document\.getElementById\('studyCoachSection'\)/);
 });
 
 test("browser deployment assets have one deterministic source and no runtime patch chain", async () => {

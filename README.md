@@ -21,7 +21,7 @@ Version 1.0 protected production release. Cloudflare Access restricts the applic
 - Avoid Google OAuth, Google Drive, Google Cloud, and Google-specific dependencies.
 - Use one clear synchronization control with connection-aware status.
 - Preserve completed sets, timers, flags, answers, analytics, and reset history.
-- The private application offers an optional assistant weakness summary that remains enabled until explicitly revoked. Revocation blocks access but preserves the aggregate; only the separate delete control removes it. The feature exposes only allowlisted category-level aggregate metrics and records publication, access, and deletion counts. It is enabled in production only after this reviewed staging acceptance and remains off until the user checks the permission control.
+- The private application offers optional Study Coach access that remains enabled until explicitly revoked. With fresh consent, it automatically refreshes a strictly allowlisted coaching dataset after study activity: category and test-section performance, bounded completed-test history, timing and flags, plus the attempted, flagged, or annotated question details needed for targeted coaching. Credentials and unrelated browser or device data are excluded. Revocation blocks access but preserves the shared study data; only the separate delete control removes it. Publication, access, deletion, and last-update state are visible and audited. Production remains unchanged until the private staging candidate is accepted and separately authorized for promotion.
 - Never silently overwrite newer study data or an installed immutable deck revision.
 
 ## Architecture

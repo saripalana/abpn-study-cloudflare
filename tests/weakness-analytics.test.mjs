@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildContentFreeWeaknessAggregate, buildWeaknessSnapshot } from '../src/client/weakness-analytics.js';
+import { buildStudyCoachDataset, buildWeaknessSnapshot } from '../src/client/weakness-analytics.js';
 
 const bank = {
   questions: [
-    ...Array.from({ length: 5 }, (_, index) => ({ id: `m${index}`, chapterTitle: 'Mood', question: `Private mood ${index}` })),
-    ...Array.from({ length: 5 }, (_, index) => ({ id: `p${index}`, chapterTitle: 'Psychosis', question: `Private psychosis ${index}` })),
+    ...Array.from({ length: 5 }, (_, index) => ({ id: `m${index}`, chapterTitle: 'Mood', subjectTitle: 'Mood', question: `Private mood ${index}`, vignetteStem: '', choices: ['One', 'Two'], choiceLetters: ['A', 'B'], correctLetters: ['B'], answerText: 'B', explanation: 'Mood explanation' })),
+    ...Array.from({ length: 5 }, (_, index) => ({ id: `p${index}`, chapterTitle: 'Psychosis', subjectTitle: 'Psychosis', question: `Private psychosis ${index}`, vignetteStem: '', choices: ['One', 'Two'], choiceLetters: ['A', 'B'], correctLetters: ['B'], answerText: 'B', explanation: 'Psychosis explanation' })),
   ],
 };
 
@@ -55,17 +55,20 @@ test('is deterministic when the calculation time is supplied', () => {
   );
 });
 
-test('content-free assistant aggregate is an explicit metadata allowlist', () => {
-  const aggregate = buildContentFreeWeaknessAggregate({ ...bank, id: 'ks', title: 'K&S' }, progress, { now });
-  assert.deepEqual(Object.keys(aggregate), [
-    'schemaVersion', 'generatedAt', 'evidenceModel', 'deck', 'summary', 'domains',
-  ]);
-  assert.deepEqual(Object.keys(aggregate.domains[0]), [
-    'title', 'totalQuestions', 'usedQuestions', 'attempts', 'accuracy',
-    'averageTimeMs', 'evidence', 'priorityScore', 'mastered',
-  ]);
-  const serialized = JSON.stringify(aggregate);
-  for (const forbidden of ['Private mood', 'Private psychosis', 'questionId', 'selectedAnswer', 'correctLetter', 'rationale', 'notes']) {
-    assert.doesNotMatch(serialized, new RegExp(forbidden, 'i'));
-  }
+test('Study Coach dataset includes coaching-relevant content but excludes unrelated data', () => {
+  const fullBank = { ...bank, id: 'ks', title: 'K&S', version: '1' };
+  const rows = [...progress.entries()].map(([questionId, row]) => ({ ...row, bankId: 'ks', questionId }));
+  const dataset = buildStudyCoachDataset([fullBank], rows, { now }, {
+    sets: [{ id: 'set-1', bankId: 'ks', selectedBankIds: ['ks'], status: 'completed', mode: 'test', timed: true, questionIds: ['m0', 'p0'], startedAt: now, completedAt: now }],
+    answers: [{ setId: 'set-1', questionId: 'm0', selectedAnswer: 'A', isCorrect: false, timeMs: 2_000 }],
+  });
+  assert.equal(dataset.schemaVersion, 2);
+  assert.equal(dataset.consentVersion, 2);
+  assert.equal(dataset.coachingItems.length, 10);
+  assert.deepEqual(dataset.completedTests[0], {
+    setId: 'set-1', bankIds: ['ks'], mode: 'test', timed: true, startedAt: now, completedAt: now,
+    questionCount: 2, answered: 1, correct: 0, incorrect: 1, omitted: 1, totalTimeMs: 2_000,
+  });
+  assert.match(dataset.coachingItems[0].prompt, /Private/);
+  assert.doesNotMatch(JSON.stringify(dataset), /credential|browserHistory|password|accessToken/i);
 });

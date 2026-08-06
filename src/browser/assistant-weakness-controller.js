@@ -1,11 +1,17 @@
-import { buildContentFreeWeaknessAggregate } from "./client/weakness-analytics.js";
+import { buildStudyCoachDataset } from "./client/weakness-analytics.js";
 import { getAllRecords, STORES } from "./client/storage.js";
 import { ensureStagingSession } from "./client/staging-lifecycle.js";
 
 await ensureStagingSession();
 
+const CONSENT_VERSION = 2;
 const deviceId = localStorage.getItem("abpn-study:device-id") || crypto.randomUUID();
 localStorage.setItem("abpn-study:device-id", deviceId);
+
+let currentBanks = [];
+let permissionEnabled = false;
+let refreshTimer = null;
+let refreshInFlight = null;
 
 async function request(path, options = {}) {
   const response = await fetch(path, {
@@ -21,59 +27,93 @@ async function request(path, options = {}) {
   return body;
 }
 
-async function progressForBank(bankId) {
-  const rows = await getAllRecords(STORES.PROGRESS);
-  return new Map(rows.filter((row) => row.bankId === bankId).map((row) => [row.questionId, row]));
+async function buildCurrentDataset() {
+  const [progress, sets, answers] = await Promise.all([
+    getAllRecords(STORES.PROGRESS),
+    getAllRecords(STORES.SETS),
+    getAllRecords(STORES.ANSWERS),
+  ]);
+  return buildStudyCoachDataset(currentBanks, progress, {}, { sets, answers });
+}
+
+async function publishCurrentDataset() {
+  if (!permissionEnabled || !currentBanks.length) return null;
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const dataset = await buildCurrentDataset();
+    await request("/api/assistant/study-coach/snapshot", { method: "POST", body: JSON.stringify(dataset) });
+    return request("/api/assistant/study-coach/permission");
+  })();
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+
+/** Debounced automatic refresh used after answers, flags, and completed sets. */
+export function scheduleStudyCoachRefresh({ banks } = {}) {
+  if (banks?.length) currentBanks = banks;
+  if (!permissionEnabled) return;
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    void publishCurrentDataset().then(() => {
+      localStorage.removeItem("abpn-study:study-coach-last-error");
+    }).catch((error) => {
+      // Automatic refresh must never interrupt studying. Retain only a short
+      // diagnostic string so the visible status can surface a real failure.
+      localStorage.setItem("abpn-study:study-coach-last-error", String(error?.message || "Refresh failed").slice(0, 300));
+    });
+  }, 750);
+}
+
+function formatTimestamp(value) {
+  if (!value) return "not shared yet";
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : "unknown";
 }
 
 function statusText(status) {
+  const refreshError = localStorage.getItem("abpn-study:study-coach-last-error");
+  const suffix = refreshError ? ` · last automatic refresh failed: ${refreshError}` : "";
   if (!status.enabled) {
     return status.snapshotPresent
-      ? `Off · aggregate stored but inaccessible · ${status.deleteCount} deletion(s)`
-      : `Off · no aggregate stored · ${status.deleteCount} deletion(s)`;
+      ? `Off · shared study data stored but inaccessible · ${status.deleteCount} deletion(s)`
+      : `Off · no shared study data · ${status.deleteCount} deletion(s)`;
   }
-  return `On until you revoke it · ${status.publishCount} share(s) · ${status.accessCount} access(es) · ${status.deleteCount} deletion(s)`;
+  return `On until revoked · last update ${formatTimestamp(status.lastPublishedAt)} · ${status.publishCount} refresh(es) · ${status.accessCount} access(es) · ${status.deleteCount} deletion(s)${suffix}`;
 }
 
-export async function attachAssistantWeaknessControls({ root, bank }) {
-  const section = root?.matches?.("#assistantInsightsSection")
-    ? root
-    : root?.querySelector?.("#assistantInsightsSection");
+export async function attachAssistantWeaknessControls({ root, banks }) {
+  currentBanks = banks || currentBanks;
+  const section = root?.matches?.("#studyCoachSection") ? root : root?.querySelector?.("#studyCoachSection");
   if (!section) return;
-  const permission = section.querySelector("#assistantInsightsPermission");
-  const share = section.querySelector("#shareWeaknessBtn");
-  const verify = section.querySelector("#verifyWeaknessAccessBtn");
-  const revoke = section.querySelector("#revokeWeaknessBtn");
-  const deleteAggregate = section.querySelector("#deleteWeaknessAggregateBtn");
-  const statusNode = section.querySelector("#assistantInsightsStatus");
+  const permission = section.querySelector("#studyCoachPermission");
+  const refresh = section.querySelector("#refreshStudyCoachBtn");
+  const verify = section.querySelector("#verifyStudyCoachAccessBtn");
+  const revoke = section.querySelector("#revokeStudyCoachBtn");
+  const deleteData = section.querySelector("#deleteStudyCoachDataBtn");
+  const statusNode = section.querySelector("#studyCoachStatus");
 
   let status;
   try {
-    status = await request("/api/assistant/weakness/permission");
+    status = await request("/api/assistant/study-coach/permission");
   } catch (error) {
-    // A missing route means this staging-only capability is intentionally absent
-    // (for example, in production). Transient staging failures remain visible.
-    if (error.status === 404) {
-      section.hidden = true;
-      return;
-    }
+    if (error.status === 404) { section.hidden = true; return; }
     section.hidden = false;
-    permission.disabled = true;
-    share.disabled = true;
-    verify.disabled = true;
-    revoke.disabled = true;
-    deleteAggregate.disabled = true;
-    statusNode.textContent = `Assistant access is temporarily unavailable: ${error.message}`;
+    for (const control of [permission, refresh, verify, revoke, deleteData]) control.disabled = true;
+    statusNode.textContent = `Study Coach access is temporarily unavailable: ${error.message}`;
     return;
   }
   section.hidden = false;
 
   const render = () => {
-    permission.checked = status.enabled;
-    share.disabled = !status.enabled;
-    verify.disabled = !status.enabled || status.publishCount < 1;
-    revoke.disabled = !status.enabled;
-    deleteAggregate.disabled = !status.snapshotPresent;
+    permissionEnabled = Boolean(status.enabled);
+    permission.checked = permissionEnabled;
+    refresh.disabled = !permissionEnabled;
+    verify.disabled = !permissionEnabled || !status.snapshotPresent;
+    revoke.disabled = !permissionEnabled;
+    deleteData.disabled = !status.snapshotPresent;
     statusNode.textContent = statusText(status);
   };
   render();
@@ -81,10 +121,12 @@ export async function attachAssistantWeaknessControls({ root, bank }) {
   permission.addEventListener("change", async () => {
     permission.disabled = true;
     try {
-      status = await request("/api/assistant/weakness/permission", {
+      status = await request("/api/assistant/study-coach/permission", {
         method: "PUT",
-        body: JSON.stringify({ enabled: permission.checked }),
+        body: JSON.stringify({ enabled: permission.checked, consentVersion: CONSENT_VERSION }),
       });
+      permissionEnabled = status.enabled;
+      if (status.enabled) status = await publishCurrentDataset();
       render();
     } catch (error) {
       permission.checked = status.enabled;
@@ -94,33 +136,33 @@ export async function attachAssistantWeaknessControls({ root, bank }) {
     }
   });
 
-  share.addEventListener("click", async () => {
-    share.disabled = true;
+  refresh.addEventListener("click", async () => {
+    refresh.disabled = true;
     try {
-      const aggregate = buildContentFreeWeaknessAggregate(bank, await progressForBank(bank.id));
-      await request("/api/assistant/weakness/snapshot", { method: "POST", body: JSON.stringify(aggregate) });
-      status = await request("/api/assistant/weakness/permission");
+      status = await publishCurrentDataset();
       render();
-      statusNode.textContent = `Shared content-free summary · ${statusText(status)}`;
+      statusNode.textContent = `Study Coach data refreshed · ${statusText(status)}`;
     } catch (error) {
       statusNode.textContent = error.message;
     } finally {
-      share.disabled = !status.enabled;
+      refresh.disabled = !status.enabled;
     }
   });
 
   verify.addEventListener("click", async () => {
     verify.disabled = true;
     try {
-      const result = await request("/api/assistant/weakness/snapshot");
-      if (result.aggregate?.schemaVersion !== 1) throw new Error("Assistant summary verification failed");
-      status = await request("/api/assistant/weakness/permission");
+      const result = await request("/api/assistant/study-coach/snapshot");
+      if (result.aggregate?.schemaVersion !== 2 || result.aggregate?.consentVersion !== CONSENT_VERSION) {
+        throw new Error("Study Coach data verification failed");
+      }
+      status = await request("/api/assistant/study-coach/permission");
       render();
-      statusNode.textContent = `Access verified without question content · ${statusText(status)}`;
+      statusNode.textContent = `Study Coach access verified · ${statusText(status)}`;
     } catch (error) {
       statusNode.textContent = error.message;
     } finally {
-      verify.disabled = !status.enabled || status.publishCount < 1;
+      verify.disabled = !status.enabled || !status.snapshotPresent;
     }
   });
 
@@ -129,17 +171,22 @@ export async function attachAssistantWeaknessControls({ root, bank }) {
     permission.dispatchEvent(new Event("change"));
   });
 
-  deleteAggregate.addEventListener("click", async () => {
-    deleteAggregate.disabled = true;
+  deleteData.addEventListener("click", async () => {
+    deleteData.disabled = true;
     try {
-      await request("/api/assistant/weakness/snapshot", { method: "DELETE" });
-      status = await request("/api/assistant/weakness/permission");
+      await request("/api/assistant/study-coach/snapshot", { method: "DELETE" });
+      status = await request("/api/assistant/study-coach/permission");
       render();
-      statusNode.textContent = `Shared aggregate deleted · ${statusText(status)}`;
+      statusNode.textContent = `Shared Study Coach data deleted · ${statusText(status)}`;
     } catch (error) {
       statusNode.textContent = error.message;
     } finally {
-      deleteAggregate.disabled = !status.snapshotPresent;
+      deleteData.disabled = !status.snapshotPresent;
     }
   });
+
+  // Repair an enabled session that predates automatic refreshing.
+  if (status.enabled && !status.snapshotPresent) {
+    try { status = await publishCurrentDataset(); render(); } catch (error) { statusNode.textContent = error.message; }
+  }
 }
