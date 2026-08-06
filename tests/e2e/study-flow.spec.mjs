@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { expectActiveBank, selectActiveBank } from './helpers/active-bank.mjs';
 
 async function useValidationBank(page) {
   await page.goto('/');
   await expect(page.getByText('ABPN PSYCHIATRY STUDY')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
-  await page.locator('#bankSelect').selectOption('validation-bank');
+  await selectActiveBank(page, 'validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
 }
 
@@ -42,7 +43,7 @@ test('filters a practice set by subjects and remembers builder choices per bank'
   await page.locator('#poolSelect').selectOption('new');
 
   await page.reload();
-  await expect(page.locator('#bankSelect')).toHaveValue('validation-bank');
+  await expectActiveBank(page, 'validation-bank');
   await expect(page.locator('#countInput')).toHaveValue('1');
   await expect(page.locator('#modeSelect')).toHaveValue('tutor');
   await expect(page.locator('#timingSelect')).toHaveValue('untimed');
@@ -54,7 +55,7 @@ test('filters a practice set by subjects and remembers builder choices per bank'
   await expect(page.getByText('How should progress from two different question banks be stored?')).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
 
-  await page.locator('#bankSelect').selectOption('ks-psychiatry-core');
+  await selectActiveBank(page, 'ks-psychiatry-core');
   await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
   await expect(page.locator('#modeSelect')).toHaveValue('test');
   await expect(page.locator('#timingSelect')).toHaveValue('timed');
@@ -65,10 +66,10 @@ test('filters a practice set by subjects and remembers builder choices per bank'
   await page.getByRole('button', { name: 'Clear' }).click();
   await page.locator('input[name="subjectFilter"]').first().check();
 
-  await page.locator('#bankSelect').selectOption('validation-bank');
+  await selectActiveBank(page, 'validation-bank');
   await expect(page.locator('#poolSelect')).toHaveValue('new');
   await expect(page.locator('input[name="subjectFilter"][value="Question Banks"]')).toBeChecked();
-  await page.locator('#bankSelect').selectOption('ks-psychiatry-core');
+  await selectActiveBank(page, 'ks-psychiatry-core');
   await expect(page.locator('#poolSelect')).toHaveValue('flagged');
   await expect(page.locator('input[name="subjectFilter"]:checked')).toHaveCount(1);
 });
@@ -76,7 +77,7 @@ test('filters a practice set by subjects and remembers builder choices per bank'
 test('ignores malformed builder settings instead of blocking dashboard startup', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => localStorage.setItem('abpn-study:builder-settings:validation-bank', 'null'));
-  await page.locator('#bankSelect').selectOption('validation-bank');
+  await selectActiveBank(page, 'validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
   await expect(page.locator('#poolSelect')).toHaveValue('all');
   await expect(page.locator('input[name="subjectFilter"]:checked')).toHaveCount(2);
@@ -212,11 +213,11 @@ test('bank switching does not expose another bank active set', async ({ page }) 
   await page.getByRole('button', { name: 'Save and exit' }).click();
   await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
 
-  await page.locator('#bankSelect').selectOption('ks-psychiatry-core');
+  await selectActiveBank(page, 'ks-psychiatry-core');
   await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Resume active set' })).toHaveCount(0);
 
-  await page.locator('#bankSelect').selectOption('validation-bank');
+  await selectActiveBank(page, 'validation-bank');
   await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
 });
 
@@ -227,7 +228,6 @@ test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page },
 
   const dashboard = await page.evaluate(() => {
     const countInput = document.querySelector('#countInput');
-    const bankSelect = document.querySelector('#bankSelect');
     const startButton = [...document.querySelectorAll('button')].find((button) => button.textContent.includes('Start set'));
     return {
       userAgent: navigator.userAgent,
@@ -235,7 +235,7 @@ test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page },
       scrollWidth: document.documentElement.scrollWidth,
       inputFontSize: Number.parseFloat(getComputedStyle(countInput).fontSize),
       inputHeight: countInput.getBoundingClientRect().height,
-      selectHeight: bankSelect.getBoundingClientRect().height,
+      removedBankSelectorCount: document.querySelectorAll('#bankSelect').length,
       startHeight: startButton.getBoundingClientRect().height,
       subjectOptionHeights: [...document.querySelectorAll('.subject-option')]
         .map((option) => option.getBoundingClientRect().height),
@@ -251,7 +251,7 @@ test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page },
   expect(dashboard.scrollWidth).toBeLessThanOrEqual(dashboard.innerWidth + 1);
   expect(dashboard.inputFontSize).toBeGreaterThanOrEqual(16);
   expect(dashboard.inputHeight).toBeGreaterThanOrEqual(44);
-  expect(dashboard.selectHeight).toBeGreaterThanOrEqual(44);
+  expect(dashboard.removedBankSelectorCount).toBe(0);
   expect(dashboard.startHeight).toBeGreaterThanOrEqual(44);
   expect(Math.min(...dashboard.subjectOptionHeights)).toBeGreaterThanOrEqual(44);
   expect(Math.min(...dashboard.subjectToolbarHeights)).toBeGreaterThanOrEqual(44);

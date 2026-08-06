@@ -26,7 +26,7 @@ function sectionByHeading(text) {
 }
 
 function activeBankId() {
-  return document.getElementById("bankSelect")?.value || localStorage.getItem(SELECTED_BANK_KEY);
+  return app.dataset.activeBankId || localStorage.getItem(SELECTED_BANK_KEY);
 }
 
 function classificationLabel(bank) {

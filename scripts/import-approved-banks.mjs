@@ -19,7 +19,7 @@ const spiegelSource = Object.freeze({
   path: 'data.js',
   expectedGitBlobSha: '47c051ccf14b5316ae33ba6a5769c89f6f89b010',
   expectedQuestionCount: 1060,
-  expectedVersion: 'legacy-subjects-99cf60400091',
+  expectedVersion: 'legacy-ks-subjects-v2-99cf60400091',
 });
 
 async function readPinnedSource(source, label) {

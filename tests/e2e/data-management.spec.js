@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
+import { selectActiveBank } from './helpers/active-bank.mjs';
 
 async function useValidationBank(page) {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
-  await page.locator('#bankSelect').selectOption('validation-bank');
+  await selectActiveBank(page, 'validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
 }
 
@@ -182,9 +183,9 @@ test('resets only the selected deck and restores progress history and active set
   await expect(page.locator('.history-item')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Resume active set' })).toHaveCount(0);
 
-  await page.locator('#bankSelect').selectOption('ks-psychiatry-core');
+  await selectActiveBank(page, 'ks-psychiatry-core');
   await expect(page.locator('.stat').filter({ hasText: 'Used' }).locator('strong')).toHaveText('1');
-  await page.locator('#bankSelect').selectOption('validation-bank');
+  await selectActiveBank(page, 'validation-bank');
 
   await clickThroughDialogsAndReload(page, page.getByRole('button', { name: 'Undo last deletion/reset' }));
   await expect(page.locator('.stat').filter({ hasText: 'Used' }).locator('strong')).toHaveText('1');

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { expectActiveBank, selectActiveBank } from "./helpers/active-bank.mjs";
 
 test("staging starts clean and reloads retain only the current isolated session", async ({ page }) => {
   let resetCalls = 0;
@@ -40,9 +41,7 @@ test("staging starts clean and reloads retain only the current isolated session"
   expect(first.device).toBe(first.session);
   expect(resetCalls).toBe(1);
 
-  const validationOption = page.locator('#bankSelect option[value="validation-bank"]');
-  await expect(validationOption).not.toHaveAttribute("hidden", "");
-  await page.locator("#bankSelect").selectOption("validation-bank");
+  await selectActiveBank(page, "validation-bank");
   await expect(page.getByRole("heading", { name: "System Validation Question Bank" })).toBeVisible();
   for (const label of [
     "Import from file",
@@ -122,14 +121,13 @@ test("opening a new staging tab revokes the previous tab without accepting stale
   const oldPage = await context.newPage();
   await oldPage.goto("/");
   await expect(oldPage.getByRole("heading", { name: "Board Practice" })).toBeVisible();
-  await expect(oldPage.locator("#bankSelect")).toBeVisible();
+  await expectActiveBank(oldPage, "ks-psychiatry-core");
   const oldSession = await oldPage.evaluate(() => sessionStorage.getItem("abpn-study:staging-session"));
 
   const currentPage = await context.newPage();
   await currentPage.goto("/");
   await expect(currentPage.getByRole("heading", { name: "Board Practice" })).toBeVisible();
-  await expect(currentPage.locator("#bankSelect")).toBeVisible();
-  await expect(currentPage.locator('#bankSelect option[value="validation-bank"]')).not.toHaveAttribute("hidden", "");
+  await expectActiveBank(currentPage, "ks-psychiatry-core");
   for (const label of [
     "Import from file",
     "Download complete backup",

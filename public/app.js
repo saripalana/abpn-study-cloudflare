@@ -232,18 +232,6 @@ async function initialize() {
   }
 }
 
-async function selectBank(bankId) {
-  activeBank = banks.find((bank) => bank.id === bankId) || activeBank;
-  if (isUserSelectableDeck(activeBank)) {
-    sessionStorage.removeItem('abpn-study:allow-system-validation');
-  } else {
-    sessionStorage.setItem('abpn-study:allow-system-validation', 'true');
-  }
-  localStorage.setItem(SELECTED_BANK_KEY, activeBank.id);
-  activeSet = await loadActiveSet(activeBank.id);
-  await renderDashboard();
-}
-
 function historyMarkup(history) {
   if (!history.length) {
     return '<div class="empty">Completed tests will appear here with their score, timing, and review link.</div>';
@@ -290,7 +278,6 @@ async function renderDashboard() {
   const categories = categoryEntries(activeBank);
   const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title));
   const multiDeckBuilder = loadMultiDeckBuilderSettings(activeBank.id);
-  const deckSelectorBanks = allowSystemValidation ? banks : banks.filter(isUserSelectableDeck);
   const installedDeckCount = banks.filter(isUserSelectableDeck).length;
   const questionBrowserRows = activeBank.questions.map((question, index) => {
     const record = progress.get(question.id);
@@ -301,6 +288,10 @@ async function renderDashboard() {
     return `<button class="question-browser-number ${status.toLowerCase()}" type="button" aria-label="Question ${index + 1}, ${status}. Double-click to open." title="${esc(subject)} · ${status}" data-question-id="${esc(question.id)}" data-search="${esc(`${index + 1} ${subject} ${preview} ${status}`.toLowerCase())}">${index + 1}</button>`;
   }).join('');
 
+  // Rendered controllers use this state marker instead of coupling data
+  // operations to a redundant visible deck selector.
+  app.dataset.activeBankId = activeBank.id;
+  app.dataset.activeBankLabel = activeBank.title;
   app.innerHTML = `
     <section class="card hero">
       <div>
@@ -308,13 +299,6 @@ async function renderDashboard() {
         <h2>${esc(activeBank.title)}</h2>
         <p class="muted">${esc(activeBank.description)} ${activeBank.questions.length} questions loaded.</p>
         <p class="deck-library-contract">Every installed question bank uses the same versioned storage, protection, backup, study, and analytics system.</p>
-      </div>
-      <div class="bank-selector">
-        <label for="bankSelect"><strong>Installed question banks</strong></label>
-        <select id="bankSelect">
-          ${deckSelectorBanks.map((bank) => `<option value="${esc(bank.id)}" ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)} (${bank.questions.length})</option>`).join('')}
-        </select>
-        <button id="manageDeckLibraryBtn" class="secondary deck-library-action" type="button">Manage Deck Library</button>
       </div>
     </section>
 
@@ -512,10 +496,6 @@ async function renderDashboard() {
   // response cannot mutate a newer dashboard after the user changes decks.
   const assistantSection = document.getElementById('assistantInsightsSection');
 
-  document.getElementById('bankSelect').onchange = (event) => selectBank(event.target.value);
-  document.getElementById('manageDeckLibraryBtn').onclick = () => {
-    document.getElementById('deckLibraryManagement')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
   document.getElementById('startBtn').onclick = startSet;
   document.querySelectorAll('.question-browser-number').forEach((button) => {
     button.ondblclick = () => openSpecificQuestion(button.dataset.questionId);

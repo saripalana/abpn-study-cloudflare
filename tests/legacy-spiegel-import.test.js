@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   convertLegacySpiegelScript,
   inferClinicalSubject,
+  KS_CLINICAL_SUBJECTS,
   parseLegacySpiegelQuestions,
 } from "../public/client/legacy-spiegel-import.js";
 import {
@@ -51,12 +52,28 @@ test("converts Spiegel questions into an isolated, versioned ABPN bank", async (
   assert.equal(converted.format, "abpn-question-bank");
   assert.equal(converted.bank.id, "spiegel-test-prep");
   assert.equal(converted.bank.questions.length, 2);
-  assert.match(converted.bank.version, /^legacy-subjects-[a-f0-9]{12}$/);
+  assert.match(converted.bank.version, /^legacy-ks-subjects-v2-[a-f0-9]{12}$/);
   assert.equal(converted.bank.questions[1].isMultiSelect, true);
   assert.deepEqual(converted.bank.questions[1].correctLetters, ["A", "C"]);
   assert.equal(converted.bank.questions[1].vignetteStem, sourceQuestions[1].vignetteStem);
-  assert.equal(converted.bank.questions[0].subjectTitle, "General psychiatry");
+  assert.equal(converted.bank.questions[0].subjectTitle, "Examination and Diagnosis of the Psychiatric Patient");
   assert.notEqual(converted.bank.questions[0].subjectTitle, "Test 1");
+  assert.equal(converted.bank.questions[0].chapterTitle, "Test 1");
+  assert.equal(converted.bank.questions[1].chapterTitle, "Vignette 1");
+});
+
+test("places a Spiegel question without a source division in Test 1", async () => {
+  const source = `const QUESTIONS = ${JSON.stringify([{
+    id: "unsectioned-q1",
+    question: "A patient has a manic episode.",
+    choices: ["Lithium", "Observation"],
+    choiceLetters: ["A", "B"],
+    correctLetter: "A",
+    explanation: "This presentation is bipolar disorder.",
+  }])};`;
+  const converted = await convertLegacySpiegelScript(source, "https://example.invalid/data.js");
+  assert.equal(converted.bank.questions[0].chapterTitle, "Test 1");
+  assert.equal(converted.bank.questions[0].subjectTitle, "Bipolar Disorders");
 });
 
 test("uses a clinical subject for legacy analytics without treating a test number as a subject", () => {
@@ -65,7 +82,13 @@ test("uses a clinical subject for legacy analytics without treating a test numbe
     question: "A patient has a manic episode.",
     choices: ["Lithium", "Observation"],
     explanation: "This presentation is bipolar disorder.",
-  }), "Mood disorders");
+  }), "Bipolar Disorders");
+});
+
+test("classifies every converted Spiegel question within the shared K&S subject taxonomy", async () => {
+  const converted = await convertLegacySpiegelScript(legacyScript, "https://example.invalid/data.js");
+  const allowed = new Set(KS_CLINICAL_SUBJECTS);
+  assert.ok(converted.bank.questions.every((question) => allowed.has(question.subjectTitle)));
 });
 
 test("scores multi-select questions only when the exact correct set is selected", async () => {

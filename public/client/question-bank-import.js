@@ -55,7 +55,7 @@ function validateQuestionShape(question, index, bankId) {
     throw new Error(`Question id ${id} contains unsupported characters.`);
   }
   text(question.question, `Question ${id} text`, 50_000);
-  text(question.chapterTitle || question.category || "Uncategorized", `Question ${id} category`, 500);
+  text(question.chapterTitle || question.category || "Test 1", `Question ${id} test section`, 500);
   text(question.subjectTitle || question.subject || question.domain || question.topic || question.chapterTitle || question.category || "Uncategorized", `Question ${id} subject`, 500);
   text(question.explanation || "No explanation provided.", `Question ${id} explanation`, 100_000);
   text(question.vignetteStem || "", `Question ${id} vignette stem`, 100_000, { required: false });

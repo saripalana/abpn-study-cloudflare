@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { expectActiveBank, selectActiveBank } from "./helpers/active-bank.mjs";
 
 function combinedDeckPackage() {
   return {
@@ -38,9 +39,7 @@ test("combined K&S and added-deck set survives reload, submission, history, and 
     };
   });
   await page.goto("/");
-  const validationOption = page.locator('#bankSelect option[value="validation-bank"]');
-  await expect(validationOption).toHaveCount(1);
-  await expect(page.locator("#bankSelect")).toHaveValue("ks-psychiatry-core");
+  await expectActiveBank(page, "ks-psychiatry-core");
   await expect(page.locator("#importBankBtn")).toBeEnabled();
 
   await page.locator("#bankImportInput").setInputFiles({
@@ -48,10 +47,9 @@ test("combined K&S and added-deck set survives reload, submission, history, and 
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(combinedDeckPackage())),
   });
-  await expect(page.locator("#bankSelect")).toHaveValue("combined-flow-deck");
+  await expectActiveBank(page, "combined-flow-deck");
 
-  await page.locator("#bankSelect").selectOption("ks-psychiatry-core");
-  await expect(page.locator("#bankSelect")).toHaveValue("ks-psychiatry-core");
+  await selectActiveBank(page, "ks-psychiatry-core");
   await page.locator("#deckScopeSelect").selectOption("custom");
   await page.locator("#deckPicker summary").click();
   await page.getByRole("button", { name: "Clear" }).click();

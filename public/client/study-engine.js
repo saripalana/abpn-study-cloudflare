@@ -50,7 +50,10 @@ export function normalizeQuestion(question, index, bankId) {
   return Object.freeze({
     id,
     chapter: question.chapter ?? "",
-    chapterTitle: String(question.chapterTitle || question.category || "Uncategorized").trim() || "Uncategorized",
+    // Every bank participates in test-section analytics. Preserve an explicit
+    // source section when supplied; otherwise represent the whole bank as one
+    // test so the section view remains useful and consistent across decks.
+    chapterTitle: String(question.chapterTitle || question.category || "Test 1").trim() || "Test 1",
     // subjectTitle is the clinical analytics dimension. chapterTitle remains
     // the source/deck grouping so imported practice-test numbers never become
     // misleading study subjects.

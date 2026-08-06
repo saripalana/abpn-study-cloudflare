@@ -22,12 +22,11 @@ function reloadAfterDestructiveAction() {
 }
 
 function selectedBank() {
-  const select = document.getElementById("bankSelect");
-  if (!select) return null;
-  const option = select.selectedOptions?.[0];
+  const id = app.dataset.activeBankId;
+  if (!id) return null;
   return {
-    id: select.value,
-    label: option?.textContent?.replace(/\s*\(\d+\)\s*$/, "").trim() || select.value,
+    id,
+    label: app.dataset.activeBankLabel || id,
   };
 }
 
