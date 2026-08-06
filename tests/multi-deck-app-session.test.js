@@ -60,6 +60,25 @@ test("preserves the current-deck creation path", async () => {
   assert.equal(set.bankId, "alpha");
 });
 
+test("preserves a protected validation bank in current-deck mode", async () => {
+  const set = await createPracticeSession({
+    decks,
+    activeBank: validation,
+    settings: { scope: "current" },
+    loadProgress: async () => new Map(),
+    createSingleDeckSet: ({ activeBank }) => ({
+      id: "validation-single",
+      bankId: activeBank.id,
+      questionIds: ["v1"],
+    }),
+    pool: "all",
+    count: 1,
+    mode: "test",
+    timed: false,
+  });
+  assert.equal(set.bankId, "validation");
+});
+
 test("creates a single-deck session when specific-deck mode selects one deck", async () => {
   const set = await createPracticeSession({
     decks,

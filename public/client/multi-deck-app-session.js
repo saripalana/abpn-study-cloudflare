@@ -38,7 +38,11 @@ export async function createPracticeSession({
   const normalized = normalizeDeckScopeSettings({ decks, activeBankId: activeBank?.id, saved: settings });
   const selectedDecks = selectedDecksForScope({ decks, activeBankId: activeBank?.id, settings: normalized });
   if (normalized.scope === DECK_SCOPE_CURRENT || selectedDecks.length === 1) {
-    const selectedBank = selectedDecks[0] || activeBank;
+    // Current scope must preserve the actual active bank, including protected
+    // validation banks that are intentionally excluded from the normal library.
+    const selectedBank = normalized.scope === DECK_SCOPE_CURRENT
+      ? activeBank
+      : selectedDecks[0];
     return createSingleDeckSet({
       activeBank: selectedBank,
       pool,
