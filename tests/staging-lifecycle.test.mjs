@@ -120,6 +120,24 @@ test("a missing live backup leaves a new temporary staging session usable", asyn
   assert.equal(calls[0].options.headers["x-abpn-staging-session"], "staging-session-1234");
 });
 
+
+
+test("staging live-backup import preserves current app-supplied deck packages", async () => {
+  const calls = [];
+  const restoredOptions = [];
+  const restored = await importLiveBackupIntoStaging("staging-session-1234", async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ bundle: "latest-live" }), { status: 200 });
+  }, {
+    seedBankIds: ["ks-psychiatry-core", "spiegel-test-prep"],
+    validateBundle: async (payload) => payload,
+    restoreBundle: async (_bundle, options) => { restoredOptions.push(options); },
+  });
+  assert.equal(restored, true);
+  assert.equal(calls[0].url, "/api/recovery/google-drive/latest");
+  assert.deepEqual(restoredOptions, [{ skipBankContentIds: ["ks-psychiatry-core", "spiegel-test-prep"] }]);
+});
+
 test("failed remote cleanup fails closed before local state is changed", async () => {
   const local = memoryStorage({ old: "preserved-until-remote-clean" });
   await assert.rejects(() => prepareStagingSession({

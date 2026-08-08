@@ -102,6 +102,7 @@ export async function prepareStagingSession({
 export async function importLiveBackupIntoStaging(
   sessionId,
   fetchImpl = globalThis.fetch.bind(globalThis),
+  { seedBankIds = [], restoreBundle, validateBundle } = {},
 ) {
   if (!sessionId) return false;
   const response = await fetchImpl("/api/recovery/google-drive/latest", {
@@ -115,8 +116,11 @@ export async function importLiveBackupIntoStaging(
   });
   if (response.status === 404) return false;
   if (!response.ok) throw new Error("The latest live backup could not be copied into staging.");
-  const { restoreRecoveryBundle, validateRecoveryBundle } = await import("./recovery-bundle.js");
-  await restoreRecoveryBundle(await validateRecoveryBundle(await response.json()));
+  const recovery = restoreBundle && validateBundle
+    ? { restoreRecoveryBundle: restoreBundle, validateRecoveryBundle: validateBundle }
+    : await import("./recovery-bundle.js");
+  const bundle = await recovery.validateRecoveryBundle(await response.json());
+  await recovery.restoreRecoveryBundle(bundle, { skipBankContentIds: seedBankIds });
   return true;
 }
 

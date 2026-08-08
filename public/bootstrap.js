@@ -68,7 +68,9 @@ try {
   // to clear staging and import a fresh live copy again.
   if (stagingPreparation.importLiveBackup) {
     try {
-      const imported = await importLiveBackupIntoStaging(stagingPreparation.sessionId);
+      const imported = await importLiveBackupIntoStaging(stagingPreparation.sessionId, undefined, {
+        seedBankIds: SEED_QUESTION_BANKS.map((bank) => bank.id),
+      });
       if (imported) {
         const copiedDefinitions = await loadAvailableDecks();
         QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...copiedDefinitions);

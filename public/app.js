@@ -13,7 +13,7 @@ import {
   isQuestionAnswerCorrect,
   selectedAnswerLetters
 } from './client/study-engine.js';
-import { bindMultiDeckSelector, multiDeckSelectorMarkup } from './client/multi-deck-builder-ui.js';
+import { bindMultiDeckSelector, multiDeckSelectorMarkup, readMultiDeckSelector } from './client/multi-deck-builder-ui.js';
 import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from './client/multi-deck-builder.js';
 import { createPracticeSession, persistenceRecordForSession, sessionQuestionContext } from './client/multi-deck-app-session.js';
 import { normalizeStoredSet } from './client/multi-deck-set.js';
@@ -625,7 +625,12 @@ async function startSet() {
   const categories = selectedSubjectCategories();
   if (!categories.length) return alert('Select at least one subject before starting a practice set.');
 
-  const settings = loadMultiDeckBuilderSettings(activeBank.id);
+  // Use the live form state when starting a set. The selector is also persisted
+  // on change, but start-time reads must not depend on localStorage being fresh:
+  // browser restores, staging imports, or interrupted UI events can otherwise
+  // leave the visible deck choice out of sync with the saved builder record.
+  const settings = readMultiDeckSelector(app, { decks: banks, activeBankId: activeBank.id });
+  localStorage.setItem(MULTI_DECK_BUILDER_KEY, JSON.stringify({ schemaVersion: 1, ...settings }));
   const pool = document.getElementById('poolSelect').value;
   const count = document.getElementById('countInput').value;
   const mode = document.getElementById('modeSelect').value;

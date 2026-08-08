@@ -144,11 +144,22 @@ const transactionDone = (transaction) => new Promise((resolve, reject) => {
   transaction.onabort = () => reject(transaction.error ?? new Error("Recovery transaction was aborted"));
 });
 
+function skippedRecoveryPackageRecord(storeName, record, skippedBankIds) {
+  if (!skippedBankIds.size) return false;
+  if (storeName === STORES.BANKS || storeName === STORES.BANK_CONTENT) return skippedBankIds.has(String(record?.id || ""));
+  if (storeName === STORES.BANK_REVISIONS) return skippedBankIds.has(String(record?.bankId || ""));
+  return false;
+}
+
 // Restore is intentionally non-destructive: absent records are added and only
 // demonstrably newer records replace older ones. Existing settings win. This
 // makes an accidental restore recoverable without erasing current study work.
-export async function restoreRecoveryBundle(input) {
+// Staging may intentionally skip deck package records for app-supplied decks
+// so a live backup can restore progress/history without downgrading or
+// conflicting with the exact deck packages shipped by the current candidate.
+export async function restoreRecoveryBundle(input, { skipBankContentIds = [] } = {}) {
   const bundle = await validateRecoveryBundle(input);
+  const skippedBankIds = new Set(skipBankContentIds.map((id) => String(id)).filter(Boolean));
   await createRecoverySnapshot("before-complete-recovery-restore");
   const currentEntries = await Promise.all(Object.keys(STORE_FIELDS).map(async (storeName) => [storeName, await getAllRecords(storeName)]));
   const currentMaps = new Map(currentEntries.map(([storeName, records]) => [storeName, new Map(records.map((record) => [recordKey(storeName, record), record]))]));
@@ -162,6 +173,7 @@ export async function restoreRecoveryBundle(input) {
       const store = transaction.objectStore(storeName);
       const current = currentMaps.get(storeName);
       for (const record of bundle.data[field]) {
+        if (skippedRecoveryPackageRecord(storeName, record, skippedBankIds)) { keptCurrent += 1; continue; }
         const existing = current.get(recordKey(storeName, record));
         if (existing && timestamp(existing) >= timestamp(record)) { keptCurrent += 1; continue; }
         store.put(structuredClone(record));
