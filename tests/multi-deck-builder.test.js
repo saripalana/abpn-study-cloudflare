@@ -17,9 +17,20 @@ const decks = [
   { id: "validation", title: "Validation", sourceType: "system-validation", contentClass: "system-validation", questions: [{ id: "v1" }] },
 ];
 
-test("current scope resolves only the active normal study deck", () => {
+test("current scope resolves the active study deck", () => {
   const settings = normalizeDeckScopeSettings({ decks, activeBankId: "spiegel", saved: { scope: DECK_SCOPE_CURRENT } });
   assert.deepEqual(settings, { scope: DECK_SCOPE_CURRENT, selectedBankIds: ["spiegel"] });
+});
+
+test("current scope preserves a protected validation deck", () => {
+  const settings = normalizeDeckScopeSettings({ decks, activeBankId: "validation", saved: { scope: DECK_SCOPE_CURRENT } });
+  assert.deepEqual(settings, { scope: DECK_SCOPE_CURRENT, selectedBankIds: ["validation"] });
+  assert.deepEqual(selectedDecksForScope({ decks, activeBankId: "validation", settings }).map((deck) => deck.id), ["validation"]);
+  assert.equal(selectedDeckQuestionCount({ decks, activeBankId: "validation", settings }), 1);
+  assert.equal(
+    deckScopeSummary({ decks, activeBankId: "validation", settings }),
+    "Validation · 1 questions",
+  );
 });
 
 test("all scope includes every normal study deck and excludes validation", () => {
