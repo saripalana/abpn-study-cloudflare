@@ -14,6 +14,13 @@ export function normalStudyDecks(decks) {
   return studyDecks(decks);
 }
 
+function currentDeckForScope({ decks, activeBankId } = {}) {
+  const allDecks = Array.isArray(decks) ? decks : [];
+  const activeDeck = allDecks.find((deck) => deck?.id === String(activeBankId || ""));
+  if (activeDeck) return activeDeck;
+  return normalStudyDecks(allDecks)[0] || null;
+}
+
 export function normalizeDeckScopeSettings({
   decks,
   activeBankId,
@@ -21,9 +28,7 @@ export function normalizeDeckScopeSettings({
 } = {}) {
   const available = normalStudyDecks(decks);
   const availableIds = new Set(available.map((deck) => deck.id));
-  const activeId = availableIds.has(String(activeBankId || ""))
-    ? String(activeBankId)
-    : available[0]?.id || "";
+  const activeId = currentDeckForScope({ decks, activeBankId })?.id || "";
   const requestedScope = VALID_SCOPES.has(saved?.scope) ? saved.scope : DECK_SCOPE_CURRENT;
   const requestedIds = Array.isArray(saved?.selectedBankIds)
     ? saved.selectedBankIds.map(String).filter((id) => availableIds.has(id))
@@ -44,6 +49,10 @@ export function normalizeDeckScopeSettings({
 
 export function selectedDecksForScope({ decks, activeBankId, settings } = {}) {
   const normalized = normalizeDeckScopeSettings({ decks, activeBankId, saved: settings });
+  if (normalized.scope === DECK_SCOPE_CURRENT) {
+    const activeDeck = currentDeckForScope({ decks, activeBankId });
+    return activeDeck ? [activeDeck] : [];
+  }
   const selected = new Set(normalized.selectedBankIds);
   return normalStudyDecks(decks).filter((deck) => selected.has(deck.id));
 }
