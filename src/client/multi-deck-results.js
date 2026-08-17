@@ -85,6 +85,57 @@ export function calculateSessionResult(
   };
 }
 
+export function calculateSessionSectionResults(
+  decks,
+  set,
+  answers,
+  {
+    bankId = null,
+    hasAnswer = (entry) => Boolean(entry),
+    isCorrect = isSessionAnswerCorrect,
+  } = {},
+) {
+  const bySection = new Map();
+
+  for (const [index, item] of setQuestionItems(decks, set).entries()) {
+    if (bankId && item.bankId !== bankId) continue;
+
+    const sectionTitle = String(item.question?.chapterTitle || "Test 1").trim() || "Test 1";
+    const entry = answers?.get?.(item.answerKey);
+    const row = bySection.get(sectionTitle) || {
+      title: sectionTitle,
+      total: 0,
+      answered: 0,
+      correct: 0,
+      incorrect: 0,
+      omitted: 0,
+      firstIndex: index,
+    };
+    row.total += 1;
+
+    if (!hasAnswer(entry)) {
+      row.omitted += 1;
+      bySection.set(sectionTitle, row);
+      continue;
+    }
+
+    row.answered += 1;
+    if (isCorrect(item.question, entry)) {
+      row.correct += 1;
+    } else {
+      row.incorrect += 1;
+    }
+    bySection.set(sectionTitle, row);
+  }
+
+  return [...bySection.values()]
+    .map((row) => ({
+      ...row,
+      accuracy: row.answered ? row.correct / row.answered : null,
+    }))
+    .sort((a, b) => a.firstIndex - b.firstIndex || a.title.localeCompare(b.title));
+}
+
 export function progressEntriesForSession(
   decks,
   set,
