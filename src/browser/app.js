@@ -18,7 +18,7 @@ import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from './client/multi-d
 import { createPracticeSession, persistenceRecordForSession, sessionQuestionContext } from './client/multi-deck-app-session.js';
 import { normalizeStoredSet } from './client/multi-deck-set.js';
 import { setQuestionItems } from './client/multi-deck-runtime.js';
-import { calculateSessionResult, progressEntriesForSession, totalAnswerTimeMs } from './client/multi-deck-results.js';
+import { calculateSessionResult, calculateSessionSectionResults, progressEntriesForSession, totalAnswerTimeMs } from './client/multi-deck-results.js';
 
 // ABPN_MULTI_DECK_RUNTIME_APP_PATCH_V1
 // ABPN_MULTI_DECK_RESULTS_CORRECTNESS_PATCH_V1
@@ -49,6 +49,7 @@ const BUILDER_SETTINGS_PREFIX = 'abpn-study:builder-settings:';
 const MULTI_DECK_BUILDER_KEY = 'abpn-study:multi-deck-builder';
 const deviceId = localStorage.getItem('abpn-study:device-id') || crypto.randomUUID();
 localStorage.setItem('abpn-study:device-id', deviceId);
+const naturalTitleCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 let banks;
 let activeBank;
@@ -192,10 +193,57 @@ async function completedSetHistory(bankId) {
     return {
       record,
       result,
+      sectionResults: calculateSessionSectionResults(banks, normalized, answers, { bankId, hasAnswer: hasQuestionAnswer }),
       percentage: result.total ? Math.round(result.correct / result.total * 100) : 0,
       averageTimeMs: result.answered ? totalTimeMs / result.answered : 0,
     };
   })).then((items) => items.filter(Boolean));
+}
+
+function cumulativeSectionChartMarkup(rows) {
+  if (!rows.length) {
+    return '<div class="empty">Complete questions to graph cumulative test-section score.</div>';
+  }
+
+  const ordered = rows
+    .map((row) => ({ ...row, percentage: row.accuracy == null ? 0 : Math.round(row.accuracy * 100) }))
+    .sort((a, b) => naturalTitleCollator.compare(a.title, b.title));
+
+  return `
+    <div class="section-score-chart" role="img" aria-label="Cumulative score by test section">
+      ${ordered.map((row) => `
+        <div class="section-score-row">
+          <div class="section-score-meta">
+            <strong>${esc(row.title)}</strong>
+            <span>${row.percentage}%</span>
+          </div>
+          <div class="bar section-score-bar" aria-hidden="true"><span style="width:${row.percentage}%"></span></div>
+          <small>${row.answered}/${row.total} answered · ${row.correct} correct</small>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function sectionGradeHistoryMarkup(rows) {
+  if (!rows.length) {
+    return '<div class="empty">Completed test-section grades will appear here after you finish a test.</div>';
+  }
+
+  return `
+    <table class="summary-table">
+      <thead><tr><th>Completed</th><th>Test section</th><th>Score</th><th>Correct</th><th>Mode</th></tr></thead>
+      <tbody>${rows.map((row) => `
+        <tr>
+          <td>${esc(formatDateTime(row.completedAt))}</td>
+          <td>${esc(row.title)}</td>
+          <td>${row.percentage}%</td>
+          <td>${row.correct}/${row.total}</td>
+          <td>${esc(row.mode === 'tutor' ? 'Tutor' : 'Test')}${row.timed ? ' · Timed' : ' · Untimed'}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+  `;
 }
 
 async function initialize() {
@@ -274,6 +322,17 @@ async function renderDashboard() {
   const weakness = buildWeaknessSnapshot(activeBank, progress);
   const weaknessRows = weakness.domains.filter((domain) => domain.usedQuestions > 0);
   const history = await completedSetHistory(activeBank.id);
+  const sectionGradeRows = history
+    .flatMap(({ record, sectionResults }) => sectionResults.map((row) => ({
+      ...row,
+      completedAt: record.completedAt || record.updatedAt,
+      mode: record.mode,
+      timed: record.timed,
+      percentage: row.answered ? Math.round((row.correct / row.answered) * 100) : 0,
+    })))
+    .filter((row) => row.total > 0)
+    .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt))
+      || naturalTitleCollator.compare(a.title, b.title));
   const resumable = activeSet && !activeSet.submitted && (activeSet.bankId === activeBank.id || activeSet.selectedBankIds?.includes?.(activeBank.id));
   const categories = categoryEntries(activeBank);
   const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title));
@@ -435,6 +494,22 @@ async function renderDashboard() {
           <tbody>${sectionRows.map((row) => `<tr><td>${esc(row.title)}</td><td>${row.answered}/${row.total}</td><td>${Math.round(row.accuracy * 100)}%</td></tr>`).join('')}</tbody>
         </table>
       ` : '<div class="empty">Complete questions to build test-section analytics.</div>'}
+      <div class="section-heading analytics-subsection">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">UWORLD-LIKE SECTION VIEW</div>
+          <h3>Cumulative score by test section</h3>
+          <p class="muted">Each bar shows your current cumulative score for that source test section.</p>
+        </div>
+      </div>
+      ${cumulativeSectionChartMarkup(sectionRows)}
+      <div class="section-heading analytics-subsection">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">COMPLETED TESTS</div>
+          <h3>Completed test grades by test section</h3>
+          <p class="muted">Every finished test keeps its section-level grade so you can review how each source test is going over time.</p>
+        </div>
+      </div>
+      ${sectionGradeHistoryMarkup(sectionGradeRows)}
       <div class="section-heading analytics-subsection">
         <div>
           <div class="eyebrow" style="color:var(--blue)">LOCAL-ONLY · LIMITED EVIDENCE</div>
@@ -754,7 +829,418 @@ function questionMapState(entry, { mode, submitted, flagged = false, current = f
       incorrect ? 'incorrect-answer' : '',
       flagged ? 'flagged' : '',
       current ? 'current' : '',
-    ].filter(Boolean).join(' '),
+ all</button>
+                <button id="clearSubjectsBtn" class="secondary" type="button">Clear</button>
+              </div>
+              <div class="subject-options">
+                ${categories.map((category, index) => `
+                  <label class="subject-option" for="subject-${index}">
+                    <input id="subject-${index}" name="subjectFilter" type="checkbox" value="${esc(category.title)}" ${builder.categories.includes(category.title) ? 'checked' : ''}>
+                    <span>${esc(category.title)}</span>
+                    <small>${category.count}</small>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+          </details>
+          <p id="eligibleCount" class="builder-availability"></p>
+          <div class="actions"><button id="startBtn" class="primary" type="button">Start set</button></div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="card question-browser-card">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow" style="color:var(--blue)">QUESTION NAVIGATOR</div>
+              <h3>Browse questions</h3>
+              <p class="muted">Double-click a number to open it without revealing the answer. Linked follow-ups open together.</p>
+            </div>
+            <span class="pill">${activeBank.questions.length}</span>
+          </div>
+          <label class="field" for="questionBrowserSearch">
+            <span>Find by number, subject, or text</span>
+            <input id="questionBrowserSearch" type="search" placeholder="Search questions">
+          </label>
+          <div class="question-browser-legend" aria-label="Question status legend"><span><i class="correct"></i>Correct</span><span><i class="wrong"></i>Wrong</span><span><i class="unanswered"></i>Unanswered</span><span><i class="new"></i>New</span></div>
+          <div id="questionBrowserList" class="question-browser-list">${questionBrowserRows}</div>
+          <p id="questionBrowserEmpty" class="empty" hidden>No questions match this search.</p>
+        </section>
+      </div>
+    </section>
+
+    <section id="historySection" class="card dashboard-section">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">SAVED LOCALLY</div>
+          <h3>History / Previous tests</h3>
+        </div>
+        <span class="pill">${history.length} completed</span>
+      </div>
+      ${historyMarkup(history)}
+    </section>
+
+    <section id="analyticsSection" class="card dashboard-section">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">ANALYTICS</div>
+          <h3>Performance by subject</h3>
+        </div>
+      </div>
+      ${subjectRows.length ? `
+        <table class="summary-table">
+          <thead><tr><th>Subject</th><th>Used</th><th>Accuracy</th></tr></thead>
+          <tbody>${subjectRows.map((row) => `<tr><td>${esc(row.title)}</td><td>${row.answered}/${row.total}</td><td>${Math.round(row.accuracy * 100)}%</td></tr>`).join('')}</tbody>
+        </table>
+      ` : '<div class="empty">Complete questions to build analytics.</div>'}
+      <div class="section-heading analytics-subsection">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">SOURCE VIEW</div>
+          <h3>Performance by test section</h3>
+        </div>
+      </div>
+      ${sectionRows.length ? `
+        <table class="summary-table">
+          <thead><tr><th>Test section</th><th>Used</th><th>Accuracy</th></tr></thead>
+          <tbody>${sectionRows.map((row) => `<tr><td>${esc(row.title)}</td><td>${row.answered}/${row.total}</td><td>${Math.round(row.accuracy * 100)}%</td></tr>`).join('')}</tbody>
+        </table>
+      ` : '<div class="empty">Complete questions to build test-section analytics.</div>'}
+      <div class="section-heading analytics-subsection">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">UWORLD-LIKE SECTION VIEW</div>
+          <h3>Cumulative score by test section</h3>
+          <p class="muted">Each bar shows your current cumulative score for that source test section.</p>
+        </div>
+      </div>
+      ${cumulativeSectionChartMarkup(sectionRows)}
+      <div class="section-heading analytics-subsection">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">COMPLETED TESTS</div>
+          <h3>Completed test grades by test section</h3>
+          <p class="muted">Every finished test keeps its section-level grade so you can review how each source test is going over time.</p>
+        </div>
+      </div>
+      ${sectionGradeHistoryMarkup(sectionGradeRows)}
+      <div class="section-heading analytics-subsection">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">LOCAL-ONLY · LIMITED EVIDENCE</div>
+          <h3>Weakness priorities</h3>
+          <p class="muted">A planning aid based on current correctness, recent use, and time. It is not attempt history or a prediction.</p>
+        </div>
+        <span class="pill">${Math.round((weakness.masteryCoverage || 0) * 100)}% mastery coverage</span>
+      </div>
+      ${weaknessRows.length ? `
+        <table class="summary-table">
+          <thead><tr><th>Domain</th><th>Priority</th><th>Evidence</th></tr></thead>
+          <tbody>${weaknessRows.map((domain) => `<tr><td>${esc(domain.title)}</td><td>${domain.priorityScore}/100</td><td>${esc(domain.evidence)} · ${domain.usedQuestions}/${domain.totalQuestions} used</td></tr>`).join('')}</tbody>
+        </table>
+        <p class="muted">Adequate evidence in ${Math.round((weakness.evidenceCoverage || 0) * 100)}% of domains. More completed questions improve reliability.</p>
+      ` : '<div class="empty">Complete questions to build local weakness priorities.</div>'}
+    </section>
+
+    <section id="studyCoachSection" class="card dashboard-section">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">PRIVATE STAGING · OPTIONAL</div>
+          <h3>Study Coach access</h3>
+          <p class="muted">While enabled, coaching data refreshes automatically after study changes. It includes performance, timing, flags, subjects, test sections, and attempted, flagged, or annotated question details with choices, answers, explanations, and notes. Credentials and unrelated browser or device data are never included.</p>
+        </div>
+      </div>
+      <label class="assistant-permission" for="studyCoachPermission">
+        <input id="studyCoachPermission" type="checkbox">
+        <span><strong>Allow Study Coach access until I revoke it</strong><small>This broader permission requires a fresh approval. Revoking stops access without deleting the stored data; deletion remains a separate action.</small></span>
+      </label>
+      <div class="actions">
+        <button id="refreshStudyCoachBtn" class="primary" type="button" disabled>Refresh now</button>
+        <button id="verifyStudyCoachAccessBtn" class="secondary" type="button" disabled>Verify access</button>
+        <button id="revokeStudyCoachBtn" class="secondary" type="button" disabled>Revoke access</button>
+        <button id="deleteStudyCoachDataBtn" class="secondary danger" type="button" disabled>Delete shared study data</button>
+      </div>
+      <p id="studyCoachStatus" class="muted" aria-live="polite"></p>
+    </section>
+
+    <section id="deckLibraryManagement" class="card dashboard-section">
+      <div class="eyebrow" style="color:var(--blue)">DECK LIBRARY</div>
+      <h3>Data protection</h3>
+      <p class="muted">Three clear recovery destinations protect the same complete study workspace. Synchronization remains separate from point-in-time backups.</p>
+      <p class="notice"><strong>Automatic local saving:</strong> answers and progress save to this browser immediately. A recoverable snapshot is also created before destructive actions.</p>
+      <div id="recoveryDestinations" class="recovery-destinations" aria-live="polite"></div>
+      <div class="deck-management-block">
+        <h4>Question-bank management</h4>
+        <p class="muted">Install or export individual versioned question-bank packages. These controls do not replace a complete workspace backup.</p>
+        <div id="deckManagementActions" class="actions">
+        <button id="importBankBtn" class="secondary" type="button" disabled>Import question bank</button>
+        </div>
+      </div>
+    </section>
+
+    <footer class="release-footer">Version 1.0 · Protected local-first study workspace</footer>
+  `;
+
+  // Bind core study controls before starting the optional assistant status
+  // request. The assistant section reference is render-specific, so a slow
+  // response cannot mutate a newer dashboard after the user changes decks.
+  const assistantSection = document.getElementById('studyCoachSection');
+
+  document.getElementById('startBtn').onclick = startSet;
+  document.querySelectorAll('.question-browser-number').forEach((button) => {
+    button.ondblclick = () => openSpecificQuestion(button.dataset.questionId);
+    button.onkeydown = (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openSpecificQuestion(button.dataset.questionId);
+    };
+  });
+  document.getElementById('questionBrowserSearch').oninput = (event) => {
+    const query = event.target.value.trim().toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('.question-browser-number').forEach((row) => {
+      row.hidden = Boolean(query) && !row.dataset.search.includes(query);
+      if (!row.hidden) visible += 1;
+    });
+    document.getElementById('questionBrowserEmpty').hidden = visible > 0;
+  };
+  document.getElementById('resumeBtn')?.addEventListener('click', renderQuestion);
+  document.getElementById('importBankBtn').onclick = () => {
+    alert('Additional bank import validation will be added before external banks are accepted.');
+  };
+  document.querySelectorAll('.review-history-btn').forEach((button) => {
+    button.addEventListener('click', () => openCompletedSet(button.dataset.setId));
+  });
+
+  const subjectInputs = [...document.querySelectorAll('input[name="subjectFilter"]')];
+  const countInput = document.getElementById('countInput');
+  const modeSelect = document.getElementById('modeSelect');
+  const timingSelect = document.getElementById('timingSelect');
+  const poolSelect = document.getElementById('poolSelect');
+  const randomizeOrder = document.getElementById('randomizeOrder');
+  const eligibleCount = document.getElementById('eligibleCount');
+  const subjectSummary = document.getElementById('subjectSummary');
+  const startButton = document.getElementById('startBtn');
+  let preferredCount = builder.count;
+
+  const updateBuilderAvailability = ({ countChanged = false } = {}) => {
+    const selectedCategories = selectedSubjectCategories();
+    const eligible = eligibleQuestionIds(activeBank, progress, poolSelect.value, selectedCategories);
+    if (countChanged) {
+      preferredCount = Math.min(
+        activeBank.questions.length,
+        Math.max(1, Math.trunc(Number(countInput.value)) || 1)
+      );
+    }
+    const displayedCount = eligible.length ? Math.min(preferredCount, eligible.length) : preferredCount;
+    const capped = eligible.length > 0 && displayedCount < preferredCount;
+
+    countInput.value = String(displayedCount);
+    countInput.max = String(Math.max(1, eligible.length));
+    startButton.disabled = eligible.length === 0;
+
+    subjectSummary.textContent = selectedCategories.length === categories.length
+      ? `All ${categories.length} selected`
+      : selectedCategories.length
+        ? `${selectedCategories.length} of ${categories.length} selected`
+        : 'No subjects selected';
+    eligibleCount.textContent = eligible.length
+      ? `${eligible.length} question${eligible.length === 1 ? '' : 's'} available${capped ? '; requested set size adjusted to match.' : '.'}`
+      : 'No questions match the selected subjects and question status.';
+    eligibleCount.dataset.empty = eligible.length ? 'false' : 'true';
+
+    localStorage.setItem(`${BUILDER_SETTINGS_PREFIX}${activeBank.id}`, JSON.stringify({
+      schemaVersion: 1,
+      count: preferredCount,
+      mode: modeSelect.value,
+      timing: timingSelect.value,
+      pool: poolSelect.value,
+      randomized: randomizeOrder.checked,
+      categories: selectedCategories.length === categories.length ? null : selectedCategories
+    }));
+  };
+
+  bindMultiDeckSelector(app, {
+    decks: banks,
+    activeBankId: activeBank.id,
+    settings: multiDeckBuilder,
+    onChange: (settings) => {
+      localStorage.setItem(MULTI_DECK_BUILDER_KEY, JSON.stringify({ schemaVersion: 1, ...settings }));
+      const combined = settings.scope !== DECK_SCOPE_CURRENT;
+      startButton.textContent = combined ? 'Start combined set' : 'Start set';
+      startButton.disabled = false;
+      if (combined) {
+        eligibleCount.textContent = document.getElementById('deckScopeAvailability')?.textContent || 'Selected study decks ready.';
+        eligibleCount.dataset.empty = 'false';
+      } else {
+        updateBuilderAvailability();
+      }
+    },
+  });
+
+  document.getElementById('selectAllSubjectsBtn').onclick = () => {
+    subjectInputs.forEach((input) => { input.checked = true; });
+    updateBuilderAvailability();
+  };
+  document.getElementById('clearSubjectsBtn').onclick = () => {
+    subjectInputs.forEach((input) => { input.checked = false; });
+    updateBuilderAvailability();
+  };
+  subjectInputs.forEach((input) => input.addEventListener('change', updateBuilderAvailability));
+  countInput.addEventListener('input', () => {
+    const nextCount = Number(countInput.value);
+    if (Number.isFinite(nextCount) && nextCount >= 1) {
+      preferredCount = Math.min(activeBank.questions.length, Math.trunc(nextCount));
+    }
+  });
+  countInput.addEventListener('change', () => updateBuilderAvailability({ countChanged: true }));
+  modeSelect.addEventListener('change', updateBuilderAvailability);
+  timingSelect.addEventListener('change', updateBuilderAvailability);
+  poolSelect.addEventListener('change', () => {
+    randomizeOrder.checked = poolSelect.value === 'all';
+    updateBuilderAvailability();
+  });
+  randomizeOrder.addEventListener('change', updateBuilderAvailability);
+  updateBuilderAvailability();
+  void attachAssistantWeaknessControls({ root: assistantSection, banks });
+}
+
+async function startSet() {
+  if (activeSet && !activeSet.submitted && !confirm(
+    'Replace the current active set?\n\nIts saved answers will remain in local history, but it will no longer be resumable.'
+  )) return;
+
+  if (activeSet && !activeSet.submitted) await saveActiveSet('abandoned');
+
+  const categories = selectedSubjectCategories();
+  if (!categories.length) return alert('Select at least one subject before starting a practice set.');
+
+  // Use the live form state when starting a set. The selector is also persisted
+  // on change, but start-time reads must not depend on localStorage being fresh:
+  // browser restores, staging imports, or interrupted UI events can otherwise
+  // leave the visible deck choice out of sync with the saved builder record.
+  const settings = readMultiDeckSelector(app, { decks: banks, activeBankId: activeBank.id });
+  localStorage.setItem(MULTI_DECK_BUILDER_KEY, JSON.stringify({ schemaVersion: 1, ...settings }));
+  const pool = document.getElementById('poolSelect').value;
+  const count = document.getElementById('countInput').value;
+  const mode = document.getElementById('modeSelect').value;
+  const timed = document.getElementById('timingSelect').value === 'timed';
+  const randomized = document.getElementById('randomizeOrder').checked;
+  const categoriesByBank = categoriesByDeckForSession(banks, activeBank.id, categories);
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+
+  const session = await createPracticeSession({
+    decks: banks,
+    activeBank,
+    settings,
+    loadProgress: progressMap,
+    pool,
+    categoriesByBank,
+    count,
+    mode,
+    timed,
+    now,
+    id,
+    random: Math.random,
+    randomized,
+    createSingleDeckSet: async ({ activeBank: selectedBank, pool: selectedPool, count: requestedCount, mode: selectedMode, timed: isTimed, now: startedAt, id: setId, random, randomized: randomizeQuestions, categories: selectedCategories }) => {
+      const progress = await progressMap(selectedBank.id);
+      const ids = chooseQuestionIds(selectedBank, progress, selectedPool, requestedCount, random, selectedCategories, randomizeQuestions);
+      if (!ids.length) return null;
+      return {
+        id: setId,
+        bankId: selectedBank.id,
+        questionIds: ids,
+        index: 0,
+        mode: selectedMode,
+        timed: isTimed,
+        remainingSeconds: isTimed ? Math.ceil(ids.length * 70.6) : 0,
+        submitted: false,
+        startedAt,
+        completedAt: null,
+      };
+    },
+  });
+
+  if (!session) return alert('No questions are available in that pool for the selected decks.');
+
+  activeSet = {
+    ...session,
+    answers: new Map(),
+    submitted: false,
+    completedAt: null,
+  };
+  await saveActiveSet();
+  await renderQuestion();
+}
+
+async function openSpecificQuestion(questionId) {
+  if (activeSet && !activeSet.submitted && !confirm(
+    'Replace the current active set?\n\nIts saved answers will remain in local history, but it will no longer be resumable.'
+  )) return;
+  if (activeSet && !activeSet.submitted) await saveActiveSet('abandoned');
+
+  const selected = activeBank.questions.find((question) => question.id === questionId);
+  if (!selected) return alert('That question is no longer available in the selected deck.');
+  // Preserve an ordered linked-question group as one indivisible study set.
+  const questionIds = selected.linkedGroupId
+    ? activeBank.questions
+      .filter((question) => question.linkedGroupId === selected.linkedGroupId)
+      .sort((a, b) => Number(a.linkedOrder || 0) - Number(b.linkedOrder || 0))
+      .map((question) => question.id)
+    : [selected.id];
+
+  activeSet = {
+    id: crypto.randomUUID(),
+    bankId: activeBank.id,
+    questionIds,
+    index: Math.max(0, questionIds.indexOf(selected.id)),
+    mode: 'tutor',
+    timed: false,
+    remainingSeconds: 0,
+    answers: new Map(),
+    submitted: false,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+  };
+  await saveActiveSet();
+  await renderQuestion();
+}
+
+async function saveActiveSet(status = activeSet?.submitted ? 'completed' : 'active') {
+  if (!activeSet) return;
+  const record = persistenceRecordForSession(activeSet);
+  record.status = status;
+  await updatePracticeSet({ deviceId, record });
+}
+
+function submissionConfirmation() {
+  const answered = [...activeSet.answers.values()].filter(hasQuestionAnswer).length;
+  const unanswered = Math.max(0, activeSet.questionIds.length - answered);
+  return confirm([
+    'Submit this set now?',
+    '',
+    `${answered} answered`,
+    `${unanswered} unanswered (submitted as omitted)`,
+    '',
+    'After submission, the test will be saved in History / Previous tests and can be reviewed later.'
+  ].join('\n'));
+}
+
+// The in-set map deliberately separates completion from correctness. Test mode
+// may show that an answer exists, but it cannot disclose whether it is correct
+// until the full set has been submitted. Tutor mode may disclose a finalized
+// incorrect answer immediately because its explanation is already visible.
+function questionMapState(entry, { mode, submitted, flagged = false, current = false } = {}) {
+  const answered = hasQuestionAnswer(entry);
+  const discloseCorrectness = submitted || (mode === 'tutor' && entry?.finalized === true);
+  const incorrect = answered && discloseCorrectness && entry?.isCorrect === false;
+  return {
+    answered,
+    incorrect,
+    classes: [
+      answered ? 'answered' : 'unanswered',
+      incorrect ? 'incorrect-answer' : '',
+      flagged ? 'flagged' : '',
+      current ? 'current' : '',
+   ].filter(Boolean).join(' '),
   };
 }
 
