@@ -173,3 +173,48 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   expect(observedHeaders.every(Boolean)).toBe(true);
   await secondContext.close();
 });
+
+test("a same-version local seed mismatch does not block Deck Library startup", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
+
+  await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("abpn-study", 2);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const transaction = db.transaction("questionBankContent", "readwrite");
+      const store = transaction.objectStore("questionBankContent");
+      const existing = await new Promise((resolve, reject) => {
+        const request = store.get("ks-psychiatry-core");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      store.put({
+        ...existing,
+        checksum: "same-version-local-mismatch",
+        questions: existing.questions.slice(0, 1),
+      });
+      await new Promise((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  const warnings = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning") warnings.push(message.text());
+  });
+  await page.reload();
+
+  await expect(page.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "K&S Psychiatry Question Bank" })).toBeVisible();
+  expect(warnings.join("\n")).not.toContain("Local deck cache is unavailable");
+  expect(warnings.join("\n")).not.toContain("Updated deck catalog could not be loaded");
+});

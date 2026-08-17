@@ -18,7 +18,7 @@ import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from './client/multi-d
 import { createPracticeSession, persistenceRecordForSession, sessionQuestionContext } from './client/multi-deck-app-session.js';
 import { normalizeStoredSet } from './client/multi-deck-set.js';
 import { setQuestionItems } from './client/multi-deck-runtime.js';
-import { calculateSessionResult, progressEntriesForSession, totalAnswerTimeMs } from './client/multi-deck-results.js';
+import { calculateSessionResult, calculateSessionSectionResults, progressEntriesForSession, totalAnswerTimeMs } from './client/multi-deck-results.js';
 
 // ABPN_MULTI_DECK_RUNTIME_APP_PATCH_V1
 // ABPN_MULTI_DECK_RESULTS_CORRECTNESS_PATCH_V1
@@ -49,6 +49,7 @@ const BUILDER_SETTINGS_PREFIX = 'abpn-study:builder-settings:';
 const MULTI_DECK_BUILDER_KEY = 'abpn-study:multi-deck-builder';
 const deviceId = localStorage.getItem('abpn-study:device-id') || crypto.randomUUID();
 localStorage.setItem('abpn-study:device-id', deviceId);
+const naturalTitleCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 let banks;
 let activeBank;
@@ -192,10 +193,57 @@ async function completedSetHistory(bankId) {
     return {
       record,
       result,
+      sectionResults: calculateSessionSectionResults(banks, normalized, answers, { bankId, hasAnswer: hasQuestionAnswer }),
       percentage: result.total ? Math.round(result.correct / result.total * 100) : 0,
       averageTimeMs: result.answered ? totalTimeMs / result.answered : 0,
     };
   })).then((items) => items.filter(Boolean));
+}
+
+function cumulativeSectionChartMarkup(rows) {
+  if (!rows.length) {
+    return '<div class="empty">Complete questions to graph cumulative test-section score.</div>';
+  }
+
+  const ordered = rows
+    .map((row) => ({ ...row, percentage: row.accuracy == null ? 0 : Math.round(row.accuracy * 100) }))
+    .sort((a, b) => naturalTitleCollator.compare(a.title, b.title));
+
+  return `
+    <div class="section-score-chart" role="img" aria-label="Cumulative score by test section">
+      ${ordered.map((row) => `
+        <div class="section-score-row">
+          <div class="section-score-meta">
+            <strong>${esc(row.title)}</strong>
+            <span>${row.percentage}%</span>
+          </div>
+          <div class="bar section-score-bar" aria-hidden="true"><span style="width:${row.percentage}%"></span></div>
+          <small>${row.answered}/${row.total} answered · ${row.correct} correct</small>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function sectionGradeHistoryMarkup(rows) {
+  if (!rows.length) {
+    return '<div class="empty">Completed test-section grades will appear here after you finish a test.</div>';
+  }
+
+  return `
+    <table class="summary-table">
+      <thead><tr><th>Completed</th><th>Test section</th><th>Score</th><th>Correct</th><th>Mode</th></tr></thead>
+      <tbody>${rows.map((row) => `
+        <tr>
+          <td>${esc(formatDateTime(row.completedAt))}</td>
+          <td>${esc(row.title)}</td>
+          <td>${row.percentage}%</td>
+          <td>${row.correct}/${row.total}</td>
+          <td>${esc(row.mode === 'tutor' ? 'Tutor' : 'Test')}${row.timed ? ' · Timed' : ' · Untimed'}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+  `;
 }
 
 async function initialize() {
@@ -274,6 +322,17 @@ async function renderDashboard() {
   const weakness = buildWeaknessSnapshot(activeBank, progress);
   const weaknessRows = weakness.domains.filter((domain) => domain.usedQuestions > 0);
   const history = await completedSetHistory(activeBank.id);
+  const sectionGradeRows = history
+    .flatMap(({ record, sectionResults }) => sectionResults.map((row) => ({
+      ...row,
+      completedAt: record.completedAt || record.updatedAt,
+      mode: record.mode,
+      timed: record.timed,
+      percentage: row.answered ? Math.round((row.correct / row.answered) * 100) : 0,
+    })))
+    .filter((row) => row.total > 0)
+    .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt))
+      || naturalTitleCollator.compare(a.title, b.title));
   const resumable = activeSet && !activeSet.submitted && (activeSet.bankId === activeBank.id || activeSet.selectedBankIds?.includes?.(activeBank.id));
   const categories = categoryEntries(activeBank);
   const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title));
@@ -435,6 +494,22 @@ async function renderDashboard() {
           <tbody>${sectionRows.map((row) => `<tr><td>${esc(row.title)}</td><td>${row.answered}/${row.total}</td><td>${Math.round(row.accuracy * 100)}%</td></tr>`).join('')}</tbody>
         </table>
       ` : '<div class="empty">Complete questions to build test-section analytics.</div>'}
+      <div class="section-heading analytics-subsection">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">UWORLD-LIKE SECTION VIEW</div>
+          <h3>Cumulative score by test section</h3>
+          <p class="muted">Each bar shows your current cumulative score for that source test section.</p>
+        </div>
+      </div>
+      ${cumulativeSectionChartMarkup(sectionRows)}
+      <div class="section-heading analytics-subsection">
+        <div>
+          <div class="eyebrow" style="color:var(--blue)">COMPLETED TESTS</div>
+          <h3>Completed test grades by test section</h3>
+          <p class="muted">Every finished test keeps its section-level grade so you can review how each source test is going over time.</p>
+        </div>
+      </div>
+      ${sectionGradeHistoryMarkup(sectionGradeRows)}
       <div class="section-heading analytics-subsection">
         <div>
           <div class="eyebrow" style="color:var(--blue)">LOCAL-ONLY · LIMITED EVIDENCE</div>

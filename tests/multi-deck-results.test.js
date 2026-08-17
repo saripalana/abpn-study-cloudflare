@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   calculateSessionResult,
+  calculateSessionSectionResults,
   isSessionAnswerCorrect,
   progressEntriesForSession,
   totalAnswerTimeMs,
@@ -75,6 +76,67 @@ test("omitted answers remain attributed to their original deck", () => {
   const result = calculateSessionResult(decks, set, answers);
   assert.equal(result.omitted, 1);
   assert.equal(result.byBank.find((bank) => bank.bankId === "spiegel").omitted, 1);
+});
+
+test("section results preserve per-test grades for the requested bank only", () => {
+  const sectionDecks = [
+    {
+      id: "ks",
+      title: "K&S",
+      shortTitle: "K&S",
+      questions: [
+        { id: "1", correctLetter: "A", chapterTitle: "Test 1" },
+        { id: "2", correctLetter: "B", chapterTitle: "Test 1" },
+        { id: "3", correctLetter: "C", chapterTitle: "Test 2" },
+      ],
+      byId: new Map([
+        ["1", { id: "1", correctLetter: "A", chapterTitle: "Test 1" }],
+        ["2", { id: "2", correctLetter: "B", chapterTitle: "Test 1" }],
+        ["3", { id: "3", correctLetter: "C", chapterTitle: "Test 2" }],
+      ]),
+    },
+    {
+      id: "spiegel",
+      title: "Spiegel",
+      shortTitle: "Spiegel",
+      questions: [{ id: "1", correctLetter: "D", chapterTitle: "Test 9" }],
+      byId: new Map([["1", { id: "1", correctLetter: "D", chapterTitle: "Test 9" }]]),
+    },
+  ];
+  const sectionSet = createMultiDeckSetRecord({
+    id: "set-2",
+    references: [
+      encodeQuestionRef("ks", "1"),
+      encodeQuestionRef("ks", "2"),
+      encodeQuestionRef("ks", "3"),
+      encodeQuestionRef("spiegel", "1"),
+    ],
+    selectedBankIds: ["ks", "spiegel"],
+    mode: "test",
+    timed: false,
+    remainingSeconds: 0,
+    startedAt: "2026-07-23T00:00:00.000Z",
+  });
+  const answers = new Map([
+    [encodeQuestionRef("ks", "1"), { selectedAnswer: "A" }],
+    [encodeQuestionRef("ks", "2"), { selectedAnswer: "A" }],
+    [encodeQuestionRef("ks", "3"), { selectedAnswer: "C" }],
+    [encodeQuestionRef("spiegel", "1"), { selectedAnswer: "D" }],
+  ]);
+  assert.deepEqual(
+    calculateSessionSectionResults(sectionDecks, sectionSet, answers, { bankId: "ks" }).map((row) => ({
+      title: row.title,
+      total: row.total,
+      correct: row.correct,
+      incorrect: row.incorrect,
+      omitted: row.omitted,
+      accuracy: row.accuracy,
+    })),
+    [
+      { title: "Test 1", total: 2, correct: 1, incorrect: 1, omitted: 0, accuracy: 0.5 },
+      { title: "Test 2", total: 1, correct: 1, incorrect: 0, omitted: 0, accuracy: 1 },
+    ],
+  );
 });
 
 test("progress entries carry original bank and question identifiers", () => {

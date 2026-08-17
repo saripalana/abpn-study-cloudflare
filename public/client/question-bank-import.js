@@ -307,13 +307,21 @@ export async function installQuestionBankPackage(prepared, { reservedIds = [] } 
 export async function installSeedQuestionBanks(seedDefinitions = []) {
   const results = [];
   for (const definition of seedDefinitions) {
-    const prepared = await prepareQuestionBankPackage({
-      format: QUESTION_BANK_PACKAGE_FORMAT,
-      schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
-      bank: { ...definition, protected: false },
-    });
-    const installed = await installQuestionBankPackage(prepared);
-    results.push({ id: definition.id, status: installed.status, bank: installed.bank });
+    try {
+      const prepared = await prepareQuestionBankPackage({
+        format: QUESTION_BANK_PACKAGE_FORMAT,
+        schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
+        bank: { ...definition, protected: false },
+      });
+      const installed = await installQuestionBankPackage(prepared);
+      results.push({ id: definition.id, status: installed.status, bank: installed.bank });
+    } catch (error) {
+      results.push({
+        id: definition.id,
+        status: "skipped",
+        reason: String(error?.message || error),
+      });
+    }
   }
   return results;
 }

@@ -689,6 +689,28 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   font-size: 12px;
 }
 
+.section-score-chart {
+  display: grid;
+  gap: 12px;
+}
+
+.section-score-row {
+  display: grid;
+  gap: 6px;
+}
+
+.section-score-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.section-score-meta strong { font-size: 13px; }
+.section-score-meta span { color: var(--navy); font-weight: 700; }
+.section-score-row small { color: var(--muted); }
+.section-score-bar { height: 12px; }
+
 .bar { height: 8px; border-radius: 999px; background: #e7edf2; overflow: hidden; }
 .bar span { display: block; height: 100%; background: var(--blue); }
 
