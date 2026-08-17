@@ -496,8 +496,9 @@ async function renderDashboard() {
       ` : '<div class="empty">Complete questions to build test-section analytics.</div>'}
       <div class="section-heading analytics-subsection">
         <div>
-          <div class="eyebrow" style="color:var(--blue)">SET HISTORY</div>
+          <div class="eyebrow" style="color:var(--blue)">UWORLD-LIKE SECTION VIEW</div>
           <h3>Cumulative score by test section</h3>
+          <p class="muted">Each bar shows your current cumulative score for that source test section.</p>
         </div>
       </div>
       ${cumulativeSectionChartMarkup(sectionRows)}
@@ -505,6 +506,7 @@ async function renderDashboard() {
         <div>
           <div class="eyebrow" style="color:var(--blue)">COMPLETED TESTS</div>
           <h3>Completed test grades by test section</h3>
+          <p class="muted">Every finished test keeps its section-level grade so you can review how each source test is going over time.</p>
         </div>
       </div>
       ${sectionGradeHistoryMarkup(sectionGradeRows)}
@@ -533,121 +535,143 @@ async function renderDashboard() {
           <p class="muted">While enabled, coaching data refreshes automatically after study changes. It includes performance, timing, flags, subjects, test sections, and attempted, flagged, or annotated question details with choices, answers, explanations, and notes. Credentials and unrelated browser or device data are never included.</p>
         </div>
       </div>
-      <div class="study-coach-attachment"></div>
+      <label class="assistant-permission" for="studyCoachPermission">
+        <input id="studyCoachPermission" type="checkbox">
+        <span><strong>Allow Study Coach access until I revoke it</strong><small>This broader permission requires a fresh approval. Revoking stops access without deleting the stored data; deletion remains a separate action.</small></span>
+      </label>
+      <div class="actions">
+        <button id="refreshStudyCoachBtn" class="primary" type="button" disabled>Refresh now</button>
+        <button id="verifyStudyCoachAccessBtn" class="secondary" type="button" disabled>Verify access</button>
+        <button id="revokeStudyCoachBtn" class="secondary" type="button" disabled>Revoke access</button>
+        <button id="deleteStudyCoachDataBtn" class="secondary danger" type="button" disabled>Delete shared study data</button>
+      </div>
+      <p id="studyCoachStatus" class="muted" aria-live="polite"></p>
     </section>
 
-    <section class="card dashboard-section">
-      <div class="section-heading">
-        <div>
-          <div class="eyebrow" style="color:var(--blue)">RECOVERY</div>
-          <h3>Backup data</h3>
+    <section id="deckLibraryManagement" class="card dashboard-section">
+      <div class="eyebrow" style="color:var(--blue)">DECK LIBRARY</div>
+      <h3>Data protection</h3>
+      <p class="muted">Three clear recovery destinations protect the same complete study workspace. Synchronization remains separate from point-in-time backups.</p>
+      <p class="notice"><strong>Automatic local saving:</strong> answers and progress save to this browser immediately. A recoverable snapshot is also created before destructive actions.</p>
+      <div id="recoveryDestinations" class="recovery-destinations" aria-live="polite"></div>
+      <div class="deck-management-block">
+        <h4>Question-bank management</h4>
+        <p class="muted">Install or export individual versioned question-bank packages. These controls do not replace a complete workspace backup.</p>
+        <div id="deckManagementActions" class="actions">
+        <button id="importBankBtn" class="secondary" type="button" disabled>Import question bank</button>
         </div>
       </div>
-      <p class="muted">Create a local recovery snapshot JSON file containing decks, sets, answers, and progress. Store it outside shared systems.</p>
-      <div class="actions"><button id="exportBtn" class="secondary" type="button">Download recovery backup</button></div>
     </section>
+
+    <footer class="release-footer">Version 1.0 · Protected local-first study workspace</footer>
   `;
+
+  // Bind core study controls before starting the optional assistant status
+  // request. The assistant section reference is render-specific, so a slow
+  // response cannot mutate a newer dashboard after the user changes decks.
+  const assistantSection = document.getElementById('studyCoachSection');
+
+  document.getElementById('startBtn').onclick = startSet;
+  document.querySelectorAll('.question-browser-number').forEach((button) => {
+    button.ondblclick = () => openSpecificQuestion(button.dataset.questionId);
+    button.onkeydown = (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openSpecificQuestion(button.dataset.questionId);
+    };
+  });
+  document.getElementById('questionBrowserSearch').oninput = (event) => {
+    const query = event.target.value.trim().toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('.question-browser-number').forEach((row) => {
+      row.hidden = Boolean(query) && !row.dataset.search.includes(query);
+      if (!row.hidden) visible += 1;
+    });
+    document.getElementById('questionBrowserEmpty').hidden = visible > 0;
+  };
+  document.getElementById('resumeBtn')?.addEventListener('click', renderQuestion);
+  document.getElementById('importBankBtn').onclick = () => {
+    alert('Additional bank import validation will be added before external banks are accepted.');
+  };
+  document.querySelectorAll('.review-history-btn').forEach((button) => {
+    button.addEventListener('click', () => openCompletedSet(button.dataset.setId));
+  });
+
+  const subjectInputs = [...document.querySelectorAll('input[name="subjectFilter"]')];
+  const countInput = document.getElementById('countInput');
+  const modeSelect = document.getElementById('modeSelect');
+  const timingSelect = document.getElementById('timingSelect');
+  const poolSelect = document.getElementById('poolSelect');
+  const randomizeOrder = document.getElementById('randomizeOrder');
+  const eligibleCount = document.getElementById('eligibleCount');
+  const subjectSummary = document.getElementById('subjectSummary');
+  const startButton = document.getElementById('startBtn');
+  let preferredCount = builder.count;
+
+  const updateBuilderAvailability = ({ countChanged = false } = {}) => {
+    const selectedCategories = selectedSubjectCategories();
+    const eligible = eligibleQuestionIds(activeBank, progress, poolSelect.value, selectedCategories);
+    if (countChanged) {
+      preferredCount = Math.min(
+        activeBank.questions.length,
+        Math.max(1, Math.trunc(Number(countInput.value)) || 1)
+      );
+    }
+    const displayedCount = eligible.length ? Math.min(preferredCount, eligible.length) : preferredCount;
+    const capped = eligible.length > 0 && displayedCount < preferredCount;
+
+    countInput.value = String(displayedCount);
+    countInput.max = String(Math.max(1, eligible.length));
+    startButton.disabled = eligible.length === 0;
+
+    subjectSummary.textContent = selectedCategories.length === categories.length
+      ? `All ${categories.length} selected`
+      : selectedCategories.length
+        ? `${selectedCategories.length} of ${categories.length} selected`
+        : 'No subjects selected';
+    eligibleCount.textContent = eligible.length
+      ? `${eligible.length} question${eligible.length === 1 ? '' : 's'} available${capped ? '; requested set size adjusted to match.' : '.'}`
+      : 'No questions match the selected subjects and question status.';
+    eligibleCount.dataset.empty = eligible.length ? 'false' : 'true';
+
+    localStorage.setItem(`${BUILDER_SETTINGS_PREFIX}${activeBank.id}`, JSON.stringify({
+      schemaVersion: 1,
+      count: preferredCount,
+      mode: modeSelect.value,
+      timing: timingSelect.value,
+      pool: poolSelect.value,
+      randomized: randomizeOrder.checked,
+      categories: selectedCategories.length === categories.length ? null : selectedCategories
+    }));
+  };
 
   bindMultiDeckSelector(app, {
     decks: banks,
     activeBankId: activeBank.id,
+    settings: multiDeckBuilder,
     onChange: (settings) => {
       localStorage.setItem(MULTI_DECK_BUILDER_KEY, JSON.stringify({ schemaVersion: 1, ...settings }));
-      updateBuilderAvailability();
+      const combined = settings.scope !== DECK_SCOPE_CURRENT;
+      startButton.textContent = combined ? 'Start combined set' : 'Start set';
+      startButton.disabled = false;
+      if (combined) {
+        eligibleCount.textContent = document.getElementById('deckScopeAvailability')?.textContent || 'Selected study decks ready.';
+        eligibleCount.dataset.empty = 'false';
+      } else {
+        updateBuilderAvailability();
+      }
     },
   });
-  document.querySelectorAll('.review-history-btn').forEach((button) => button.addEventListener('click', () => openCompletedSet(button.dataset.setId)));
-  document.getElementById('resumeBtn')?.addEventListener('click', renderQuestion);
-  document.getElementById('startBtn').addEventListener('click', startSet);
-  document.getElementById('exportBtn').addEventListener('click', async () => {
-    const snapshot = await createRecoverySnapshot();
-    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
-    const anchor = document.createElement('a');
-    anchor.href = URL.createObjectURL(blob);
-    anchor.download = `abpn-study-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-    anchor.click();
-    URL.revokeObjectURL(anchor.href);
-  });
-  document.querySelectorAll('.question-browser-number').forEach((button) => {
-    button.addEventListener('dblclick', () => openSpecificQuestion(button.dataset.questionId));
-  });
-  const browserSearch = document.getElementById('questionBrowserSearch');
-  const browserButtons = [...document.querySelectorAll('.question-browser-number')];
-  const browserEmpty = document.getElementById('questionBrowserEmpty');
-  const runQuestionBrowserFilter = () => {
-    const query = browserSearch.value.trim().toLowerCase();
-    let visible = 0;
-    browserButtons.forEach((button) => {
-      const match = !query || button.dataset.search.includes(query);
-      button.hidden = !match;
-      if (match) visible += 1;
-    });
-    browserEmpty.hidden = visible !== 0;
-  };
-  browserSearch?.addEventListener('input', runQuestionBrowserFilter);
-  runQuestionBrowserFilter();
 
-  const countInput = document.getElementById('countInput');
-  const poolSelect = document.getElementById('poolSelect');
-  const modeSelect = document.getElementById('modeSelect');
-  const timingSelect = document.getElementById('timingSelect');
-  const randomizeOrder = document.getElementById('randomizeOrder');
-  const eligibleCount = document.getElementById('eligibleCount');
-  const subjectSummary = document.getElementById('subjectSummary');
-  const selectAllSubjectsBtn = document.getElementById('selectAllSubjectsBtn');
-  const clearSubjectsBtn = document.getElementById('clearSubjectsBtn');
-  const subjectInputs = [...document.querySelectorAll('input[name="subjectFilter"]')];
-  const subjectPicker = document.getElementById('subjectPicker');
-  let preferredCount = Number(builder.count) || Math.min(40, activeBank.questions.length);
-
-  const updateBuilderAvailability = ({ countChanged = false } = {}) => {
-    const categories = selectedSubjectCategories();
-    subjectSummary.textContent = categories.length === subjectInputs.length
-      ? 'All subjects'
-      : categories.length
-        ? `${categories.length} selected`
-        : 'No subjects selected';
-    const scopedSettings = readMultiDeckSelector(app, { decks: banks, activeBankId: activeBank.id });
-    const categoriesByBank = categoriesByDeckForSession(banks, activeBank.id, categories);
-    const targetDecks = buildBankCatalog(QUESTION_BANKS).filter((deck) => scopedSettings.selectedBankIds.includes(deck.id));
-    const eligibleTotal = targetDecks.reduce((total, deck) => {
-      const deckProgress = deck.id === activeBank.id ? progress : null;
-      const deckCategories = categoriesByBank.get(deck.id) || [];
-      return total + eligibleQuestionIds(deck, deckProgress || new Map(), poolSelect.value, deckCategories).length;
-    }, 0);
-    const max = Math.max(1, eligibleTotal || activeBank.questions.length);
-    countInput.max = String(max);
-    if (countChanged) {
-      preferredCount = Math.max(1, Math.min(max, Math.trunc(Number(countInput.value) || preferredCount || 1)));
-    }
-    const displayCount = Math.max(1, Math.min(max, preferredCount));
-    countInput.value = String(displayCount);
-    const scopeLabel = targetDecks.length > 1 ? `${targetDecks.length} decks` : 'selected deck';
-    eligibleCount.textContent = eligibleTotal
-      ? `${eligibleTotal} eligible questions across the ${scopeLabel}. Starting now uses ${Math.min(displayCount, eligibleTotal)} question${Math.min(displayCount, eligibleTotal) === 1 ? '' : 's'} in ${modeSelect.value} mode${timingSelect.value === 'timed' ? ' with timing' : ''}${randomizeOrder.checked ? ', randomized' : ''}.`
-      : 'No questions match the current filters.';
-    document.getElementById('startBtn').disabled = !eligibleTotal || !categories.length;
-    localStorage.setItem(`${BUILDER_SETTINGS_PREFIX}${activeBank.id}`, JSON.stringify({
-      count: displayCount,
-      pool: poolSelect.value,
-      mode: modeSelect.value,
-      timing: timingSelect.value,
-      randomized: randomizeOrder.checked,
-      categories,
-      updatedAt: new Date().toISOString(),
-    }));
-  };
-
-  subjectInputs.forEach((input) => input.addEventListener('change', updateBuilderAvailability));
-  selectAllSubjectsBtn.addEventListener('click', () => {
+  document.getElementById('selectAllSubjectsBtn').onclick = () => {
     subjectInputs.forEach((input) => { input.checked = true; });
     updateBuilderAvailability();
-  });
-  clearSubjectsBtn.addEventListener('click', () => {
+  };
+  document.getElementById('clearSubjectsBtn').onclick = () => {
     subjectInputs.forEach((input) => { input.checked = false; });
-    subjectPicker.open = true;
     updateBuilderAvailability();
-  });
+  };
+  subjectInputs.forEach((input) => input.addEventListener('change', updateBuilderAvailability));
   countInput.addEventListener('input', () => {
     const nextCount = Number(countInput.value);
     if (Number.isFinite(nextCount) && nextCount >= 1) {
@@ -860,7 +884,7 @@ async function renderQuestion() {
   const flagged = progress.get(context.questionId)?.isFlagged;
   const allSessionIndexes = items.map((_, index) => index);
   const reviewIndexes = activeSet.submitted && Array.isArray(reviewQuestionIndexes)
-    ? reviewIndexes.filter((index) => Number.isInteger(index) && index >= 0 && index < items.length)
+    ? reviewQuestionIndexes.filter((index) => Number.isInteger(index) && index >= 0 && index < items.length)
     : allSessionIndexes;
   if (!reviewIndexes.length) return renderResults();
   if (!reviewIndexes.includes(activeSet.index)) activeSet.index = reviewIndexes[0];
