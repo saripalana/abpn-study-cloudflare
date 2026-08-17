@@ -15,10 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
+          package-manager-cache: false
       - name: Install dependencies
         run: npm ci --silent
       - name: Verify pinned K&S source, unit tests, and Worker build
@@ -27,7 +28,7 @@ jobs:
         run: npm run verify > verify.log 2>&1
       - name: Upload verification log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: verification-log
           path: verify.log
@@ -52,7 +53,7 @@ jobs:
         run: timeout --signal=TERM --kill-after=30s 20m npx playwright install --with-deps chromium webkit > playwright-install.log 2>&1
       - name: Upload Playwright installation log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-install-log
           path: playwright-install.log
@@ -89,7 +90,7 @@ jobs:
         run: timeout --signal=TERM --kill-after=10s 90s npx playwright test tests/e2e/import-button.spec.js --project=chromium-desktop --workers=1 --retries=0 --reporter=json > import-button-report.json
       - name: Upload import smoke report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: import-button-report
           path: |
@@ -110,7 +111,7 @@ jobs:
           timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=chromium-desktop --grep-invert='Import question bank opens' --workers=1 --reporter=json > desktop-chrome-report.json
       - name: Upload desktop Chrome report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-chrome-report
           path: |
@@ -131,7 +132,7 @@ jobs:
           timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=iphone-13-safari --workers=1 --reporter=json > iphone-safari-report.json
       - name: Upload iPhone Safari report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: iphone-safari-report
           path: |
@@ -151,7 +152,7 @@ jobs:
           fi
       - name: Upload validation server log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: validation-server-log
           path: validation-server.log
