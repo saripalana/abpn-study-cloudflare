@@ -55,6 +55,7 @@ export function buildWeaknessSnapshot(bank, progress, suppliedOptions = {}) {
     groups.set(title, row);
   }
 
+  const largestDomainQuestionCount = Math.max(1, ...[...groups.values()].map((row) => row.totalQuestions));
   const domains = [...groups.values()].map((row) => {
     // A Beta(1,1) prior keeps very small samples from displaying false certainty.
     const smoothedAccuracy = (row.currentCorrect + 1) / (row.usedQuestions + 2);
@@ -64,12 +65,17 @@ export function buildWeaknessSnapshot(bank, progress, suppliedOptions = {}) {
     const daysSinceUse = row.mostRecentMs == null ? null : Math.max(0, (nowMs - row.mostRecentMs) / 86_400_000);
     const recency = daysSinceUse == null ? 0 : clamp(1 - daysSinceUse / options.recentWindowDays);
     const evidenceWeight = clamp(row.usedQuestions / minimumEvidence);
+    const questionShare = clamp(row.totalQuestions / largestDomainQuestionCount);
     const evidence = row.usedQuestions === 0 ? 'none' : row.usedQuestions < minimumEvidence ? 'limited' : 'adequate';
 
     // Accuracy leads; speed and recency are diagnostic modifiers. Evidence
     // weighting prevents a single question from dominating the priority list.
     const rawPriority = 0.75 * (1 - smoothedAccuracy) + 0.15 * speedExcess + 0.10 * recency;
     const priorityScore = row.usedQuestions ? Math.round(100 * rawPriority * (0.5 + 0.5 * evidenceWeight)) : null;
+    // Study ranking should favor weak areas that also cover more exam points.
+    const studyPriorityScore = row.usedQuestions
+      ? Math.round((priorityScore || 0) * (0.6 + 0.4 * questionShare))
+      : null;
     const mastered = evidence === 'adequate'
       && smoothedAccuracy >= options.masteryAccuracy
       && (speedRatio == null || speedRatio <= options.masterySpeedRatio);
@@ -83,11 +89,17 @@ export function buildWeaknessSnapshot(bank, progress, suppliedOptions = {}) {
       averageTimeMs,
       speedRatio,
       daysSinceUse,
+      questionShare,
       evidence,
       priorityScore,
+      studyPriorityScore,
       mastered,
     };
-  }).sort((a, b) => (b.priorityScore ?? -1) - (a.priorityScore ?? -1) || a.title.localeCompare(b.title));
+  }).sort((a, b) =>
+    (b.studyPriorityScore ?? -1) - (a.studyPriorityScore ?? -1)
+    || (b.priorityScore ?? -1) - (a.priorityScore ?? -1)
+    || (b.usedQuestions ?? 0) - (a.usedQuestions ?? 0)
+    || a.title.localeCompare(b.title));
 
   const adequateDomains = domains.filter((domain) => domain.evidence === 'adequate').length;
   const masteredDomains = domains.filter((domain) => domain.mastered).length;

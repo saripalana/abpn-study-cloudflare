@@ -31,6 +31,7 @@ test('ranks a supported weak and slow domain above a stronger domain', () => {
   assert.equal(snapshot.evidenceModel, 'limited-current-state');
   assert.equal(snapshot.domains[0].title, 'Psychosis');
   assert.equal(snapshot.domains[0].evidence, 'adequate');
+  assert.ok(snapshot.domains[0].studyPriorityScore >= snapshot.domains[0].priorityScore * 0.6);
   assert.ok(snapshot.domains[0].priorityScore > snapshot.domains[1].priorityScore);
   assert.equal(snapshot.evidenceCoverage, 1);
 });
@@ -53,6 +54,26 @@ test('is deterministic when the calculation time is supplied', () => {
     buildWeaknessSnapshot(bank, progress, { now }),
     buildWeaknessSnapshot(bank, progress, { now }),
   );
+});
+
+test('weights equally weak subjects by subject size for study prioritization', () => {
+  const weightedBank = {
+    questions: [
+      ...Array.from({ length: 10 }, (_, index) => ({ id: `large-${index}`, chapterTitle: 'Large', subjectTitle: 'Large', question: `Large ${index}`, vignetteStem: '', choices: ['One', 'Two'], choiceLetters: ['A', 'B'], correctLetters: ['B'], answerText: 'B', explanation: 'Large explanation' })),
+      ...Array.from({ length: 2 }, (_, index) => ({ id: `small-${index}`, chapterTitle: 'Small', subjectTitle: 'Small', question: `Small ${index}`, vignetteStem: '', choices: ['One', 'Two'], choiceLetters: ['A', 'B'], correctLetters: ['B'], answerText: 'B', explanation: 'Small explanation' })),
+    ],
+  };
+  const weightedProgress = new Map([
+    ['large-0', { timesUsed: 1, isCorrect: false, totalTimeMs: 3_000, lastUsedAt: now }],
+    ['small-0', { timesUsed: 1, isCorrect: false, totalTimeMs: 3_000, lastUsedAt: now }],
+  ]);
+
+  const snapshot = buildWeaknessSnapshot(weightedBank, weightedProgress, { now, minimumEvidenceQuestions: 1 });
+  const large = snapshot.domains.find((domain) => domain.title === 'Large');
+  const small = snapshot.domains.find((domain) => domain.title === 'Small');
+  assert.ok(large.priorityScore === small.priorityScore);
+  assert.ok(large.studyPriorityScore > small.studyPriorityScore);
+  assert.equal(snapshot.domains[0].title, 'Large');
 });
 
 test('Study Coach dataset includes coaching-relevant content but excludes unrelated data', () => {

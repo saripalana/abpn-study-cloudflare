@@ -80,6 +80,49 @@ const formatSeconds = (milliseconds) => {
   return `${minutes}m ${remainder}s`;
 };
 
+function questionStatus(record) {
+  const used = Number(record?.timesUsed || 0) > 0;
+  if (!used) return 'New';
+  if (record?.isCorrect === true) return 'Correct';
+  if (record?.isCorrect === false) return 'Wrong';
+  return 'Unanswered';
+}
+
+function mergedSubjectPriorityRows(bank, progress, subjectRows, weaknessRows) {
+  const subjectStatsByTitle = new Map(subjectRows.map((row) => [row.title, row]));
+  const questionsBySubject = new Map();
+
+  bank.questions.forEach((question, index) => {
+    const title = question.subjectTitle || question.chapterTitle || 'Uncategorized';
+    const rows = questionsBySubject.get(title) || [];
+    const record = progress.get(question.id);
+    rows.push({
+      id: question.id,
+      number: index + 1,
+      status: questionStatus(record),
+      used: Number(record?.timesUsed || 0) > 0,
+    });
+    questionsBySubject.set(title, rows);
+  });
+
+  return weaknessRows.map((domain) => {
+    const stats = subjectStatsByTitle.get(domain.title) || {
+      answered: domain.usedQuestions,
+      total: domain.totalQuestions,
+      accuracy: null,
+    };
+    const questions = questionsBySubject.get(domain.title) || [];
+    return {
+      title: domain.title,
+      priorityScore: domain.studyPriorityScore ?? domain.priorityScore,
+      used: `${stats.answered}/${stats.total}`,
+      accuracy: stats.accuracy == null ? '—' : `${Math.round(stats.accuracy * 100)}%`,
+      evidence: `${domain.evidence} · ${domain.usedQuestions}/${domain.totalQuestions} used`,
+      questions,
+    };
+  });
+}
+
 const formatDateTime = (value) => {
   if (!value || !Number.isFinite(Date.parse(value))) return 'Date unavailable';
   return new Date(value).toLocaleString([], {
@@ -321,6 +364,7 @@ async function renderDashboard() {
   const sectionRows = categoryStatistics(activeBank, progress).filter((row) => row.answered);
   const weakness = buildWeaknessSnapshot(activeBank, progress);
   const weaknessRows = weakness.domains.filter((domain) => domain.usedQuestions > 0);
+  const mergedPriorityRows = mergedSubjectPriorityRows(activeBank, progress, subjectRows, weaknessRows);
   const history = await completedSetHistory(activeBank.id);
   const sectionGradeRows = history
     .flatMap(({ record, sectionResults }) => sectionResults.map((row) => ({
@@ -340,8 +384,7 @@ async function renderDashboard() {
   const installedDeckCount = banks.filter(isUserSelectableDeck).length;
   const questionBrowserRows = activeBank.questions.map((question, index) => {
     const record = progress.get(question.id);
-    const used = Number(record?.timesUsed || 0) > 0;
-    const status = !used ? 'New' : record?.isCorrect === true ? 'Correct' : record?.isCorrect === false ? 'Wrong' : 'Unanswered';
+    const status = questionStatus(record);
     const preview = question.vignetteStem || question.question;
     const subject = question.subjectTitle || question.chapterTitle || 'Uncategorized';
     return `<button class="question-browser-number ${status.toLowerCase()}" type="button" aria-label="Question ${index + 1}, ${status}. Double-click to open." title="${esc(subject)} · ${status}" data-question-id="${esc(question.id)}" data-search="${esc(`${index + 1} ${subject} ${preview} ${status}`.toLowerCase())}">${index + 1}</button>`;
@@ -472,16 +515,42 @@ async function renderDashboard() {
     <section id="analyticsSection" class="card dashboard-section">
       <div class="section-heading">
         <div>
-          <div class="eyebrow" style="color:var(--blue)">ANALYTICS</div>
-          <h3>Performance by subject</h3>
+          <div class="eyebrow" style="color:var(--blue)">LOCAL-ONLY · LIMITED EVIDENCE</div>
+          <h3>Performance and priorities by subject</h3>
+          <p class="muted">Weakness ranking is weighted by current accuracy, evidence, recent use, time, and subject size so bigger weak areas rise first.</p>
         </div>
+        <span class="pill">${Math.round((weakness.masteryCoverage || 0) * 100)}% mastery coverage</span>
       </div>
-      ${subjectRows.length ? `
+      ${mergedPriorityRows.length ? `
         <table class="summary-table">
-          <thead><tr><th>Subject</th><th>Used</th><th>Accuracy</th></tr></thead>
-          <tbody>${subjectRows.map((row) => `<tr><td>${esc(row.title)}</td><td>${row.answered}/${row.total}</td><td>${Math.round(row.accuracy * 100)}%</td></tr>`).join('')}</tbody>
+          <thead><tr><th>Subject</th><th>Priority</th><th>Used</th><th>Accuracy</th><th>Evidence</th><th>Questions</th></tr></thead>
+          <tbody>${mergedPriorityRows.map((row) => `
+            <tr>
+              <td>${esc(row.title)}</td>
+              <td>${row.priorityScore}/100</td>
+              <td>${row.used}</td>
+              <td>${row.accuracy}</td>
+              <td>${esc(row.evidence)}</td>
+              <td>
+                <details class="analytics-question-details">
+                  <summary>${row.questions.filter((question) => question.used).length}/${row.questions.length} used</summary>
+                  <div class="analytics-question-list">
+                    ${row.questions.map((question) => `
+                      <button
+                        class="analytics-question-link ${question.status.toLowerCase()}"
+                        type="button"
+                        title="Question ${question.number} · ${question.status}"
+                        data-question-id="${esc(question.id)}"
+                      >${question.number}</button>
+                    `).join('')}
+                  </div>
+                </details>
+              </td>
+            </tr>
+          `).join('')}</tbody>
         </table>
-      ` : '<div class="empty">Complete questions to build analytics.</div>'}
+        <p class="muted">Adequate evidence in ${Math.round((weakness.evidenceCoverage || 0) * 100)}% of subjects. More completed questions improve reliability.</p>
+      ` : '<div class="empty">Complete questions to build subject priorities.</div>'}
       <div class="section-heading analytics-subsection">
         <div>
           <div class="eyebrow" style="color:var(--blue)">SOURCE VIEW</div>
@@ -510,21 +579,6 @@ async function renderDashboard() {
         </div>
       </div>
       ${sectionGradeHistoryMarkup(sectionGradeRows)}
-      <div class="section-heading analytics-subsection">
-        <div>
-          <div class="eyebrow" style="color:var(--blue)">LOCAL-ONLY · LIMITED EVIDENCE</div>
-          <h3>Weakness priorities</h3>
-          <p class="muted">A planning aid based on current correctness, recent use, and time. It is not attempt history or a prediction.</p>
-        </div>
-        <span class="pill">${Math.round((weakness.masteryCoverage || 0) * 100)}% mastery coverage</span>
-      </div>
-      ${weaknessRows.length ? `
-        <table class="summary-table">
-          <thead><tr><th>Domain</th><th>Priority</th><th>Evidence</th></tr></thead>
-          <tbody>${weaknessRows.map((domain) => `<tr><td>${esc(domain.title)}</td><td>${domain.priorityScore}/100</td><td>${esc(domain.evidence)} · ${domain.usedQuestions}/${domain.totalQuestions} used</td></tr>`).join('')}</tbody>
-        </table>
-        <p class="muted">Adequate evidence in ${Math.round((weakness.evidenceCoverage || 0) * 100)}% of domains. More completed questions improve reliability.</p>
-      ` : '<div class="empty">Complete questions to build local weakness priorities.</div>'}
     </section>
 
     <section id="studyCoachSection" class="card dashboard-section">
@@ -579,6 +633,9 @@ async function renderDashboard() {
       event.preventDefault();
       openSpecificQuestion(button.dataset.questionId);
     };
+  });
+  document.querySelectorAll('.analytics-question-link').forEach((button) => {
+    button.onclick = () => openSpecificQuestion(button.dataset.questionId);
   });
   document.getElementById('questionBrowserSearch').oninput = (event) => {
     const query = event.target.value.trim().toLowerCase();

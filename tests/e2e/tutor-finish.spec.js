@@ -177,11 +177,10 @@ test('Tutor mode supports confirmed submission at any point, answer states, and 
   await expect(page.locator('.history-item')).toHaveCount(1);
   await expect(page.locator('.history-item')).toContainText('1 answered');
   await expect(page.locator('.history-item')).toContainText('2 omitted');
-  await expect(page.getByText('Performance by subject')).toBeVisible();
+  await expect(page.getByText('Performance and priorities by subject')).toBeVisible();
   await expect(page.getByText('Performance by test section')).toBeVisible();
   await expect(page.getByText('Cumulative score by test section')).toBeVisible();
   await expect(page.getByText('Completed test grades by test section')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Weakness priorities' })).toBeVisible();
   await expect(page.getByText('LOCAL-ONLY · LIMITED EVIDENCE')).toBeVisible();
   await expect(page.getByText(/limited · 1\/\d+ used/)).toBeVisible();
 

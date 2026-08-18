@@ -60,11 +60,11 @@ test("staging starts clean and reloads retain only the current isolated session"
   await page.getByRole("button", { name: "Submit set" }).click();
   await page.getByRole("button", { name: "Back to dashboard" }).click();
   await expect(page.locator(".history-item")).toHaveCount(1);
-  await expect(page.getByRole("heading", { name: "Performance by subject" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Performance and priorities by subject" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Performance by test section" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Cumulative score by test section" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Completed test grades by test section" })).toBeVisible();
-  await expect(page.locator("#analyticsSection table.summary-table")).toHaveCount(4);
+  await expect(page.locator("#analyticsSection table.summary-table")).toHaveCount(3);
 
   await page.evaluate(() => localStorage.setItem("abpn-study:current-test-artifact", "keep-on-reload"));
   await page.reload();
