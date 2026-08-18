@@ -540,7 +540,7 @@ async function renderDashboard() {
                         class="analytics-question-link ${question.status.toLowerCase()}"
                         type="button"
                         title="Question ${question.number} · ${question.status}"
-                        data-question-id="${esc(question.id)}"
+                        data-analytics-question-id="${esc(question.id)}"
                       >${question.number}</button>
                     `).join('')}
                   </div>
@@ -635,7 +635,7 @@ async function renderDashboard() {
     };
   });
   document.querySelectorAll('.analytics-question-link').forEach((button) => {
-    button.onclick = () => openSpecificQuestion(button.dataset.questionId);
+    button.onclick = () => openSpecificQuestion(button.dataset.analyticsQuestionId);
   });
   document.getElementById('questionBrowserSearch').oninput = (event) => {
     const query = event.target.value.trim().toLowerCase();
