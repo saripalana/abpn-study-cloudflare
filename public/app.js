@@ -533,7 +533,10 @@ async function renderDashboard() {
               <td>${esc(row.evidence)}</td>
               <td>
                 <details class="analytics-question-details">
-                  <summary>${row.questions.filter((question) => question.used).length}/${row.questions.length} used</summary>
+                  <summary>
+                    <span class="analytics-question-summary-label">Show questions</span>
+                    <span class="analytics-question-summary-meta">${row.questions.filter((question) => question.used).length}/${row.questions.length} used</span>
+                  </summary>
                   <div class="analytics-question-list">
                     ${row.questions.map((question) => `
                       <button
@@ -589,6 +592,18 @@ async function renderDashboard() {
           <p class="muted">While enabled, coaching data refreshes automatically after study changes. It includes performance, timing, flags, subjects, test sections, and attempted, flagged, or annotated question details with choices, answers, explanations, and notes. Credentials and unrelated browser or device data are never included.</p>
         </div>
       </div>
+      <div class="study-coach-package-block">
+        <h4>Study Coach package</h4>
+        <p class="muted">Download a full local-first coach package for ChatGPT analysis, publish that package to the restricted Google Drive exchange lane, then pull a constrained Study Coach output file back into this app.</p>
+        <div class="actions">
+          <button id="exportStudyCoachPackageBtn" class="secondary" type="button">Download full coach package</button>
+          <button id="publishStudyCoachPackageBtn" class="secondary" type="button">Publish package to Google Drive</button>
+          <button id="pullStudyCoachOutputBtn" class="secondary" type="button">Pull latest coach output</button>
+          <button id="importStudyCoachOutputBtn" class="secondary" type="button">Import coach output</button>
+          <button id="clearStudyCoachOutputBtn" class="secondary" type="button">Clear coach output</button>
+        </div>
+        <p id="studyCoachPackageStatus" class="muted" aria-live="polite"></p>
+      </div>
       <label class="assistant-permission" for="studyCoachPermission">
         <input id="studyCoachPermission" type="checkbox">
         <span><strong>Allow Study Coach access until I revoke it</strong><small>This broader permission requires a fresh approval. Revoking stops access without deleting the stored data; deletion remains a separate action.</small></span>
@@ -600,6 +615,11 @@ async function renderDashboard() {
         <button id="deleteStudyCoachDataBtn" class="secondary danger" type="button" disabled>Delete shared study data</button>
       </div>
       <p id="studyCoachStatus" class="muted" aria-live="polite"></p>
+      <div class="study-coach-output-block">
+        <h4>Coach outputs</h4>
+        <p class="muted">Imported coaching plans stay local to this study workspace and can be reloaded after backup and restore with the rest of app metadata.</p>
+        <div id="studyCoachOutput" class="study-coach-output" aria-live="polite"></div>
+      </div>
     </section>
 
     <section id="deckLibraryManagement" class="card dashboard-section">

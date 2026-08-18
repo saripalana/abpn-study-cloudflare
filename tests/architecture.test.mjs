@@ -5,8 +5,9 @@ import { readFile } from "node:fs/promises";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("Google Drive recovery is server-only, restricted, and never exposes credentials to browser assets", async () => {
-  const [adapter, worker, browser, storage, production] = await Promise.all([
+  const [adapter, exchange, worker, browser, storage, production] = await Promise.all([
     read("src/google-drive-recovery-api.js"),
+    read("src/google-drive-study-coach-api.js"),
     read("src/worker.js"),
     read("public/backup-controller.js"),
     read("src/client/storage.js"),
@@ -16,7 +17,13 @@ test("Google Drive recovery is server-only, restricted, and never exposes creden
   assert.match(adapter, /GOOGLE_DRIVE_RECOVERY_FOLDER_ID/);
   assert.match(adapter, /appProperties.*abpnRecovery/s);
   assert.match(adapter, /one-per-day-for-three-days/);
+  assert.match(exchange, /GOOGLE_DRIVE_REFRESH_TOKEN/);
+  assert.match(exchange, /GOOGLE_DRIVE_RECOVERY_FOLDER_ID/);
+  assert.match(exchange, /appProperties:\s*\{\s*abpnStudyCoach:\s*"package"/s);
+  assert.match(exchange, /\/api\/study-coach\/google-drive\/package/);
+  assert.match(exchange, /\/api\/study-coach\/google-drive\/output\/latest/);
   assert.match(worker, /handleGoogleDriveRecoveryRequest/);
+  assert.match(worker, /handleGoogleDriveStudyCoachRequest/);
   assert.doesNotMatch(browser, /GOOGLE_DRIVE_(CLIENT|REFRESH|FOLDER)/);
   assert.doesNotMatch(storage, /googleapis\.com|oauth2\.googleapis\.com/);
   assert.doesNotMatch(production, /GOOGLE_DRIVE_CLIENT_SECRET|GOOGLE_DRIVE_REFRESH_TOKEN/);
@@ -66,6 +73,9 @@ test("Study Coach access is private, freshly consented, automatically refreshed,
   assert.match(controller, /On until revoked/);
   assert.match(controller, /deleteStudyCoachDataBtn/);
   assert.match(controller, /scheduleStudyCoachRefresh/);
+  assert.match(controller, /publishStudyCoachPackageBtn/);
+  assert.match(controller, /pullStudyCoachOutputBtn/);
+  assert.match(controller, /\/api\/study-coach\/google-drive/);
   assert.match(staging, /ASSISTANT_WEAKNESS_ENABLED\s*=\s*"true"/);
   assert.match(production, /APP_ENV\s*=\s*"production"/);
   assert.match(production, /ASSISTANT_WEAKNESS_ENABLED\s*=\s*"true"/);

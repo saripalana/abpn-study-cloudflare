@@ -1,6 +1,7 @@
 import { handleDeckLibraryRequest } from "./deck-library-api.js";
 import { handleStarterDeckSourceRequest } from "./starter-deck-source.js";
 import { handleAssistantWeaknessRequest } from "./assistant-weakness-api.js";
+import { handleGoogleDriveStudyCoachRequest } from "./google-drive-study-coach-api.js";
 import { handleRecoveryBundleRequest } from "./recovery-bundle-api.js";
 import { handleGoogleDriveRecoveryRequest } from "./google-drive-recovery-api.js";
 
@@ -791,6 +792,14 @@ async function routeApi(request, env) {
     parseBoundedJson,
   });
   if (assistantResponse) return assistantResponse;
+
+  const studyCoachDriveResponse = await handleGoogleDriveStudyCoachRequest(request, env, {
+    json,
+    requireSyncReady,
+    requireContext,
+    ensureUserAndDevice,
+  });
+  if (studyCoachDriveResponse) return studyCoachDriveResponse;
 
   const recoveryResponse = await handleRecoveryBundleRequest(request, env, {
     json,
