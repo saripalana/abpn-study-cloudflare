@@ -77,6 +77,8 @@ test("complete recovery controller includes decks, integrity validation, safe me
   assert.match(contract, /crypto\.subtle\.digest\("SHA-256"/);
   assert.match(contract, /newer records replace older ones/);
   assert.doesNotMatch(contract, /STORES\.OUTBOX.*:/);
+  assert.match(contract, /DEVICE_SYNC_METADATA_KEYS = new Set\(\["syncCursor", "syncState"\]\)/);
+  assert.match(contract, /isDeviceSyncMetadata\(storeName, record\)/);
   assert.match(controller, /validateRecoveryBundle/);
   assert.match(controller, /setTimeout\(\(\) => location\.reload\(\), 0\)/);
 });

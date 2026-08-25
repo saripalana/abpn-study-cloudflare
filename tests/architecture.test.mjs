@@ -148,11 +148,12 @@ test("all user-facing banks use one protected persistent Deck Library", async ()
   assert.match(bootstrapMigration, /CREATE TABLE IF NOT EXISTS deck_library_state/);
 });
 
-test("system validation remains local-only after redundant header selector removal", async () => {
+test("system validation remains local-only while normal study decks remain switchable", async () => {
   const app = await read("src/browser/app.js");
   assert.match(app, /\['127\.0\.0\.1', 'localhost'\]\.includes/);
   assert.match(app, /resolveUserActiveDeck\(banks, selected, 'ks-psychiatry-core', allowSystemValidation\)/);
-  assert.doesNotMatch(app, /id="bankSelect"/);
+  assert.match(app, /id="activeBankSelect"/);
+  assert.match(app, /banks\.filter\(isUserSelectableDeck\)/);
   assert.doesNotMatch(app, /Manage Deck Library/);
 });
 
