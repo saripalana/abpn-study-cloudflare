@@ -14,6 +14,7 @@ const SETTINGS_KEYS = Object.freeze([
   "abpn-study:last-github-bank-address",
 ]);
 const SETTINGS_PREFIXES = Object.freeze(["abpn-study:builder-settings:"]);
+const DEVICE_SYNC_METADATA_KEYS = new Set(["syncCursor", "syncState"]);
 const STORE_FIELDS = Object.freeze({
   [STORES.META]: "metadata",
   [STORES.BANKS]: "banks",
@@ -67,6 +68,10 @@ function recordKey(storeName, record) {
   return String(record.id || "");
 }
 
+function isDeviceSyncMetadata(storeName, record) {
+  return storeName === STORES.META && DEVICE_SYNC_METADATA_KEYS.has(String(record?.key || ""));
+}
+
 function validateRecords(storeName, records) {
   if (!Array.isArray(records)) throw new Error(`Recovery data for ${storeName} must be an array.`);
   const seen = new Set();
@@ -97,7 +102,10 @@ export async function validateRecoveryBundle(bundle) {
 }
 
 export async function createRecoveryBundle({ appVersion = "unknown" } = {}) {
-  const entries = await Promise.all(Object.keys(STORE_FIELDS).map(async (storeName) => [STORE_FIELDS[storeName], await getAllRecords(storeName)]));
+  const entries = await Promise.all(Object.keys(STORE_FIELDS).map(async (storeName) => {
+    const records = await getAllRecords(storeName);
+    return [STORE_FIELDS[storeName], records.filter((record) => !isDeviceSyncMetadata(storeName, record))];
+  }));
   const sourceData = Object.fromEntries(entries);
   sourceData.settings = safeSettings();
   const data = normalizeRecoveryData(sourceData);
@@ -173,6 +181,7 @@ export async function restoreRecoveryBundle(input, { skipBankContentIds = [] } =
       const store = transaction.objectStore(storeName);
       const current = currentMaps.get(storeName);
       for (const record of bundle.data[field]) {
+        if (isDeviceSyncMetadata(storeName, record)) { keptCurrent += 1; continue; }
         if (skippedRecoveryPackageRecord(storeName, record, skippedBankIds)) { keptCurrent += 1; continue; }
         const existing = current.get(recordKey(storeName, record));
         if (existing && timestamp(existing) >= timestamp(record)) { keptCurrent += 1; continue; }

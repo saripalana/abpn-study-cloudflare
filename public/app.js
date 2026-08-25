@@ -401,6 +401,12 @@ async function renderDashboard() {
         <h2>${esc(activeBank.title)}</h2>
         <p class="muted">${esc(activeBank.description)} ${activeBank.questions.length} questions loaded.</p>
         <p class="deck-library-contract">Every installed question bank uses the same versioned storage, protection, backup, study, and analytics system.</p>
+        <div class="field deck-library-switcher">
+          <label for="activeBankSelect">View study deck</label>
+          <select id="activeBankSelect">
+            ${banks.filter(isUserSelectableDeck).map((bank) => `<option value="${esc(bank.id)}" ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)}</option>`).join('')}
+          </select>
+        </div>
       </div>
     </section>
 
@@ -647,6 +653,12 @@ async function renderDashboard() {
     document.getElementById('questionBrowserEmpty').hidden = visible > 0;
   };
   document.getElementById('resumeBtn')?.addEventListener('click', renderQuestion);
+  document.getElementById('activeBankSelect')?.addEventListener('change', (event) => {
+    const selectedBank = banks.find((bank) => isUserSelectableDeck(bank) && bank.id === event.target.value);
+    if (!selectedBank || selectedBank.id === activeBank.id) return;
+    localStorage.setItem(SELECTED_BANK_KEY, selectedBank.id);
+    location.reload();
+  });
   document.getElementById('importBankBtn').onclick = () => {
     alert('Additional bank import validation will be added before external banks are accepted.');
   };
