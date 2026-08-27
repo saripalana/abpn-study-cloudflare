@@ -55,6 +55,15 @@ const helpers = {
 
 test("Study Coach Google Drive exchange requires fresh exchange consent before any Drive request", async () => {
   let fetched = false;
+  const reservations = [];
+  const handlerEnv = {
+    ...env,
+    DB: {
+      prepare() {
+        return { bind: () => ({ first: async () => ({ enabled: 1, consent_version: 2, exchange_consent_version: 0 }) }) };
+      },
+    },
+  };
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => {
     fetched = true;
@@ -63,18 +72,17 @@ test("Study Coach Google Drive exchange requires fresh exchange consent before a
   try {
     const response = await handleGoogleDriveStudyCoachRequest(
       new Request("https://study.example/api/study-coach/google-drive"),
+      handlerEnv,
       {
-        ...env,
-        DB: {
-          prepare() {
-            return { bind: () => ({ first: async () => ({ enabled: 1, consent_version: 2, exchange_consent_version: 0 }) }) };
-          },
-        },
+        ...helpers,
+        async reserveUsage(reservationEnv, delta) { reservations.push({ reservationEnv, delta }); },
       },
-      helpers,
     );
     assert.equal(response.status, 403);
     assert.equal(fetched, false);
+    assert.equal(reservations.length, 1);
+    assert.equal(reservations[0].reservationEnv, handlerEnv);
+    assert.equal(reservations[0].delta.rowsRead, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

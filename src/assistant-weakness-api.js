@@ -180,7 +180,7 @@ async function deleteArtifacts(env, userId) {
   if (statements.length) await env.DB.batch(statements);
 }
 
-async function reserveStudyCoachUsage(reserveUsage, pathname, method) {
+async function reserveStudyCoachUsage(reserveUsage, env, pathname, method) {
   const key = `${method} ${pathname}`;
   const budgets = {
     "GET /api/assistant/study-coach/permission": { requests: 1, rowsRead: 4 },
@@ -193,7 +193,7 @@ async function reserveStudyCoachUsage(reserveUsage, pathname, method) {
     "PUT /api/assistant/study-coach/output": { requests: 1, writeActions: 1, rowsRead: 5, rowsWritten: 245 },
     "GET /api/assistant/study-coach/output": { requests: 1, writeActions: 1, rowsRead: 125, rowsWritten: 2 },
   };
-  await reserveUsage(budgets[key] || { requests: 1, rowsRead: 1 });
+  await reserveUsage(env, budgets[key] || { requests: 1, rowsRead: 1 });
 }
 
 async function exchangeAudit(env, userId, action, deviceId, { publish = false, access = false } = {}) {
@@ -369,7 +369,7 @@ export async function handleAssistantWeaknessRequest(request, env, helpers) {
   requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
   await ensureUserAndDevice(env, userId, deviceId);
-  await reserveStudyCoachUsage(reserveUsage, url.pathname, request.method);
+  await reserveStudyCoachUsage(reserveUsage, env, url.pathname, request.method);
 
   if (url.pathname === "/api/assistant/study-coach/permission" && request.method === "GET") {
     return json(await status(env, userId));

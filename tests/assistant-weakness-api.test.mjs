@@ -61,13 +61,14 @@ test("Cloudflare exchange routes require fresh exchange consent and reserve usag
       };
     },
   };
+  const handlerEnv = { APP_ENV: "staging", ASSISTANT_WEAKNESS_ENABLED: "true", DB: db };
   const response = await handleAssistantWeaknessRequest(
     new Request("https://study.example/api/assistant/study-coach/package", {
       method: "PUT",
       headers: { "x-abpn-device-id": "device-123" },
       body: "{}",
     }),
-    { APP_ENV: "staging", ASSISTANT_WEAKNESS_ENABLED: "true", DB: db },
+    handlerEnv,
     {
       json(data, status = 200, extraHeaders = {}) {
         return new Response(JSON.stringify(data), { status, headers: extraHeaders });
@@ -76,12 +77,13 @@ test("Cloudflare exchange routes require fresh exchange consent and reserve usag
       requireContext() { return { userId: "study-user", deviceId: "device-123" }; },
       async ensureUserAndDevice() {},
       async parseBoundedJson(request) { return request.json(); },
-      async reserveUsage(delta) { reservations.push(delta); },
+      async reserveUsage(reservationEnv, delta) { reservations.push({ reservationEnv, delta }); },
     },
   );
   assert.equal(response.status, 403);
   assert.equal(reservations.length, 1);
-  assert.equal(reservations[0].writeActions, 1);
+  assert.equal(reservations[0].reservationEnv, handlerEnv);
+  assert.equal(reservations[0].delta.writeActions, 1);
 });
 
 test("Cloudflare output publishing rejects a generated deck copied from the current protected package", async () => {

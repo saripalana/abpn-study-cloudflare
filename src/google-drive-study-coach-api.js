@@ -166,7 +166,7 @@ export async function handleGoogleDriveStudyCoachRequest(request, env, helpers) 
   const { userId, deviceId } = requireContext(request, env);
   await ensureUserAndDevice(env, userId, deviceId);
   const isWrite = request.method === "PUT";
-  await reserveUsage({ requests: 1, writeActions: isWrite ? 1 : 0, rowsRead: 1, rowsWritten: 2 });
+  await reserveUsage(env, { requests: 1, writeActions: isWrite ? 1 : 0, rowsRead: 1, rowsWritten: 2 });
   if (!await exchangePermission(env, userId)) {
     return json({ error: "Fresh Study Coach exchange permission is required" }, 403);
   }
