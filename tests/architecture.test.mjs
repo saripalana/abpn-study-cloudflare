@@ -54,7 +54,7 @@ test("local weakness analytics remain derived while Study Coach sharing is expli
 });
 
 test("Study Coach access is private, freshly consented, automatically refreshed, separately deletable, and audited", async () => {
-  const [api, controller, staging, production, migration, deletionMigration, consentMigration, exchangeMigration] = await Promise.all([
+  const [api, controller, staging, production, migration, deletionMigration, consentMigration, exchangeMigration, exchangeConsentMigration] = await Promise.all([
     read("src/assistant-weakness-api.js"),
     read("src/browser/assistant-weakness-controller.js"),
     read("wrangler.staging.toml"),
@@ -63,6 +63,7 @@ test("Study Coach access is private, freshly consented, automatically refreshed,
     read("migrations/0008_assistant_weakness_delete_count.sql"),
     read("migrations/0010_study_coach_consent.sql"),
     read("migrations/0011_study_coach_cloud_exchange.sql"),
+    read("migrations/0012_study_coach_exchange_consent_and_audit.sql"),
   ]);
   assert.match(api, /\["staging", "production"\]\.includes\(env\.APP_ENV\)/);
   assert.match(api, /UNTIL_REVOKED_AT/);
@@ -98,10 +99,13 @@ test("Study Coach access is private, freshly consented, automatically refreshed,
   assert.doesNotMatch(consentMigration, /\bDROP\b/i);
   assert.match(exchangeMigration, /assistant_study_coach_artifacts/);
   assert.match(exchangeMigration, /assistant_study_coach_artifact_chunks/);
-  assert.match(exchangeMigration, /assistant_study_coach_exchange_audit/);
-  assert.match(exchangeMigration, /exchange_consent_version/);
   assert.match(exchangeMigration, /UNIQUE\(user_id, artifact_type\)/);
   assert.doesNotMatch(exchangeMigration, /\bDROP\b/i);
+  assert.doesNotMatch(exchangeMigration, /exchange_consent_version/);
+  assert.doesNotMatch(exchangeMigration, /assistant_study_coach_exchange_audit/);
+  assert.match(exchangeConsentMigration, /assistant_study_coach_exchange_audit/);
+  assert.match(exchangeConsentMigration, /exchange_consent_version/);
+  assert.doesNotMatch(exchangeConsentMigration, /\bDROP\b/i);
 });
 
 test("Study Coach generated decks install through one atomic batch after full preflight", async () => {
