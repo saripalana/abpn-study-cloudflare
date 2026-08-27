@@ -5,6 +5,7 @@ import {
   restoreRecoveryBundle,
   validateRecoveryBundle,
 } from "./client/recovery-bundle.js";
+import { STAGING_SESSION_KEY } from "./client/staging-lifecycle.js";
 
 const app = document.getElementById("app");
 const LAST_DEVICE_BACKUP_AT_KEY = "abpn-study:last-device-backup-at";
@@ -81,14 +82,22 @@ importInput.addEventListener("change", async () => {
 });
 
 function deviceId() {
-  return localStorage.getItem("abpn-study:device-id") || "unknown-device";
+  return sessionStorage.getItem(STAGING_SESSION_KEY)
+    || localStorage.getItem("abpn-study:device-id")
+    || "unknown-device";
 }
 
 async function cloudRequest(path, options = {}) {
+  const stagingSession = sessionStorage.getItem(STAGING_SESSION_KEY);
   const response = await fetch(path, {
     ...options,
     cache: "no-store",
-    headers: { "content-type": "application/json", "x-abpn-device-id": deviceId(), ...(options.headers || {}) },
+    headers: {
+      "content-type": "application/json",
+      "x-abpn-device-id": deviceId(),
+      ...(stagingSession ? { "x-abpn-staging-session": stagingSession } : {}),
+      ...(options.headers || {}),
+    },
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

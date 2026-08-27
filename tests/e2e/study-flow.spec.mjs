@@ -26,7 +26,7 @@ test('filters a practice set by subjects and remembers builder choices per bank'
   await expect(page.locator('#eligibleCount')).toContainText('3 questions available');
 
   await page.locator('#subjectPicker summary').click();
-  await page.getByRole('button', { name: 'Clear' }).click();
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
   await expect(page.locator('#eligibleCount')).toContainText('No questions match');
   await expect(page.getByRole('button', { name: 'Start set' })).toBeDisabled();
 
@@ -35,7 +35,7 @@ test('filters a practice set by subjects and remembers builder choices per bank'
   await expect(page.locator('#countInput')).toHaveValue('1');
   await page.getByRole('button', { name: 'Select all' }).click();
   await expect(page.locator('#countInput')).toHaveValue('3');
-  await page.getByRole('button', { name: 'Clear' }).click();
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
   await page.locator('input[name="subjectFilter"][value="Question Banks"]').check();
   await page.locator('#countInput').fill('1');
   await page.locator('#modeSelect').selectOption('tutor');
@@ -63,7 +63,7 @@ test('filters a practice set by subjects and remembers builder choices per bank'
   await expect(page.locator('input[name="subjectFilter"]:checked')).toHaveCount(34);
   await page.locator('#poolSelect').selectOption('flagged');
   await page.locator('#subjectPicker summary').click();
-  await page.getByRole('button', { name: 'Clear' }).click();
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
   await page.locator('input[name="subjectFilter"]').first().check();
 
   await selectActiveBank(page, 'validation-bank');
@@ -93,7 +93,7 @@ test('ignores malformed builder settings instead of blocking dashboard startup',
 test('combines subject selection with wrong and flagged pools in the live builder', async ({ page }) => {
   await useValidationBank(page);
   await page.locator('#subjectPicker summary').click();
-  await page.getByRole('button', { name: 'Clear' }).click();
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
   await page.locator('input[name="subjectFilter"][value="Application Safety"]').check();
   await page.locator('#countInput').fill('2');
   await page.locator('#modeSelect').selectOption('tutor');
@@ -113,7 +113,7 @@ test('combines subject selection with wrong and flagged pools in the live builde
   await page.locator('#poolSelect').selectOption('flagged');
   await expect(page.locator('#eligibleCount')).toContainText('1 question available');
   await page.locator('#subjectPicker summary').click();
-  await page.getByRole('button', { name: 'Clear' }).click();
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
   await page.locator('input[name="subjectFilter"][value="Question Banks"]').check();
   await expect(page.locator('#eligibleCount')).toContainText('No questions match');
   await expect(page.getByRole('button', { name: 'Start set' })).toBeDisabled();

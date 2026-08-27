@@ -1,6 +1,7 @@
 import { handleDeckLibraryRequest } from "./deck-library-api.js";
 import { handleStarterDeckSourceRequest } from "./starter-deck-source.js";
 import { handleAssistantWeaknessRequest } from "./assistant-weakness-api.js";
+import { handleGoogleDriveStudyCoachRequest } from "./google-drive-study-coach-api.js";
 import { handleRecoveryBundleRequest } from "./recovery-bundle-api.js";
 import { handleGoogleDriveRecoveryRequest } from "./google-drive-recovery-api.js";
 
@@ -126,6 +127,9 @@ async function clearDisposableStagingState(env, { activeSessionId = null } = {})
   // Delete children before parents so cleanup remains valid across the current
   // legacy package schema and its immutable revision foreign-key constraints.
   const statements = [
+    env.DB.prepare("DELETE FROM assistant_study_coach_artifact_chunks WHERE artifact_id IN (SELECT id FROM assistant_study_coach_artifacts WHERE user_id = ?)").bind(userId),
+    env.DB.prepare("DELETE FROM assistant_study_coach_artifacts WHERE user_id = ?").bind(userId),
+    env.DB.prepare("DELETE FROM assistant_study_coach_exchange_audit WHERE user_id = ?").bind(userId),
     env.DB.prepare("DELETE FROM assistant_weakness_audit WHERE user_id = ?").bind(userId),
     env.DB.prepare("DELETE FROM assistant_weakness_snapshots WHERE user_id = ?").bind(userId),
     env.DB.prepare("DELETE FROM assistant_weakness_permissions WHERE user_id = ?").bind(userId),
@@ -787,10 +791,20 @@ async function routeApi(request, env) {
     json,
     requireSyncReady,
     requireContext,
+    reserveUsage,
     ensureUserAndDevice,
     parseBoundedJson,
   });
   if (assistantResponse) return assistantResponse;
+
+  const studyCoachDriveResponse = await handleGoogleDriveStudyCoachRequest(request, env, {
+    json,
+    requireSyncReady,
+    requireContext,
+    reserveUsage,
+    ensureUserAndDevice,
+  });
+  if (studyCoachDriveResponse) return studyCoachDriveResponse;
 
   const recoveryResponse = await handleRecoveryBundleRequest(request, env, {
     json,

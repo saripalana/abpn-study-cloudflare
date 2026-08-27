@@ -9,6 +9,7 @@ import {
 const decks = [
   { id: "ks", title: "K&S Psychiatry Question Bank", shortTitle: "K&S", sourceType: "repository-protected", contentClass: "source-material", questions: Array.from({ length: 602 }) },
   { id: "spiegel", title: "Spiegel Test Prep Question Bank", shortTitle: "Spiegel", sourceType: "github-import", contentClass: "source-material", questions: Array.from({ length: 1060 }) },
+  { id: "coach-psych", title: "Coach Deck: Psychopharmacology Recovery", shortTitle: "Coach Psych", sourceType: "assistant-supplemental", contentClass: "assistant-supplemental", questions: Array.from({ length: 20 }) },
   { id: "validation", title: "System Validation Question Bank", sourceType: "system-validation", contentClass: "system-validation", questions: Array.from({ length: 3 }) },
 ];
 
@@ -16,14 +17,16 @@ test("selector offers current, all, and specific-deck modes", () => {
   const markup = multiDeckSelectorMarkup({ decks, activeBankId: "ks", settings: { scope: "all" } });
   assert.match(markup, />Current deck</);
   assert.match(markup, />All study decks</);
+  assert.match(markup, />Coach decks</);
   assert.match(markup, />Choose specific decks</);
-  assert.match(markup, /All 2 study decks · 1662 questions/);
+  assert.match(markup, /All 3 study decks · 1682 questions/);
 });
 
 test("selector lists normal study decks but hides validation content", () => {
   const markup = multiDeckSelectorMarkup({ decks, activeBankId: "ks", settings: { scope: "custom", selectedBankIds: ["ks"] } });
   assert.match(markup, /K&amp;S Psychiatry Question Bank/);
   assert.match(markup, /Spiegel Test Prep Question Bank/);
+  assert.match(markup, /Coach Deck: Psychopharmacology Recovery/);
   assert.doesNotMatch(markup, /System Validation Question Bank/);
   assert.doesNotMatch(markup, /value="validation"/);
 });

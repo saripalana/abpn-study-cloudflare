@@ -52,7 +52,7 @@ test("combined K&S and added-deck set survives reload, submission, history, and 
   await selectActiveBank(page, "ks-psychiatry-core");
   await page.locator("#deckScopeSelect").selectOption("custom");
   await page.locator("#deckPicker summary").click();
-  await page.getByRole("button", { name: "Clear" }).click();
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
   await page.locator('input[name="practiceDeckFilter"][value="ks-psychiatry-core"]').check();
   await page.locator('input[name="practiceDeckFilter"][value="combined-flow-deck"]').check();
   await expect(page.locator("#deckScopeAvailability")).toContainText("2 selected decks");

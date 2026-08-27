@@ -61,6 +61,13 @@ test("staging starts clean and reloads retain only the current isolated session"
   await page.getByRole("button", { name: "Back to dashboard" }).click();
   await expect(page.locator(".history-item")).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Performance and priorities by subject" })).toBeVisible();
+  const firstQuestionSummary = page.locator(".analytics-question-details summary").first();
+  await expect(firstQuestionSummary).toContainText("Show questions");
+  await expect(firstQuestionSummary).toContainText(/\d+\/\d+ used/);
+  const firstQuestionList = page.locator(".analytics-question-list").first();
+  await expect(firstQuestionList).toBeHidden();
+  await firstQuestionSummary.click();
+  await expect(firstQuestionList).toBeVisible();
   await expect(page.getByRole("heading", { name: "Performance by test section" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Cumulative score by test section" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Completed test grades by test section" })).toBeVisible();

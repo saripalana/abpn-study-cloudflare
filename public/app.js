@@ -14,7 +14,7 @@ import {
   selectedAnswerLetters
 } from './client/study-engine.js';
 import { bindMultiDeckSelector, multiDeckSelectorMarkup, readMultiDeckSelector } from './client/multi-deck-builder-ui.js';
-import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings } from './client/multi-deck-builder.js';
+import { DECK_SCOPE_COACH, DECK_SCOPE_CURRENT, normalizeDeckScopeSettings, selectedDeckQuestionCount } from './client/multi-deck-builder.js';
 import { createPracticeSession, persistenceRecordForSession, sessionQuestionContext } from './client/multi-deck-app-session.js';
 import { normalizeStoredSet } from './client/multi-deck-set.js';
 import { setQuestionItems } from './client/multi-deck-runtime.js';
@@ -539,7 +539,10 @@ async function renderDashboard() {
               <td>${esc(row.evidence)}</td>
               <td>
                 <details class="analytics-question-details">
-                  <summary>${row.questions.filter((question) => question.used).length}/${row.questions.length} used</summary>
+                  <summary>
+                    <span class="analytics-question-summary-label">Show questions</span>
+                    <span class="analytics-question-summary-meta">${row.questions.filter((question) => question.used).length}/${row.questions.length} used</span>
+                  </summary>
                   <div class="analytics-question-list">
                     ${row.questions.map((question) => `
                       <button
@@ -595,9 +598,23 @@ async function renderDashboard() {
           <p class="muted">While enabled, coaching data refreshes automatically after study changes. It includes performance, timing, flags, subjects, test sections, and attempted, flagged, or annotated question details with choices, answers, explanations, and notes. Credentials and unrelated browser or device data are never included.</p>
         </div>
       </div>
+      <div class="study-coach-package-block">
+        <h4>Study Coach package</h4>
+        <p class="muted">Download a full coach package locally at any time. The primary live lane shares that package to the protected Cloudflare Study Coach exchange and pulls the latest bounded coach output back into this app. Google Drive remains a secondary archive lane.</p>
+        <div class="actions">
+          <button id="exportStudyCoachPackageBtn" class="secondary" type="button">Download full coach package</button>
+          <button id="publishStudyCoachPackageBtn" class="secondary" type="button">Share package to Study Coach</button>
+          <button id="archiveStudyCoachPackageBtn" class="secondary" type="button">Archive package to Google Drive</button>
+          <button id="publishStudyCoachOutputBtn" class="secondary" type="button">Publish coach output to Study Coach</button>
+          <button id="pullStudyCoachOutputBtn" class="secondary" type="button">Pull latest coach output</button>
+          <button id="importStudyCoachOutputBtn" class="secondary" type="button">Import coach output</button>
+          <button id="clearStudyCoachOutputBtn" class="secondary" type="button">Clear coach output</button>
+        </div>
+        <p id="studyCoachPackageStatus" class="muted" aria-live="polite"></p>
+      </div>
       <label class="assistant-permission" for="studyCoachPermission">
         <input id="studyCoachPermission" type="checkbox">
-        <span><strong>Allow Study Coach access until I revoke it</strong><small>This broader permission requires a fresh approval. Revoking stops access without deleting the stored data; deletion remains a separate action.</small></span>
+        <span><strong>Allow Study Coach access and exchange until I revoke it</strong><small>This fresh approval includes the bounded full-package and coach-output exchange. Revoking stops access without deleting stored data; deletion remains a separate action.</small></span>
       </label>
       <div class="actions">
         <button id="refreshStudyCoachBtn" class="primary" type="button" disabled>Refresh now</button>
@@ -606,6 +623,11 @@ async function renderDashboard() {
         <button id="deleteStudyCoachDataBtn" class="secondary danger" type="button" disabled>Delete shared study data</button>
       </div>
       <p id="studyCoachStatus" class="muted" aria-live="polite"></p>
+      <div class="study-coach-output-block">
+        <h4>Coach outputs</h4>
+        <p class="muted">Imported coaching plans stay local to this study workspace and can be reloaded after backup and restore with the rest of app metadata.</p>
+        <div id="studyCoachOutput" class="study-coach-output" aria-live="polite"></div>
+      </div>
     </section>
 
     <section id="deckLibraryManagement" class="card dashboard-section">
@@ -721,11 +743,16 @@ async function renderDashboard() {
     onChange: (settings) => {
       localStorage.setItem(MULTI_DECK_BUILDER_KEY, JSON.stringify({ schemaVersion: 1, ...settings }));
       const combined = settings.scope !== DECK_SCOPE_CURRENT;
-      startButton.textContent = combined ? 'Start combined set' : 'Start set';
-      startButton.disabled = false;
+      const selectedCount = selectedDeckQuestionCount({ decks: banks, activeBankId: activeBank.id, settings });
+      startButton.textContent = settings.scope === DECK_SCOPE_COACH
+        ? 'Start coach set'
+        : combined
+          ? 'Start combined set'
+          : 'Start set';
+      startButton.disabled = selectedCount === 0;
       if (combined) {
         eligibleCount.textContent = document.getElementById('deckScopeAvailability')?.textContent || 'Selected study decks ready.';
-        eligibleCount.dataset.empty = 'false';
+        eligibleCount.dataset.empty = selectedCount > 0 ? 'false' : 'true';
       } else {
         updateBuilderAvailability();
       }

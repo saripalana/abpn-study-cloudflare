@@ -5,8 +5,9 @@ import { readFile } from "node:fs/promises";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("Google Drive recovery is server-only, restricted, and never exposes credentials to browser assets", async () => {
-  const [adapter, worker, browser, storage, production] = await Promise.all([
+  const [adapter, exchange, worker, browser, storage, production] = await Promise.all([
     read("src/google-drive-recovery-api.js"),
+    read("src/google-drive-study-coach-api.js"),
     read("src/worker.js"),
     read("public/backup-controller.js"),
     read("src/client/storage.js"),
@@ -16,7 +17,14 @@ test("Google Drive recovery is server-only, restricted, and never exposes creden
   assert.match(adapter, /GOOGLE_DRIVE_RECOVERY_FOLDER_ID/);
   assert.match(adapter, /appProperties.*abpnRecovery/s);
   assert.match(adapter, /one-per-day-for-three-days/);
+  assert.match(exchange, /GOOGLE_DRIVE_REFRESH_TOKEN/);
+  assert.match(exchange, /GOOGLE_DRIVE_RECOVERY_FOLDER_ID/);
+  assert.match(exchange, /appProperties:\s*\{\s*abpnStudyCoach:\s*"package"/s);
+  assert.match(exchange, /abpnStudyCoach:\s*"output"/);
+  assert.match(exchange, /Fresh Study Coach exchange permission is required/);
+  assert.match(exchange, /reserveUsage/);
   assert.match(worker, /handleGoogleDriveRecoveryRequest/);
+  assert.match(worker, /handleGoogleDriveStudyCoachRequest/);
   assert.doesNotMatch(browser, /GOOGLE_DRIVE_(CLIENT|REFRESH|FOLDER)/);
   assert.doesNotMatch(storage, /googleapis\.com|oauth2\.googleapis\.com/);
   assert.doesNotMatch(production, /GOOGLE_DRIVE_CLIENT_SECRET|GOOGLE_DRIVE_REFRESH_TOKEN/);
@@ -46,7 +54,7 @@ test("local weakness analytics remain derived while Study Coach sharing is expli
 });
 
 test("Study Coach access is private, freshly consented, automatically refreshed, separately deletable, and audited", async () => {
-  const [api, controller, staging, production, migration, deletionMigration, consentMigration] = await Promise.all([
+  const [api, controller, staging, production, migration, deletionMigration, consentMigration, exchangeMigration] = await Promise.all([
     read("src/assistant-weakness-api.js"),
     read("src/browser/assistant-weakness-controller.js"),
     read("wrangler.staging.toml"),
@@ -54,6 +62,7 @@ test("Study Coach access is private, freshly consented, automatically refreshed,
     read("migrations/0007_assistant_weakness_staging.sql"),
     read("migrations/0008_assistant_weakness_delete_count.sql"),
     read("migrations/0010_study_coach_consent.sql"),
+    read("migrations/0011_study_coach_cloud_exchange.sql"),
   ]);
   assert.match(api, /\["staging", "production"\]\.includes\(env\.APP_ENV\)/);
   assert.match(api, /UNTIL_REVOKED_AT/);
@@ -61,11 +70,21 @@ test("Study Coach access is private, freshly consented, automatically refreshed,
   assert.match(api, /Explicit Study Coach permission is required/);
   assert.match(api, /CONSENT_VERSION = 2/);
   assert.match(api, /DELETE FROM assistant_weakness_snapshots/);
+  assert.match(api, /assistant_study_coach_artifacts/);
+  assert.match(api, /assistant_study_coach_artifact_chunks/);
+  assert.match(api, /EXCHANGE_CONSENT_VERSION = 1/);
+  assert.match(api, /exchangeAudit/);
+  assert.match(api, /reserveStudyCoachUsage/);
   assert.match(api, /delete_count = delete_count \+ 1/);
   assert.match(api, /snapshot-accessed/);
   assert.match(controller, /On until revoked/);
   assert.match(controller, /deleteStudyCoachDataBtn/);
   assert.match(controller, /scheduleStudyCoachRefresh/);
+  assert.match(controller, /publishStudyCoachPackageBtn/);
+  assert.match(controller, /archiveStudyCoachPackageBtn/);
+  assert.match(controller, /publishStudyCoachOutputBtn/);
+  assert.match(controller, /pullStudyCoachOutputBtn/);
+  assert.match(controller, /exchangeConsentVersion/);
   assert.match(staging, /ASSISTANT_WEAKNESS_ENABLED\s*=\s*"true"/);
   assert.match(production, /APP_ENV\s*=\s*"production"/);
   assert.match(production, /ASSISTANT_WEAKNESS_ENABLED\s*=\s*"true"/);
@@ -77,6 +96,28 @@ test("Study Coach access is private, freshly consented, automatically refreshed,
   assert.doesNotMatch(deletionMigration, /\bDROP\b/i);
   assert.match(consentMigration, /ADD COLUMN consent_version/);
   assert.doesNotMatch(consentMigration, /\bDROP\b/i);
+  assert.match(exchangeMigration, /assistant_study_coach_artifacts/);
+  assert.match(exchangeMigration, /assistant_study_coach_artifact_chunks/);
+  assert.match(exchangeMigration, /assistant_study_coach_exchange_audit/);
+  assert.match(exchangeMigration, /exchange_consent_version/);
+  assert.match(exchangeMigration, /UNIQUE\(user_id, artifact_type\)/);
+  assert.doesNotMatch(exchangeMigration, /\bDROP\b/i);
+});
+
+test("Study Coach generated decks install through one atomic batch after full preflight", async () => {
+  const [controller, importer, coachPackage] = await Promise.all([
+    read("src/browser/assistant-weakness-controller.js"),
+    read("src/client/question-bank-import.js"),
+    read("src/client/study-coach-package.js"),
+  ]);
+  assert.match(controller, /installQuestionBankPackagesAtomically/);
+  assert.match(controller, /assertNoProtectedQuestionCopies\(generatedDecks, protectedBanks\)/);
+  assert.doesNotMatch(controller, /for[\s\S]{0,300}installQuestionBankPackage\(/);
+  assert.match(importer, /export async function installQuestionBankPackagesAtomically/);
+  assert.match(importer, /Promise\.all\(preparedPackages\.map/);
+  assert.match(importer, /transaction\(\[STORES\.BANK_CONTENT, STORES\.BANK_REVISIONS, STORES\.BANKS\], "readwrite"\)/);
+  assert.match(coachPackage, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(coachPackage, /Generated Study Coach decks cannot copy protected source question content/);
 });
 
 test("dependency installation is locked and the audited HTTP client is patched", async () => {

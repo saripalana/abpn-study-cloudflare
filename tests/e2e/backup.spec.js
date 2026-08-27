@@ -49,18 +49,59 @@ test('restores a complete bundle non-destructively and creates a safety snapshot
     const { QUESTION_BANKS } = await import('/banks/catalog.js');
     const { STORES, putRecord, deleteRecord } = await import('/client/storage.js');
     const { createRecoveryBundle } = await import('/client/recovery-bundle.js');
-    const bank = QUESTION_BANKS.find((item) => item.questions?.length);
+    const bank = QUESTION_BANKS.find((item) => item.contentClass !== 'system-validation' && item.questions?.length);
     const questionId = bank.questions[0].id;
+    const secondQuestionId = bank.questions[1].id;
+    const setId = 'recovery-e2e-set';
+    const startedAt = '2026-08-05T11:58:00.000Z';
+    const completedAt = '2026-08-05T12:00:00.000Z';
     await putRecord(STORES.PROGRESS, {
       bankId: bank.id,
       questionId,
       selectedAnswer: 'A',
+      isCorrect: false,
+      timesUsed: 3,
+      totalTimeMs: 4200,
+      lastUsedAt: completedAt,
       revision: 1,
-      updatedAt: '2026-08-05T12:00:00.000Z',
+      updatedAt: completedAt,
+    });
+    await putRecord(STORES.SETS, {
+      id: setId,
+      bankId: bank.id,
+      status: 'completed',
+      mode: 'test',
+      timed: true,
+      questionIds: [questionId, secondQuestionId],
+      index: 1,
+      remainingSeconds: 0,
+      submitted: true,
+      startedAt,
+      completedAt,
+      updatedAt: completedAt,
+    });
+    await putRecord(STORES.ANSWERS, {
+      setId,
+      questionId,
+      selectedAnswer: 'A',
+      isCorrect: false,
+      timeMs: 2100,
+      updatedAt: completedAt,
+    });
+    await putRecord(STORES.ANSWERS, {
+      setId,
+      questionId: secondQuestionId,
+      selectedAnswer: 'B',
+      isCorrect: true,
+      timeMs: 1800,
+      updatedAt: completedAt,
     });
     const bundle = await createRecoveryBundle({ appVersion: 'e2e' });
     await deleteRecord(STORES.PROGRESS, [bank.id, questionId]);
-    return { bundle, bankId: bank.id, questionId };
+    await deleteRecord(STORES.SETS, setId);
+    await deleteRecord(STORES.ANSWERS, [setId, questionId]);
+    await deleteRecord(STORES.ANSWERS, [setId, secondQuestionId]);
+    return { bundle, bankId: bank.id, questionId, secondQuestionId, setId };
   });
 
   page.on('dialog', (dialog) => dialog.accept());
@@ -72,14 +113,25 @@ test('restores a complete bundle non-destructively and creates a safety snapshot
   });
   await navigation;
 
-  const result = await page.evaluate(async ({ bankId, questionId }) => {
+  const result = await page.evaluate(async ({ bankId, questionId, secondQuestionId, setId }) => {
     const { STORES, getAllRecords, getRecord } = await import('/client/storage.js');
     return {
       progress: await getRecord(STORES.PROGRESS, [bankId, questionId]),
+      practiceSet: await getRecord(STORES.SETS, setId),
+      firstAnswer: await getRecord(STORES.ANSWERS, [setId, questionId]),
+      secondAnswer: await getRecord(STORES.ANSWERS, [setId, secondQuestionId]),
       snapshots: await getAllRecords(STORES.SNAPSHOTS),
     };
   }, fixture);
   expect(result.progress.revision).toBe(1);
+  expect(result.progress.timesUsed).toBe(3);
+  expect(result.progress.lastUsedAt).toBe('2026-08-05T12:00:00.000Z');
+  expect(result.practiceSet.questionIds).toEqual([fixture.questionId, fixture.secondQuestionId]);
+  expect(result.practiceSet.startedAt).toBe('2026-08-05T11:58:00.000Z');
+  expect(result.practiceSet.completedAt).toBe('2026-08-05T12:00:00.000Z');
+  expect(result.firstAnswer.isCorrect).toBe(false);
+  expect(result.secondAnswer.isCorrect).toBe(true);
   expect(result.snapshots.length).toBeGreaterThanOrEqual(1);
   await expect(page.getByRole('button', { name: 'Restore downloaded backup' })).toBeVisible();
+  await expect(page.locator('.history-item')).toHaveCount(1);
 });

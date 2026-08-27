@@ -3,8 +3,10 @@ import test from "node:test";
 
 import {
   DECK_SCOPE_ALL,
+  DECK_SCOPE_COACH,
   DECK_SCOPE_CURRENT,
   DECK_SCOPE_CUSTOM,
+  coachStudyDecks,
   deckScopeSummary,
   normalizeDeckScopeSettings,
   selectedDeckQuestionCount,
@@ -14,6 +16,7 @@ import {
 const decks = [
   { id: "ks", title: "K&S", shortTitle: "K&S", sourceType: "repository-protected", contentClass: "source-material", questions: [{ id: "1" }, { id: "2" }] },
   { id: "spiegel", title: "Spiegel", shortTitle: "Spiegel", sourceType: "github", contentClass: "source-material", questions: [{ id: "1" }, { id: "2" }, { id: "3" }] },
+  { id: "coach-psych", title: "Coach Psych", shortTitle: "Coach Psych", sourceType: "assistant-supplemental", contentClass: "assistant-supplemental", questions: [{ id: "1" }, { id: "2" }, { id: "3" }, { id: "4" }] },
   { id: "validation", title: "Validation", sourceType: "system-validation", contentClass: "system-validation", questions: [{ id: "v1" }] },
 ];
 
@@ -35,8 +38,20 @@ test("current scope preserves a protected validation deck", () => {
 
 test("all scope includes every normal study deck and excludes validation", () => {
   const settings = normalizeDeckScopeSettings({ decks, activeBankId: "ks", saved: { scope: DECK_SCOPE_ALL } });
-  assert.deepEqual(settings.selectedBankIds, ["ks", "spiegel"]);
-  assert.equal(selectedDeckQuestionCount({ decks, activeBankId: "ks", settings }), 5);
+  assert.deepEqual(settings.selectedBankIds, ["ks", "spiegel", "coach-psych"]);
+  assert.equal(selectedDeckQuestionCount({ decks, activeBankId: "ks", settings }), 9);
+});
+
+test("coach scope includes only assistant supplemental decks", () => {
+  const settings = normalizeDeckScopeSettings({ decks, activeBankId: "ks", saved: { scope: DECK_SCOPE_COACH } });
+  assert.deepEqual(coachStudyDecks(decks).map((deck) => deck.id), ["coach-psych"]);
+  assert.deepEqual(settings.selectedBankIds, ["coach-psych"]);
+  assert.deepEqual(selectedDecksForScope({ decks, activeBankId: "ks", settings }).map((deck) => deck.id), ["coach-psych"]);
+  assert.equal(selectedDeckQuestionCount({ decks, activeBankId: "ks", settings }), 4);
+  assert.equal(
+    deckScopeSummary({ decks, activeBankId: "ks", settings }),
+    "Coach decks · 1 deck · 4 questions",
+  );
 });
 
 test("custom scope keeps valid unique selections only", () => {
@@ -57,7 +72,7 @@ test("empty custom selection safely falls back to the active deck", () => {
 test("scope summaries disclose selected deck and question totals", () => {
   assert.equal(
     deckScopeSummary({ decks, activeBankId: "ks", settings: { scope: DECK_SCOPE_ALL } }),
-    "All 2 study decks · 5 questions",
+    "All 3 study decks · 9 questions",
   );
   assert.equal(
     deckScopeSummary({ decks, activeBankId: "ks", settings: { scope: DECK_SCOPE_CUSTOM, selectedBankIds: ["spiegel"] } }),
