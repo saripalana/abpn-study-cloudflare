@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 test("Study Coach permission, automatic refresh, revocation, and deletion remain separate", async ({ page }) => {
   let enabled = false;
@@ -6,6 +7,8 @@ test("Study Coach permission, automatic refresh, revocation, and deletion remain
   let accessCount = 0;
   let deleteCount = 0;
   let published = null;
+  let sharedPackage = null;
+  let sharedOutput = null;
 
   await page.route("**/api/assistant/study-coach/permission", async (route) => {
     if (route.request().method() === "PUT") {
@@ -15,6 +18,8 @@ test("Study Coach permission, automatic refresh, revocation, and deletion remain
       contentType: "application/json",
       body: JSON.stringify({
         enabled,
+        exchangeEnabled: enabled,
+        exchangeConsentVersion: enabled ? 1 : 0,
         grantedAt: enabled ? "2026-08-04T12:00:00.000Z" : null,
         retention: enabled ? "until-revoked" : null,
         expiresAt: null,
@@ -25,6 +30,10 @@ test("Study Coach permission, automatic refresh, revocation, and deletion remain
         accessCount,
         deleteCount,
         lastAccessedAt: null,
+        packagePresent: sharedPackage != null,
+        latestPackage: sharedPackage,
+        outputPresent: sharedOutput != null,
+        latestOutput: sharedOutput,
       }),
     });
   });
@@ -32,6 +41,8 @@ test("Study Coach permission, automatic refresh, revocation, and deletion remain
   await page.route("**/api/assistant/study-coach/snapshot", async (route) => {
     if (route.request().method() === "DELETE") {
       published = null;
+      sharedPackage = null;
+      sharedOutput = null;
       deleteCount += 1;
       await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, deleted: true }) });
       return;
@@ -79,7 +90,7 @@ test("Study Coach permission, automatic refresh, revocation, and deletion remain
   }
 
   await page.locator("#verifyStudyCoachAccessBtn").click();
-  await expect(page.locator("#studyCoachStatus")).toContainText("1 access(es)");
+  await expect(page.locator("#studyCoachStatus")).toContainText("1 snapshot access(es)");
   await expect(page.locator("#studyCoachStatus")).toContainText("Study Coach access verified");
 
   await page.locator("#revokeStudyCoachBtn").click();
@@ -99,10 +110,379 @@ test("assistant controls remain visible with a clear unavailable state when stat
     contentType: "application/json",
     body: JSON.stringify({ error: "Service unavailable" }),
   }));
+  await page.route("**/api/study-coach/google-drive", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ configured: false, latestPackage: null, latestOutput: null }),
+  }));
   await page.goto("/");
   const section = page.locator("#studyCoachSection");
   await expect(section).toBeVisible();
   await expect(section).toContainText("until I revoke it");
   await expect(page.locator("#studyCoachStatus")).toContainText("temporarily unavailable");
   await expect(page.locator("#studyCoachPermission")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Download full coach package" })).toBeEnabled();
+});
+
+test("Study Coach package export and local coach-output import remain usable", async ({ page }) => {
+  await page.route("**/api/assistant/study-coach/permission", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      enabled: false,
+      grantedAt: null,
+      retention: null,
+      expiresAt: null,
+      revokedAt: null,
+      snapshotPresent: false,
+      lastPublishedAt: null,
+      publishCount: 0,
+      accessCount: 0,
+      deleteCount: 0,
+      lastAccessedAt: null,
+      packagePresent: false,
+      latestPackage: null,
+      outputPresent: false,
+      latestOutput: null,
+    }),
+  }));
+  await page.route("**/api/study-coach/google-drive", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ configured: false, latestPackage: null, latestOutput: null }),
+  }));
+
+  await page.goto("/");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download full coach package" }).click();
+  const path = await (await downloadPromise).path();
+  const pkg = JSON.parse(await readFile(path, "utf8"));
+  expect(pkg.format).toBe("abpn-study-coach-package");
+  expect(pkg.banks[0].questions.length).toBeGreaterThan(0);
+  expect(pkg.studyState.progress).toBeInstanceOf(Array);
+
+  await page.locator("#studyCoachOutputImportInput").setInputFiles({
+    name: "study-coach-output.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      format: "abpn-study-coach-output",
+      schemaVersion: 1,
+      generatedAt: "2026-08-18T13:00:00.000Z",
+      sourcePackageGeneratedAt: pkg.exportedAt,
+      summary: "Target psychopharmacology and anxiety misses first.",
+      focusAreas: [{
+        title: "Psychopharmacology",
+        rationale: "Recent errors are clustered here.",
+        recommendedQuestionCount: 20,
+        questionRefs: [{ bankId: pkg.banks[0].id, questionId: pkg.banks[0].questions[0].id }],
+      }],
+      recommendedSets: [{
+        title: "20-question rebuild set",
+        objective: "Retest the concepts you most recently missed.",
+        mode: "test",
+        timed: true,
+        questionCount: 20,
+        questionRefs: [{ bankId: pkg.banks[0].id, questionId: pkg.banks[0].questions[0].id }],
+        instructions: "Use missed-question themes to create a fresh ABPN-style set.",
+      }],
+      progressMetrics: [{ label: "Primary target", value: "Psychopharmacology", detail: "20-question rebuild" }],
+      studyActions: ["Run the 20-question rebuild set."],
+      notes: ["Reassess after one timed pass."],
+    })),
+  });
+
+  await expect(page.locator("#studyCoachOutput")).toContainText("Imported coaching plan");
+  await expect(page.locator("#studyCoachOutput")).toContainText("20-question rebuild set");
+  await expect(page.locator("#studyCoachOutput")).toContainText("Psychopharmacology");
+});
+
+test("Study Coach output can install a coach-authored deck and expose it under Coach decks", async ({ page }) => {
+  await page.route("**/api/assistant/study-coach/permission", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      enabled: false,
+      grantedAt: null,
+      retention: null,
+      expiresAt: null,
+      revokedAt: null,
+      snapshotPresent: false,
+      lastPublishedAt: null,
+      publishCount: 0,
+      accessCount: 0,
+      deleteCount: 0,
+      lastAccessedAt: null,
+      packagePresent: false,
+      latestPackage: null,
+      outputPresent: false,
+      latestOutput: null,
+    }),
+  }));
+  await page.route("**/api/study-coach/google-drive", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ configured: false, latestPackage: null, latestOutput: null }),
+  }));
+
+  await page.goto("/");
+  await expect(page.locator("#app")).toContainText("DECK LIBRARY · 2 INSTALLED");
+
+  await page.locator("#studyCoachOutputImportInput").setInputFiles({
+    name: "study-coach-output-with-generated-deck.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      format: "abpn-study-coach-output",
+      schemaVersion: 1,
+      generatedAt: "2026-08-21T18:35:00.000Z",
+      sourcePackageGeneratedAt: "2026-08-21T18:30:00.000Z",
+      summary: "Install a targeted psychopharmacology deck.",
+      focusAreas: [{
+        title: "Psychopharmacology",
+        rationale: "Recent misses warrant a fresh coach-authored set.",
+        recommendedQuestionCount: 2,
+        questionRefs: [],
+      }],
+      recommendedSets: [],
+      progressMetrics: [{ label: "Primary target", value: "Psychopharmacology", detail: "2 fresh questions" }],
+      studyActions: ["Run the coach-authored psychopharmacology set next."],
+      notes: ["This output should install a separate coach deck."],
+      generatedDecks: [{
+        title: "Psychopharmacology recovery deck",
+        objective: "Fresh coach-authored remediation questions.",
+        bankId: "coach-psychopharm-authored-20260821",
+        questionCount: 2,
+        package: {
+          format: "abpn-question-bank",
+          schemaVersion: 1,
+          bank: {
+            id: "coach-psychopharm-authored-20260821",
+            title: "Coach deck · Psychopharmacology recovery deck",
+            shortTitle: "Psychopharm coach",
+            description: "Fresh coach-authored remediation questions.",
+            version: "20260821",
+            sourceType: "assistant-supplemental",
+            contentClass: "assistant-supplemental",
+            sourceLabel: "Study Coach",
+            questions: [
+              {
+                id: "coach-psychopharm-authored-20260821-q1",
+                chapterTitle: "Psychopharmacology",
+                subjectTitle: "Psychopharmacology",
+                question: "Which monitoring step is most important after starting lithium?",
+                choices: ["Check serum lithium level", "Order EEG", "Avoid renal labs", "Stop fluids"],
+                choiceLetters: ["A", "B", "C", "D"],
+                correctLetter: "A",
+                explanation: "Lithium therapy requires serum level monitoring."
+              },
+              {
+                id: "coach-psychopharm-authored-20260821-q2",
+                chapterTitle: "Psychopharmacology",
+                subjectTitle: "Psychopharmacology",
+                question: "Which antidepressant is most associated with sexual side effects?",
+                choices: ["Sertraline", "Bupropion", "Mirtazapine", "Buspirone"],
+                choiceLetters: ["A", "B", "C", "D"],
+                correctLetter: "A",
+                explanation: "SSRIs commonly cause sexual side effects."
+              }
+            ],
+          },
+        },
+      }],
+    }), "utf8"),
+  });
+
+  await expect(page.locator("#studyCoachOutput")).toContainText("Recommended coach decks");
+  await expect(page.locator("#app")).toContainText("DECK LIBRARY · 3 INSTALLED");
+
+  await page.getByLabel("Practice from").selectOption("coach");
+  await expect(page.locator("#app")).toContainText("Coach decks · 1 deck · 2 questions");
+});
+
+test("Study Coach package can share through Cloudflare, archive to Google Drive, and pull latest coach output", async ({ page }) => {
+  let latestPackage = null;
+  let latestOutput = {
+    format: "abpn-study-coach-output",
+    schemaVersion: 1,
+    generatedAt: "2026-08-18T18:00:00.000Z",
+    sourcePackageGeneratedAt: "2026-08-18T17:55:00.000Z",
+    summary: "Rebuild psychiatry weak areas from the latest package.",
+    focusAreas: [{
+      title: "Anxiety Disorders",
+      rationale: "Low accuracy with enough usage to prioritize now.",
+      recommendedQuestionCount: 15,
+      questionRefs: [{ bankId: "ks-psychiatry-core", questionId: "ks-1" }],
+    }],
+    recommendedSets: [{
+      title: "15-question anxiety rebuild",
+      objective: "Focus on high-yield misses first.",
+      mode: "test",
+      timed: false,
+      questionCount: 15,
+      questionRefs: [{ bankId: "ks-psychiatry-core", questionId: "ks-1" }],
+      instructions: "Use latest incorrect themes and keep the style ABPN-like.",
+    }],
+    progressMetrics: [{ label: "Primary target", value: "Anxiety Disorders", detail: "15-question rebuild" }],
+    studyActions: ["Run the anxiety rebuild set next."],
+    notes: ["Re-check weakness ranking after one fresh pass."],
+  };
+
+  await page.route("**/api/assistant/study-coach/permission", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      enabled: true,
+      exchangeEnabled: true,
+      exchangeConsentVersion: 1,
+      grantedAt: "2026-08-18T17:40:00.000Z",
+      retention: "until-revoked",
+      expiresAt: null,
+      revokedAt: null,
+      snapshotPresent: true,
+      lastPublishedAt: "2026-08-18T17:41:00.000Z",
+      publishCount: 1,
+      accessCount: 0,
+      deleteCount: 0,
+      lastAccessedAt: null,
+      packagePresent: latestPackage != null,
+      latestPackage: latestPackage ? {
+        id: "pkg-1",
+        createdAt: "2026-08-18T17:56:00.000Z",
+        byteCount: 4096,
+        chunkCount: 1,
+        exportedAt: latestPackage.exportedAt,
+        bankCount: latestPackage.banks.length,
+        questionCount: latestPackage.banks.reduce((sum, bank) => sum + bank.questions.length, 0),
+      } : null,
+      outputPresent: latestOutput != null,
+      latestOutput: latestOutput ? {
+        id: "output-1",
+        createdAt: "2026-08-18T18:01:00.000Z",
+        byteCount: 2048,
+        chunkCount: 1,
+        generatedAt: latestOutput.generatedAt,
+        sourcePackageGeneratedAt: latestOutput.sourcePackageGeneratedAt,
+        format: latestOutput.format,
+        schemaVersion: latestOutput.schemaVersion,
+      } : null,
+    }),
+  }));
+  await page.route(/\/api\/study-coach\/google-drive$/, (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      configured: true,
+      latestPackage: null,
+      latestOutput: {
+        id: "output-1",
+        name: "abpn-study-coach-output-1.json",
+        createdAt: "2026-08-18T18:01:00.000Z",
+        byteCount: 2048,
+      },
+    }),
+  }));
+  await page.route("**/api/assistant/study-coach/output", async (route) => {
+    if (route.request().method() === "PUT") {
+      latestOutput = JSON.parse(route.request().postData() || "{}");
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          file: {
+            id: "output-1",
+            createdAt: "2026-08-18T18:01:00.000Z",
+            byteCount: 2048,
+            chunkCount: 1,
+            generatedAt: latestOutput.generatedAt,
+            sourcePackageGeneratedAt: latestOutput.sourcePackageGeneratedAt,
+            format: latestOutput.format,
+            schemaVersion: latestOutput.schemaVersion,
+          },
+          output: latestOutput,
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        file: {
+          id: "output-1",
+          createdAt: "2026-08-18T18:01:00.000Z",
+          byteCount: 2048,
+          chunkCount: 1,
+          generatedAt: latestOutput.generatedAt,
+          sourcePackageGeneratedAt: latestOutput.sourcePackageGeneratedAt,
+          format: latestOutput.format,
+          schemaVersion: latestOutput.schemaVersion,
+        },
+        output: latestOutput,
+      }),
+    });
+  });
+  await page.route("**/api/assistant/study-coach/package", async (route) => {
+    latestPackage = JSON.parse(route.request().postData() || "{}");
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        file: {
+          id: "pkg-1",
+          createdAt: "2026-08-18T17:56:00.000Z",
+          byteCount: 4096,
+          chunkCount: 1,
+          exportedAt: latestPackage.exportedAt,
+          bankCount: latestPackage.banks.length,
+          questionCount: latestPackage.banks.reduce((sum, bank) => sum + bank.questions.length, 0),
+        },
+      }),
+    });
+  });
+  await page.route("**/api/study-coach/google-drive/package", async (route) => {
+    const archivePackage = JSON.parse(route.request().postData() || "{}");
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        configured: true,
+        file: {
+          id: "drive-pkg-1",
+          name: "abpn-study-coach-package.json",
+          createdAt: "2026-08-18T17:57:00.000Z",
+          byteCount: 4096,
+          exportedAt: archivePackage.exportedAt,
+          bankCount: archivePackage.banks.length,
+          questionCount: archivePackage.banks.reduce((sum, bank) => sum + bank.questions.length, 0),
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#studyCoachPackageStatus")).toContainText("Cloudflare is the live Study Coach lane");
+
+  const publishResponse = page.waitForResponse("**/api/assistant/study-coach/package");
+  await page.getByRole("button", { name: "Share package to Study Coach" }).click();
+  await publishResponse;
+  expect(latestPackage?.format).toBe("abpn-study-coach-package");
+  expect(latestPackage?.banks?.length).toBeGreaterThan(0);
+  await expect(page.locator("#studyCoachPackageStatus")).toContainText("Study Coach package shared to Cloudflare");
+
+  const archiveResponse = page.waitForResponse("**/api/study-coach/google-drive/package");
+  await page.getByRole("button", { name: "Archive package to Google Drive" }).click();
+  await archiveResponse;
+  await expect(page.locator("#studyCoachPackageStatus")).toContainText("Study Coach package archived to Google Drive");
+
+  const publishOutputResponse = page.waitForResponse((response) =>
+    response.url().includes("/api/assistant/study-coach/output") && response.request().method() === "PUT"
+  );
+  await page.getByRole("button", { name: "Publish coach output to Study Coach" }).click();
+  await page.locator("#studyCoachOutputImportInput").setInputFiles({
+    name: "study-coach-output.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(latestOutput), "utf8"),
+  });
+  await publishOutputResponse;
+  await expect(page.locator("#studyCoachPackageStatus")).toContainText("Study Coach output published to Cloudflare");
+
+  const pullResponse = page.waitForResponse("**/api/assistant/study-coach/output");
+  await page.getByRole("button", { name: "Pull latest coach output" }).click();
+  await pullResponse;
+  await expect(page.locator("#studyCoachPackageStatus")).toContainText("Latest Study Coach output pulled from Cloudflare");
+  await expect(page.locator("#studyCoachOutput")).toContainText("Imported coaching plan");
+  await expect(page.locator("#studyCoachOutput")).toContainText("15-question anxiety rebuild");
+  await expect(page.locator("#studyCoachOutput")).toContainText("Anxiety Disorders");
 });

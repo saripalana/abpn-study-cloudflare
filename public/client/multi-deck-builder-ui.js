@@ -1,5 +1,6 @@
 import {
   DECK_SCOPE_ALL,
+  DECK_SCOPE_COACH,
   DECK_SCOPE_CURRENT,
   DECK_SCOPE_CUSTOM,
   deckScopeSummary,
@@ -27,6 +28,7 @@ export function multiDeckSelectorMarkup({ decks, activeBankId, settings } = {}) 
       <select id="deckScopeSelect">
         <option value="${DECK_SCOPE_CURRENT}" ${normalized.scope === DECK_SCOPE_CURRENT ? "selected" : ""}>Current deck</option>
         <option value="${DECK_SCOPE_ALL}" ${normalized.scope === DECK_SCOPE_ALL ? "selected" : ""}>All study decks</option>
+        <option value="${DECK_SCOPE_COACH}" ${normalized.scope === DECK_SCOPE_COACH ? "selected" : ""}>Coach decks</option>
         <option value="${DECK_SCOPE_CUSTOM}" ${normalized.scope === DECK_SCOPE_CUSTOM ? "selected" : ""}>Choose specific decks</option>
       </select>
     </div>

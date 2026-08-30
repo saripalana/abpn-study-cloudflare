@@ -1,8 +1,19 @@
+import {
+  MAX_STUDY_COACH_EXCHANGE_BYTES,
+  normalizeStudyCoachPackage,
+  prepareStudyCoachOutput,
+  protectedStudyCoachBanks,
+  validateStudyCoachPackage,
+} from "./client/study-coach-package.js";
+
 const MAX_DECKS = 20;
 const MAX_DOMAINS = 100;
 const MAX_COACHING_ITEMS = 200;
 const MAX_COMPLETED_TESTS = 100;
+const MAX_EXCHANGE_BYTES = MAX_STUDY_COACH_EXCHANGE_BYTES;
+const CHUNK_CHARACTERS = 220_000;
 const CONSENT_VERSION = 2;
+const EXCHANGE_CONSENT_VERSION = 1;
 // The schema keeps an internal non-null timestamp for compatibility. This
 // sentinel represents the user-selected policy "until revoked" and is never
 // presented as a real expiration date.
@@ -23,6 +34,187 @@ function finiteRatio(value, field) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0 || number > 1) throw new Error(`${field} is invalid`);
   return number;
+}
+
+async function readBoundedText(request) {
+  const declared = Number(request.headers.get("content-length") || 0);
+  if (declared > MAX_EXCHANGE_BYTES) throw new Error("Study Coach exchange file exceeds the 25 MiB Cloudflare limit");
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > MAX_EXCHANGE_BYTES) throw new Error("Study Coach exchange file exceeds the 25 MiB Cloudflare limit");
+  return { text: new TextDecoder().decode(bytes), byteCount: bytes.byteLength };
+}
+
+function splitChunks(text) {
+  const chunks = [];
+  for (let start = 0; start < text.length; start += CHUNK_CHARACTERS) chunks.push(text.slice(start, start + CHUNK_CHARACTERS));
+  if (chunks.length > 120) throw new Error("Study Coach exchange file requires too many Cloudflare storage chunks");
+  return chunks;
+}
+
+function parseArtifactMetadata(row) {
+  try {
+    return JSON.parse(row.metadata_json || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function summarizeArtifact(type, row) {
+  if (!row) return null;
+  const metadata = parseArtifactMetadata(row);
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    byteCount: Number(row.byte_count || 0),
+    chunkCount: Number(row.chunk_count || 0),
+    ...(type === "package"
+      ? {
+        exportedAt: metadata.exportedAt || null,
+        bankCount: Number(metadata.bankCount || 0),
+        questionCount: Number(metadata.questionCount || 0),
+      }
+      : {
+        generatedAt: metadata.generatedAt || null,
+        sourcePackageGeneratedAt: metadata.sourcePackageGeneratedAt || null,
+        format: metadata.format || null,
+        schemaVersion: Number(metadata.schemaVersion || 0) || null,
+      }),
+  };
+}
+
+async function artifactRows(env, userId) {
+  const rows = await env.DB.prepare(`
+    SELECT id, artifact_type, created_at, byte_count, chunk_count, metadata_json
+    FROM assistant_study_coach_artifacts
+    WHERE user_id = ?
+  `).bind(userId).all();
+  return new Map((rows.results || []).map((row) => [row.artifact_type, row]));
+}
+
+async function latestArtifact(env, userId, type) {
+  const row = await env.DB.prepare(`
+    SELECT id, created_at, byte_count, chunk_count, primary_timestamp, metadata_json
+    FROM assistant_study_coach_artifacts
+    WHERE user_id = ? AND artifact_type = ?
+    LIMIT 1
+  `).bind(userId, type).first();
+  if (!row) return null;
+  const chunks = await env.DB.prepare(`
+    SELECT chunk_text FROM assistant_study_coach_artifact_chunks
+    WHERE artifact_id = ? ORDER BY chunk_index ASC
+  `).bind(row.id).all();
+  if ((chunks.results || []).length !== Number(row.chunk_count)) throw new Error("Stored Study Coach exchange file is incomplete");
+  return {
+    row,
+    text: chunks.results.map((entry) => entry.chunk_text).join(""),
+  };
+}
+
+async function prepareOutputAgainstCurrentPackage(input, env, userId) {
+  if (!Array.isArray(input?.generatedDecks) || !input.generatedDecks.length) {
+    return prepareStudyCoachOutput(input);
+  }
+  const record = await latestArtifact(env, userId, "package");
+  if (!record) throw new Error("Share a current Study Coach package before publishing generated decks");
+  const pkg = normalizeStudyCoachPackage(JSON.parse(record.text));
+  const protectedBanks = protectedStudyCoachBanks(pkg.banks);
+  if (!protectedBanks.length) throw new Error("The current Study Coach package has no protected source baseline");
+  return prepareStudyCoachOutput(input, {
+    reservedIds: protectedBanks.map((bank) => bank.id),
+    protectedBanks,
+  });
+}
+
+async function replaceArtifact(env, userId, type, text, byteCount, primaryTimestamp, metadata) {
+  const prior = await env.DB.prepare(`
+    SELECT id FROM assistant_study_coach_artifacts
+    WHERE user_id = ? AND artifact_type = ?
+    LIMIT 1
+  `).bind(userId, type).first();
+  const artifactId = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const chunks = splitChunks(text);
+  const statements = [];
+  if (prior?.id) {
+    statements.push(env.DB.prepare(`
+      DELETE FROM assistant_study_coach_artifact_chunks WHERE artifact_id = ?
+    `).bind(prior.id));
+    statements.push(env.DB.prepare(`
+      DELETE FROM assistant_study_coach_artifacts WHERE id = ?
+    `).bind(prior.id));
+  }
+  statements.push(env.DB.prepare(`
+    INSERT INTO assistant_study_coach_artifacts
+      (id, user_id, artifact_type, created_at, byte_count, chunk_count, primary_timestamp, metadata_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(artifactId, userId, type, createdAt, byteCount, chunks.length, primaryTimestamp, JSON.stringify(metadata)));
+  chunks.forEach((chunk, index) => statements.push(
+    env.DB.prepare(`
+      INSERT INTO assistant_study_coach_artifact_chunks (artifact_id, chunk_index, chunk_text)
+      VALUES (?, ?, ?)
+    `).bind(artifactId, index, chunk)
+  ));
+  await env.DB.batch(statements);
+  return summarizeArtifact(type, {
+    id: artifactId,
+    created_at: createdAt,
+    byte_count: byteCount,
+    chunk_count: chunks.length,
+    metadata_json: JSON.stringify(metadata),
+  });
+}
+
+async function deleteArtifacts(env, userId) {
+  const rows = await env.DB.prepare(`
+    SELECT id FROM assistant_study_coach_artifacts WHERE user_id = ?
+  `).bind(userId).all();
+  const statements = [];
+  for (const row of rows.results || []) {
+    statements.push(env.DB.prepare(`
+      DELETE FROM assistant_study_coach_artifact_chunks WHERE artifact_id = ?
+    `).bind(row.id));
+    statements.push(env.DB.prepare(`
+      DELETE FROM assistant_study_coach_artifacts WHERE id = ?
+    `).bind(row.id));
+  }
+  if (statements.length) await env.DB.batch(statements);
+}
+
+async function reserveStudyCoachUsage(reserveUsage, env, pathname, method) {
+  const key = `${method} ${pathname}`;
+  const budgets = {
+    "GET /api/assistant/study-coach/permission": { requests: 1, rowsRead: 4 },
+    "PUT /api/assistant/study-coach/permission": { requests: 1, writeActions: 1, rowsRead: 4, rowsWritten: 2 },
+    "POST /api/assistant/study-coach/snapshot": { requests: 1, writeActions: 1, rowsRead: 4, rowsWritten: 3 },
+    "GET /api/assistant/study-coach/snapshot": { requests: 1, writeActions: 1, rowsRead: 5, rowsWritten: 2 },
+    "DELETE /api/assistant/study-coach/snapshot": { requests: 1, writeActions: 1, rowsRead: 4, rowsWritten: 246 },
+    "PUT /api/assistant/study-coach/package": { requests: 1, writeActions: 1, rowsRead: 5, rowsWritten: 245 },
+    "GET /api/assistant/study-coach/package": { requests: 1, writeActions: 1, rowsRead: 125, rowsWritten: 2 },
+    "PUT /api/assistant/study-coach/output": { requests: 1, writeActions: 1, rowsRead: 5, rowsWritten: 245 },
+    "GET /api/assistant/study-coach/output": { requests: 1, writeActions: 1, rowsRead: 125, rowsWritten: 2 },
+  };
+  await reserveUsage(env, budgets[key] || { requests: 1, rowsRead: 1 });
+}
+
+async function exchangeAudit(env, userId, action, deviceId, { publish = false, access = false } = {}) {
+  const now = new Date().toISOString();
+  const statements = [env.DB.prepare(`
+    INSERT INTO assistant_study_coach_exchange_audit (user_id, action, device_id, occurred_at)
+    VALUES (?, ?, ?, ?)
+  `).bind(userId, action, deviceId, now)];
+  if (publish) {
+    statements.push(env.DB.prepare(`
+      UPDATE assistant_weakness_permissions
+      SET exchange_publish_count = exchange_publish_count + 1 WHERE user_id = ?
+    `).bind(userId));
+  }
+  if (access) {
+    statements.push(env.DB.prepare(`
+      UPDATE assistant_weakness_permissions
+      SET exchange_access_count = exchange_access_count + 1, last_exchange_accessed_at = ? WHERE user_id = ?
+    `).bind(now, userId));
+  }
+  await env.DB.batch(statements);
 }
 
 // Validate and rebuild the content-aware coaching payload from an explicit
@@ -118,15 +310,23 @@ export function sanitizeStudyCoachDataset(input) {
 async function status(env, userId) {
   const row = await env.DB.prepare(`
     SELECT enabled, consent_version, granted_at, expires_at, revoked_at, publish_count, access_count,
-           delete_count, last_accessed_at
+           delete_count, last_accessed_at, exchange_consent_version, exchange_granted_at,
+           exchange_publish_count, exchange_access_count, last_exchange_accessed_at
     FROM assistant_weakness_permissions WHERE user_id = ?
   `).bind(userId).first();
   const snapshot = await env.DB.prepare(
     "SELECT user_id, generated_at FROM assistant_weakness_snapshots WHERE user_id = ?"
   ).bind(userId).first();
+  const artifacts = await artifactRows(env, userId);
+  const latestPackage = summarizeArtifact("package", artifacts.get("package"));
+  const latestOutput = summarizeArtifact("output", artifacts.get("output"));
   const enabled = Boolean(row?.enabled) && Number(row?.consent_version || 0) === CONSENT_VERSION;
+  const exchangeEnabled = enabled && Number(row?.exchange_consent_version || 0) === EXCHANGE_CONSENT_VERSION;
   return {
     enabled,
+    exchangeEnabled,
+    exchangeConsentVersion: Number(row?.exchange_consent_version || 0),
+    exchangeGrantedAt: row?.exchange_granted_at || null,
     grantedAt: row?.granted_at || null,
     retention: enabled ? "until-revoked" : null,
     expiresAt: null,
@@ -137,6 +337,13 @@ async function status(env, userId) {
     accessCount: Number(row?.access_count || 0),
     deleteCount: Number(row?.delete_count || 0),
     lastAccessedAt: row?.last_accessed_at || null,
+    exchangePublishCount: Number(row?.exchange_publish_count || 0),
+    exchangeAccessCount: Number(row?.exchange_access_count || 0),
+    lastExchangeAccessedAt: row?.last_exchange_accessed_at || null,
+    packagePresent: Boolean(latestPackage),
+    latestPackage,
+    outputPresent: Boolean(latestOutput),
+    latestOutput,
   };
 }
 
@@ -148,13 +355,21 @@ async function audit(env, userId, action, deviceId) {
 }
 
 export async function handleAssistantWeaknessRequest(request, env, helpers) {
-  const { json, requireSyncReady, requireContext, ensureUserAndDevice, parseBoundedJson } = helpers;
+  const {
+    json,
+    requireSyncReady,
+    requireContext,
+    ensureUserAndDevice,
+    parseBoundedJson,
+    reserveUsage = async () => {},
+  } = helpers;
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/assistant/study-coach")) return null;
   requireFeature(env, json);
   requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
   await ensureUserAndDevice(env, userId, deviceId);
+  await reserveStudyCoachUsage(reserveUsage, env, url.pathname, request.method);
 
   if (url.pathname === "/api/assistant/study-coach/permission" && request.method === "GET") {
     return json(await status(env, userId));
@@ -163,18 +378,31 @@ export async function handleAssistantWeaknessRequest(request, env, helpers) {
   if (url.pathname === "/api/assistant/study-coach/permission" && request.method === "PUT") {
     const body = await parseBoundedJson(request);
     const enabled = body.enabled === true && body.consentVersion === CONSENT_VERSION;
+    const exchangeEnabled = enabled && body.exchangeConsentVersion === EXCHANGE_CONSENT_VERSION;
     const now = new Date();
     await env.DB.prepare(`
       INSERT INTO assistant_weakness_permissions
-        (user_id, enabled, consent_version, granted_at, expires_at, revoked_at, publish_count, access_count)
-      VALUES (?, ?, ?, ?, ?, ?, 0, 0)
+        (user_id, enabled, consent_version, granted_at, expires_at, revoked_at, publish_count, access_count,
+         exchange_consent_version, exchange_granted_at, exchange_publish_count, exchange_access_count)
+      VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0)
       ON CONFLICT(user_id) DO UPDATE SET
         enabled = excluded.enabled,
         consent_version = excluded.consent_version,
         granted_at = excluded.granted_at,
         expires_at = excluded.expires_at,
-        revoked_at = excluded.revoked_at
-    `).bind(userId, Number(enabled), CONSENT_VERSION, enabled ? now.toISOString() : null, enabled ? UNTIL_REVOKED_AT : null, enabled ? null : now.toISOString()).run();
+        revoked_at = excluded.revoked_at,
+        exchange_consent_version = excluded.exchange_consent_version,
+        exchange_granted_at = excluded.exchange_granted_at
+    `).bind(
+      userId,
+      Number(enabled),
+      CONSENT_VERSION,
+      enabled ? now.toISOString() : null,
+      enabled ? UNTIL_REVOKED_AT : null,
+      enabled ? null : now.toISOString(),
+      exchangeEnabled ? EXCHANGE_CONSENT_VERSION : 0,
+      exchangeEnabled ? now.toISOString() : null,
+    ).run();
     await audit(env, userId, enabled ? "permission-granted" : "permission-revoked", deviceId);
     return json(await status(env, userId));
   }
@@ -222,14 +450,121 @@ export async function handleAssistantWeaknessRequest(request, env, helpers) {
   }
 
   if (url.pathname === "/api/assistant/study-coach/snapshot" && request.method === "DELETE") {
-    await env.DB.batch([
-      env.DB.prepare("DELETE FROM assistant_weakness_snapshots WHERE user_id = ?").bind(userId),
-      env.DB.prepare(`
-        UPDATE assistant_weakness_permissions
-        SET delete_count = delete_count + 1 WHERE user_id = ?
-      `).bind(userId),
-    ]);
+    await env.DB.prepare("DELETE FROM assistant_weakness_snapshots WHERE user_id = ?").bind(userId).run();
+    await deleteArtifacts(env, userId);
+    await env.DB.prepare(`
+      UPDATE assistant_weakness_permissions
+      SET delete_count = delete_count + 1 WHERE user_id = ?
+    `).bind(userId).run();
+    await exchangeAudit(env, userId, "exchange-deleted", deviceId);
     return json({ ok: true, deleted: true });
+  }
+
+  if (url.pathname === "/api/assistant/study-coach/package" && request.method === "PUT") {
+    const permission = await status(env, userId);
+    if (!permission.exchangeEnabled) return json({ error: "Fresh Study Coach exchange permission is required" }, 403);
+    let parsed;
+    let normalized;
+    let pkg;
+    let payload;
+    try {
+      payload = await readBoundedText(request);
+      parsed = JSON.parse(payload.text);
+      normalized = normalizeStudyCoachPackage(parsed);
+      pkg = validateStudyCoachPackage(normalized);
+    } catch (error) {
+      return json({ error: error.message || "Study Coach package is invalid" }, 400);
+    }
+    const canonicalText = JSON.stringify(normalized);
+    const canonicalByteCount = new TextEncoder().encode(canonicalText).byteLength;
+    const file = await replaceArtifact(env, userId, "package", canonicalText, canonicalByteCount, pkg.exportedAt, {
+      exportedAt: pkg.exportedAt,
+      bankCount: pkg.bankCount,
+      questionCount: pkg.questionCount,
+    });
+    await exchangeAudit(env, userId, "package-published", deviceId, { publish: true });
+    return json({ ok: true, file });
+  }
+
+  if (url.pathname === "/api/assistant/study-coach/package" && request.method === "GET") {
+    const permission = await status(env, userId);
+    if (!permission.exchangeEnabled) return json({ error: "Fresh Study Coach exchange permission is required" }, 403);
+    let record;
+    try {
+      record = await latestArtifact(env, userId, "package");
+    } catch (error) {
+      return json({ error: error.message || "Stored Study Coach package is incomplete" }, 500);
+    }
+    if (!record) return json({ error: "No current Study Coach package" }, 404);
+    let parsed;
+    try {
+      parsed = normalizeStudyCoachPackage(JSON.parse(record.text));
+      validateStudyCoachPackage(parsed);
+    } catch (error) {
+      return json({ error: error.message || "Stored Study Coach package is invalid" }, 502);
+    }
+    await exchangeAudit(env, userId, "package-accessed", deviceId, { access: true });
+    return json({
+      ok: true,
+      file: summarizeArtifact("package", {
+        ...record.row,
+        metadata_json: record.row.metadata_json,
+      }),
+      package: parsed,
+    });
+  }
+
+  if (url.pathname === "/api/assistant/study-coach/output" && request.method === "PUT") {
+    const permission = await status(env, userId);
+    if (!permission.exchangeEnabled) return json({ error: "Fresh Study Coach exchange permission is required" }, 403);
+    let parsed;
+    let output;
+    let payload;
+    try {
+      payload = await readBoundedText(request);
+      parsed = JSON.parse(payload.text);
+      output = await prepareOutputAgainstCurrentPackage(parsed, env, userId);
+    } catch (error) {
+      return json({ error: error.message || "Study Coach output is invalid" }, 400);
+    }
+    const canonicalText = JSON.stringify(output);
+    const canonicalByteCount = new TextEncoder().encode(canonicalText).byteLength;
+    const file = await replaceArtifact(env, userId, "output", canonicalText, canonicalByteCount, output.generatedAt, {
+      generatedAt: output.generatedAt,
+      sourcePackageGeneratedAt: output.sourcePackageGeneratedAt,
+      format: output.format,
+      schemaVersion: output.schemaVersion,
+    });
+    await exchangeAudit(env, userId, "output-published", deviceId, { publish: true });
+    return json({ ok: true, file });
+  }
+
+  if (url.pathname === "/api/assistant/study-coach/output" && request.method === "GET") {
+    const permission = await status(env, userId);
+    if (!permission.exchangeEnabled) return json({ error: "Fresh Study Coach exchange permission is required" }, 403);
+    let record;
+    try {
+      record = await latestArtifact(env, userId, "output");
+    } catch (error) {
+      return json({ error: error.message || "Stored Study Coach output is incomplete" }, 500);
+    }
+    if (!record) return json({ error: "No current Study Coach output" }, 404);
+    let parsed;
+    try {
+      parsed = JSON.parse(record.text);
+      parsed = await prepareOutputAgainstCurrentPackage(parsed, env, userId);
+    } catch (error) {
+      return json({ error: error.message || "Stored Study Coach output is invalid" }, 502);
+    }
+    await exchangeAudit(env, userId, "output-accessed", deviceId, { access: true });
+    return json({
+      ok: true,
+      file: summarizeArtifact("output", {
+        ...record.row,
+        metadata_json: record.row.metadata_json,
+      }),
+      output: parsed,
+    });
   }
 
   return json({ error: "Not found" }, 404);

@@ -233,75 +233,107 @@ export function analyzeQuestionBankUpdate(existing, incoming, { hasStudyData = f
   };
 }
 
-export async function installQuestionBankPackage(prepared, { reservedIds = [] } = {}) {
-  const packageRecord = prepared?.bank?.checksum
-    ? prepared
-    : await prepareQuestionBankPackage(prepared, { reservedIds });
-  const incoming = packageRecord.bank;
-  if (new Set(reservedIds).has(incoming.id)) throw new Error(`The bank id ${incoming.id} is reserved.`);
-
-  const [existing, progress, sets] = await Promise.all([
-    getRecord(STORES.BANK_CONTENT, incoming.id),
-    recordsByIndex(STORES.PROGRESS, "byBank", incoming.id),
-    recordsByIndex(STORES.SETS, "byBank", incoming.id),
-  ]);
-  const analysis = analyzeQuestionBankUpdate(existing, incoming, { hasStudyData: progress.length > 0 || sets.length > 0 });
-  if (analysis.status === "unchanged") return { ...analysis, bank: existing };
-
-  const now = new Date().toISOString();
+function installationRecords(incoming, existing, now) {
   const installed = { ...incoming, importedAt: existing?.importedAt || incoming.importedAt || now, updatedAt: now };
-  const metadata = {
-    id: installed.id,
-    title: installed.title,
-    shortTitle: installed.shortTitle,
-    description: installed.description,
-    version: installed.version,
-    questionCount: installed.questions.length,
-    sourceType: installed.sourceType,
-    contentClass: installed.contentClass,
-    sourceLabel: installed.sourceLabel,
-    protected: false,
-    checksum: installed.checksum,
-    importedAt: installed.importedAt,
-    updatedAt: now,
-  };
-  const revision = {
-    bankId: installed.id,
-    checksum: installed.checksum,
-    version: installed.version,
-    archivedAt: now,
-    package: {
-      format: QUESTION_BANK_PACKAGE_FORMAT,
-      schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
-      bank: installed,
+  return {
+    installed,
+    metadata: {
+      id: installed.id,
+      title: installed.title,
+      shortTitle: installed.shortTitle,
+      description: installed.description,
+      version: installed.version,
+      questionCount: installed.questions.length,
+      sourceType: installed.sourceType,
+      contentClass: installed.contentClass,
+      sourceLabel: installed.sourceLabel,
+      protected: false,
+      checksum: installed.checksum,
+      importedAt: installed.importedAt,
+      updatedAt: now,
+    },
+    revision: {
+      bankId: installed.id,
+      checksum: installed.checksum,
+      version: installed.version,
+      archivedAt: now,
+      package: {
+        format: QUESTION_BANK_PACKAGE_FORMAT,
+        schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
+        bank: installed,
+      },
     },
   };
+}
+
+export async function installQuestionBankPackagesAtomically(packages, { reservedIds = [] } = {}) {
+  if (!Array.isArray(packages) || packages.length < 1 || packages.length > 12) {
+    throw new Error("Question-bank batch must contain between 1 and 12 packages.");
+  }
+  const reserved = new Set(reservedIds);
+  // Re-run every entry through the package validator before opening the one
+  // write transaction. A caller-provided checksum is never treated as proof
+  // that the rest of the package is safe or normalized.
+  const preparedPackages = await Promise.all(packages.map((entry) => prepareQuestionBankPackage(entry, { reservedIds })));
+  const incomingIds = preparedPackages.map((entry) => entry.bank.id);
+  if (new Set(incomingIds).size !== incomingIds.length) throw new Error("Question-bank batch contains duplicate bank ids.");
+  if (incomingIds.some((id) => reserved.has(id))) throw new Error("Question-bank batch contains a reserved bank id.");
+
+  const states = await Promise.all(preparedPackages.map(async (packageRecord) => {
+    const incoming = packageRecord.bank;
+    const [existing, progress, sets] = await Promise.all([
+      getRecord(STORES.BANK_CONTENT, incoming.id),
+      recordsByIndex(STORES.PROGRESS, "byBank", incoming.id),
+      recordsByIndex(STORES.SETS, "byBank", incoming.id),
+    ]);
+    const analysis = analyzeQuestionBankUpdate(existing, incoming, { hasStudyData: progress.length > 0 || sets.length > 0 });
+    return { incoming, existing, analysis };
+  }));
+
+  const now = new Date().toISOString();
+  const operations = states.map((state) => state.analysis.status === "unchanged"
+    ? { ...state, records: null }
+    : { ...state, records: installationRecords(state.incoming, state.existing, now) });
+  if (operations.every((entry) => !entry.records)) {
+    return operations.map((entry) => ({ ...entry.analysis, bank: entry.existing }));
+  }
 
   const db = await openStudyDatabase();
   try {
     const transaction = db.transaction([STORES.BANK_CONTENT, STORES.BANK_REVISIONS, STORES.BANKS], "readwrite");
-    if (existing) {
-      transaction.objectStore(STORES.BANK_REVISIONS).put({
-        bankId: existing.id,
-        checksum: existing.checksum,
-        version: existing.version,
-        archivedAt: now,
-        package: {
-          format: QUESTION_BANK_PACKAGE_FORMAT,
-          schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
-          bank: existing,
-        },
-      });
+    for (const operation of operations) {
+      if (!operation.records) continue;
+      if (operation.existing) {
+        transaction.objectStore(STORES.BANK_REVISIONS).put({
+          bankId: operation.existing.id,
+          checksum: operation.existing.checksum,
+          version: operation.existing.version,
+          archivedAt: now,
+          package: {
+            format: QUESTION_BANK_PACKAGE_FORMAT,
+            schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
+            bank: operation.existing,
+          },
+        });
+      }
+      transaction.objectStore(STORES.BANK_REVISIONS).put(operation.records.revision);
+      transaction.objectStore(STORES.BANK_CONTENT).put(operation.records.installed);
+      transaction.objectStore(STORES.BANKS).put(operation.records.metadata);
     }
-    transaction.objectStore(STORES.BANK_REVISIONS).put(revision);
-    transaction.objectStore(STORES.BANK_CONTENT).put(installed);
-    transaction.objectStore(STORES.BANKS).put(metadata);
     await transactionDone(transaction);
   } finally {
     db.close();
   }
 
-  return { ...analysis, bank: installed };
+  return operations.map((operation) => ({
+    ...operation.analysis,
+    bank: operation.records?.installed || operation.existing,
+  }));
+}
+
+export async function installQuestionBankPackage(prepared, options = {}) {
+  const [result] = await installQuestionBankPackagesAtomically([prepared], options);
+  return result;
 }
 
 export async function installSeedQuestionBanks(seedDefinitions = []) {

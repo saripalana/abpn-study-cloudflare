@@ -7,38 +7,50 @@ This document controls recovery for the private ABPN Study Cloudflare applicatio
 - `dancingremote/ks-study-guide` (authoritative read-only K&S source)
 - `saripalana/abpn-study-lite`
 
-## Portable local backup
+## Complete local recovery bundle
 
-The application can download a JSON backup containing only local study records:
+The active user-facing recovery path downloads a complete JSON recovery bundle.
+It is the same recovery contract used for device download, protected Cloudflare
+backup, and restricted Google Drive recovery.
 
-- installed question-bank references and metadata
+The complete recovery bundle includes:
+
+- installed question-bank metadata
+- installed question-bank package content
+- question-bank revision records
 - question progress, flags, accuracy inputs, and timing totals
 - active, abandoned, and completed practice sets
 - practice-set answers
 - local recovery snapshots
+- allowed local settings needed to rebuild the study workspace
 
-The portable backup intentionally excludes:
+The complete recovery bundle intentionally excludes:
 
-- original K&S question text, choices, explanations, or answer keys
-- any other question-bank content
-- Cloudflare Access identity data
-- device-specific synchronization cursor, outbox, or failure state
-- API tokens or secrets
+- authentication or Cloudflare Access identity state
+- API tokens, OAuth credentials, or secrets
+- device identifiers
+- staging-session identifiers
+- synchronization outbox state or transport failure state
 
-Question-bank content remains versioned separately in the repository. A backup cannot replace or silently alter that content.
+The recovery bundle is integrity-protected and validated before any restore is
+accepted.
 
 ## Backup validation
 
 A backup is accepted only when all of the following are true:
 
-1. The format is `abpn-study-local-backup`.
+1. The format is `abpn-study-complete-recovery`.
 2. The schema version is supported.
 3. The creation timestamp is valid.
-4. Every required data collection is an array.
+4. Every required data collection is present and valid.
 5. Record keys are present and unique inside each collection.
-6. Progress revisions and timestamps are valid.
-7. No nested `questions` content appears anywhere in the backup.
-8. The file is no larger than 25 MiB.
+6. The SHA-256 integrity digest matches the exact JSON-safe transport payload.
+7. The file is no larger than 100 MiB for local import/export.
+
+Protected cloud destinations enforce their own smaller upload limits:
+
+- Cloudflare recovery route: 25 MiB
+- Google Drive recovery route: 25 MiB
 
 Malformed or unsupported files are rejected before any local record is written.
 
@@ -51,11 +63,16 @@ Restore is a merge, never a database replacement.
 - Higher progress revision wins.
 - When revisions are equal, the later update timestamp wins.
 - Newer local practice sets and answers are preserved.
-- Records for a question bank that is not installed are skipped.
-- Progress records for unknown question identifiers are skipped.
+- Question-bank content and revision rows are restored through the same
+  IndexedDB contract as local study data.
 - Practice sets with missing question references are retained only as `invalid` and cannot become resumable.
 - An imported active timed set keeps its saved remaining time; the restore timestamp is reset so elapsed time before the restore is not subtracted.
 - Device-specific synchronization state is not restored.
+- Existing local settings win; missing allowed settings are added back.
+
+On staging, restore may intentionally skip app-supplied deck-package records so
+progress and history can be recovered without overwriting the exact deck
+packages shipped by the current candidate.
 
 After a successful restore, the page reloads so active-set and analytics state are reconstructed from IndexedDB.
 
@@ -64,11 +81,25 @@ After a successful restore, the page reloads so active-set and analytics state a
 1. Open the app on the device containing the desired data.
 2. From **Data protection**, select **Download backup**.
 3. Keep the downloaded JSON file outside the browser profile.
-4. On the destination device, confirm the same question-bank versions are installed.
+4. On the destination device, confirm the target build is the intended recovery target.
 5. Select **Restore backup** and review the manifest counts.
 6. Confirm the merge.
-7. Verify dashboard counts, flags, active-set restoration, history, and analytics.
+7. Verify deck availability, dashboard counts, flags, active-set restoration, history, and analytics.
 8. Keep the pre-restore recovery snapshot until the restored state has been verified.
+
+## Study Coach boundary
+
+The complete recovery bundle restores the local study workspace that the app
+derives analytics from, including question-bank content, progress, tests,
+answers, settings, and local snapshots.
+
+Study Coach server-side sharing state is separate from that bundle:
+
+- local full coach-package download/import is a separate analysis workflow
+- restricted Google Drive coach-package exchange is a separate workflow
+- server-side Study Coach permission, published snapshot state, and audit state
+  are not part of the standard local recovery bundle unless a later migration
+  explicitly adds them
 
 ## Worker rollback
 

@@ -2,16 +2,23 @@ import { studyDecks } from "./multi-deck-practice.js";
 
 export const DECK_SCOPE_CURRENT = "current";
 export const DECK_SCOPE_ALL = "all";
+export const DECK_SCOPE_COACH = "coach";
 export const DECK_SCOPE_CUSTOM = "custom";
 
 const VALID_SCOPES = new Set([
   DECK_SCOPE_CURRENT,
   DECK_SCOPE_ALL,
+  DECK_SCOPE_COACH,
   DECK_SCOPE_CUSTOM,
 ]);
 
 export function normalStudyDecks(decks) {
   return studyDecks(decks);
+}
+
+export function coachStudyDecks(decks) {
+  return normalStudyDecks(decks)
+    .filter((deck) => deck?.contentClass === "assistant-supplemental");
 }
 
 function currentDeckForScope({ decks, activeBankId } = {}) {
@@ -28,6 +35,7 @@ export function normalizeDeckScopeSettings({
 } = {}) {
   const available = normalStudyDecks(decks);
   const availableIds = new Set(available.map((deck) => deck.id));
+  const coachAvailable = coachStudyDecks(decks);
   const activeId = currentDeckForScope({ decks, activeBankId })?.id || "";
   const requestedScope = VALID_SCOPES.has(saved?.scope) ? saved.scope : DECK_SCOPE_CURRENT;
   const requestedIds = Array.isArray(saved?.selectedBankIds)
@@ -37,6 +45,8 @@ export function normalizeDeckScopeSettings({
     ? (activeId ? [activeId] : [])
     : requestedScope === DECK_SCOPE_ALL
       ? available.map((deck) => deck.id)
+      : requestedScope === DECK_SCOPE_COACH
+        ? coachAvailable.map((deck) => deck.id)
       : requestedIds.length
         ? [...new Set(requestedIds)]
         : (activeId ? [activeId] : []);
@@ -71,6 +81,9 @@ export function deckScopeSummary({ decks, activeBankId, settings } = {}) {
   }
   if (normalized.scope === DECK_SCOPE_ALL) {
     return `All ${selected.length} study decks · ${count} questions`;
+  }
+  if (normalized.scope === DECK_SCOPE_COACH) {
+    return `Coach decks · ${selected.length} deck${selected.length === 1 ? "" : "s"} · ${count} questions`;
   }
   return `${selected.length} selected deck${selected.length === 1 ? "" : "s"} · ${count} questions`;
 }
