@@ -238,11 +238,27 @@ function quotaReason(projected) {
   return null;
 }
 
-async function reserveUsage(env, delta = {}) {
-  const bucket = utcBuckets();
+const DAILY_QUOTA_SUSPENSIONS = new Set([
+  "daily-sync-request-limit",
+  "daily-rows-read-limit",
+  "daily-rows-written-limit",
+]);
+
+function suspensionCanRecover(row, bucket) {
+  if (!row?.suspended) return false;
+  if (DAILY_QUOTA_SUSPENSIONS.has(row.suspension_reason)) return row.utc_day !== bucket.day;
+  if (row.suspension_reason === "per-minute-write-action-limit") return row.utc_minute !== bucket.minute;
+  return false;
+}
+
+export async function reserveUsage(env, delta = {}, now = new Date()) {
+  const bucket = utcBuckets(now);
   let row = await readUsage(env);
   if (!row) throw json({ error: "Usage guardrail table is not configured", localOnly: true }, 503);
-  if (row.suspended) {
+  const dayChanged = row.utc_day !== bucket.day;
+  const minuteChanged = row.utc_minute !== bucket.minute;
+  const recoverSuspension = suspensionCanRecover(row, bucket);
+  if (row.suspended && !recoverSuspension) {
     throw json({
       error: "Cloud synchronization is suspended",
       reason: row.suspension_reason || "manual-suspension",
@@ -250,12 +266,10 @@ async function reserveUsage(env, delta = {}) {
     }, 503);
   }
 
-  const dayChanged = row.utc_day !== bucket.day;
-  const minuteChanged = row.utc_minute !== bucket.minute;
   let resetWrite = 0;
 
   if (dayChanged || minuteChanged) {
-    await env.DB.prepare(`
+    const refreshed = await env.DB.prepare(`
       UPDATE app_usage
       SET utc_day = ?,
           utc_minute = ?,
@@ -263,8 +277,13 @@ async function reserveUsage(env, delta = {}) {
           rows_read = CASE WHEN utc_day = ? THEN rows_read ELSE 0 END,
           rows_written = CASE WHEN utc_day = ? THEN rows_written ELSE 0 END,
           write_actions = CASE WHEN utc_minute = ? THEN write_actions ELSE 0 END,
+          suspended = 0,
+          suspension_reason = NULL,
           updated_at = ?
-      WHERE id = 1 AND suspended = 0
+      WHERE id = 1
+        AND (suspended = 0 OR suspension_reason = ?)
+      RETURNING utc_day, utc_minute, request_count, write_actions, rows_read, rows_written,
+                suspended, suspension_reason, updated_at
     `).bind(
       bucket.day,
       bucket.minute,
@@ -272,18 +291,19 @@ async function reserveUsage(env, delta = {}) {
       bucket.day,
       bucket.day,
       bucket.minute,
-      bucket.now
-    ).run();
+      bucket.now,
+      recoverSuspension ? row.suspension_reason : ""
+    ).first();
+    if (!refreshed) {
+      await suspendCloudSync(env, "concurrent-quota-check-failed");
+      throw json({
+        error: "Cloud synchronization was suspended because a quota rollover could not be completed safely",
+        reason: "concurrent-quota-check-failed",
+        localOnly: true,
+      }, 429, { "retry-after": "86400" });
+    }
     resetWrite = 1;
-    row = {
-      ...row,
-      utc_day: bucket.day,
-      utc_minute: bucket.minute,
-      request_count: dayChanged ? 0 : row.request_count,
-      rows_read: dayChanged ? 0 : row.rows_read,
-      rows_written: dayChanged ? 0 : row.rows_written,
-      write_actions: minuteChanged ? 0 : row.write_actions,
-    };
+    row = refreshed;
   }
 
   const increments = {

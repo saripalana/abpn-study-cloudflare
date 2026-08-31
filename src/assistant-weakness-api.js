@@ -12,6 +12,11 @@ const MAX_COACHING_ITEMS = 200;
 const MAX_COMPLETED_TESTS = 100;
 const MAX_EXCHANGE_BYTES = MAX_STUDY_COACH_EXCHANGE_BYTES;
 const CHUNK_CHARACTERS = 220_000;
+const MAX_ARTIFACT_CHUNKS = 120;
+// Allow for replacing a maximum-sized prior artifact plus the fixed
+// device, artifact, permission, and audit writes. Incoming chunks are added
+// from the edge-provided Content-Length when available.
+const ARTIFACT_RESERVATION_BASE_ROWS = 125;
 const CONSENT_VERSION = 2;
 const EXCHANGE_CONSENT_VERSION = 1;
 // The schema keeps an internal non-null timestamp for compatibility. This
@@ -47,8 +52,16 @@ async function readBoundedText(request) {
 function splitChunks(text) {
   const chunks = [];
   for (let start = 0; start < text.length; start += CHUNK_CHARACTERS) chunks.push(text.slice(start, start + CHUNK_CHARACTERS));
-  if (chunks.length > 120) throw new Error("Study Coach exchange file requires too many Cloudflare storage chunks");
+  if (chunks.length > MAX_ARTIFACT_CHUNKS) throw new Error("Study Coach exchange file requires too many Cloudflare storage chunks");
   return chunks;
+}
+
+function declaredArtifactChunkBudget(request) {
+  const declaredBytes = Number(request.headers.get("content-length") || 0);
+  if (!Number.isSafeInteger(declaredBytes) || declaredBytes <= 0 || declaredBytes > MAX_EXCHANGE_BYTES) {
+    return MAX_ARTIFACT_CHUNKS;
+  }
+  return Math.max(1, Math.min(MAX_ARTIFACT_CHUNKS, Math.ceil(declaredBytes / CHUNK_CHARACTERS)));
 }
 
 function parseArtifactMetadata(row) {
@@ -180,17 +193,18 @@ async function deleteArtifacts(env, userId) {
   if (statements.length) await env.DB.batch(statements);
 }
 
-async function reserveStudyCoachUsage(reserveUsage, env, pathname, method) {
+async function reserveStudyCoachUsage(reserveUsage, env, pathname, method, request) {
   const key = `${method} ${pathname}`;
+  const declaredArtifactRows = ARTIFACT_RESERVATION_BASE_ROWS + declaredArtifactChunkBudget(request);
   const budgets = {
     "GET /api/assistant/study-coach/permission": { requests: 1, rowsRead: 4 },
     "PUT /api/assistant/study-coach/permission": { requests: 1, writeActions: 1, rowsRead: 4, rowsWritten: 2 },
     "POST /api/assistant/study-coach/snapshot": { requests: 1, writeActions: 1, rowsRead: 4, rowsWritten: 3 },
     "GET /api/assistant/study-coach/snapshot": { requests: 1, writeActions: 1, rowsRead: 5, rowsWritten: 2 },
     "DELETE /api/assistant/study-coach/snapshot": { requests: 1, writeActions: 1, rowsRead: 4, rowsWritten: 246 },
-    "PUT /api/assistant/study-coach/package": { requests: 1, writeActions: 1, rowsRead: 5, rowsWritten: 245 },
+    "PUT /api/assistant/study-coach/package": { requests: 1, writeActions: 1, rowsRead: 5, rowsWritten: declaredArtifactRows },
     "GET /api/assistant/study-coach/package": { requests: 1, writeActions: 1, rowsRead: 125, rowsWritten: 2 },
-    "PUT /api/assistant/study-coach/output": { requests: 1, writeActions: 1, rowsRead: 5, rowsWritten: 245 },
+    "PUT /api/assistant/study-coach/output": { requests: 1, writeActions: 1, rowsRead: 5, rowsWritten: declaredArtifactRows },
     "GET /api/assistant/study-coach/output": { requests: 1, writeActions: 1, rowsRead: 125, rowsWritten: 2 },
   };
   await reserveUsage(env, budgets[key] || { requests: 1, rowsRead: 1 });
@@ -369,7 +383,7 @@ export async function handleAssistantWeaknessRequest(request, env, helpers) {
   requireSyncReady(env);
   const { userId, deviceId } = requireContext(request, env);
   await ensureUserAndDevice(env, userId, deviceId);
-  await reserveStudyCoachUsage(reserveUsage, env, url.pathname, request.method);
+  await reserveStudyCoachUsage(reserveUsage, env, url.pathname, request.method, request);
 
   if (url.pathname === "/api/assistant/study-coach/permission" && request.method === "GET") {
     return json(await status(env, userId));

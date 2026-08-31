@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import worker, { SYNC_LIMITS } from "../src/worker.js";
+import worker, { reserveUsage, SYNC_LIMITS } from "../src/worker.js";
 import { SYNC_CLIENT_LIMITS, SyncClient, SyncRequestError } from "../src/client/sync.js";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -33,6 +33,81 @@ function recordingDb({ lastSeenAt = null, activeDeviceId = null } = {}) {
   };
 }
 
+function usageGuardDb(initialRow) {
+  let row = { ...initialRow };
+  const executed = [];
+  return {
+    executed,
+    get row() { return { ...row }; },
+    prepare(sql) {
+      return {
+        sql,
+        values: [],
+        bind(...values) { this.values = values; return this; },
+        async first() {
+          if (/FROM app_usage/.test(sql)) return { ...row };
+          if (/SET utc_day = \?/.test(sql)) {
+            const [day, minute, sameRequestDay, sameReadDay, sameWriteDay, sameMinute, updatedAt] = this.values;
+            row = {
+              ...row,
+              utc_day: day,
+              utc_minute: minute,
+              request_count: row.utc_day === sameRequestDay ? row.request_count : 0,
+              rows_read: row.utc_day === sameReadDay ? row.rows_read : 0,
+              rows_written: row.utc_day === sameWriteDay ? row.rows_written : 0,
+              write_actions: row.utc_minute === sameMinute ? row.write_actions : 0,
+              suspended: 0,
+              suspension_reason: null,
+              updated_at: updatedAt,
+            };
+            executed.push({ sql, values: this.values });
+            return { ...row };
+          }
+          if (/SET request_count = request_count \+ \?/.test(sql)) {
+            const [requests, writeActions, rowsRead, rowsWritten, updatedAt] = this.values;
+            row = {
+              ...row,
+              request_count: row.request_count + requests,
+              write_actions: row.write_actions + writeActions,
+              rows_read: row.rows_read + rowsRead,
+              rows_written: row.rows_written + rowsWritten,
+              updated_at: updatedAt,
+            };
+            executed.push({ sql, values: this.values });
+            return { ...row };
+          }
+          return null;
+        },
+        async run() {
+          executed.push({ sql, values: this.values });
+          if (/SET suspended = 1/.test(sql)) {
+            row = {
+              ...row,
+              suspended: 1,
+              suspension_reason: this.values[0],
+              updated_at: this.values[1],
+            };
+          }
+          return { success: true };
+        },
+      };
+    },
+  };
+}
+
+const usageRow = (overrides = {}) => ({
+  utc_day: "2026-08-30",
+  utc_minute: "2026-08-30T23:59",
+  request_count: 1_999,
+  write_actions: 5,
+  rows_read: 49_999,
+  rows_written: 2_499,
+  suspended: 1,
+  suspension_reason: "daily-rows-written-limit",
+  updated_at: "2026-08-30T23:59:59.000Z",
+  ...overrides,
+});
+
 test("server quotas remain far below Cloudflare free-plan allowances", () => {
   assert.deepEqual(SYNC_LIMITS, {
     maxAuthorizedUsers: 1,
@@ -44,6 +119,59 @@ test("server quotas remain far below Cloudflare free-plan allowances", () => {
     maxPushChanges: 100,
     maxPullRows: 200,
   });
+});
+
+for (const reason of ["daily-sync-request-limit", "daily-rows-read-limit", "daily-rows-written-limit"]) {
+  test(`a ${reason} suspension recovers only after the UTC day changes`, async () => {
+    const db = usageGuardDb(usageRow({ suspension_reason: reason }));
+    const result = await reserveUsage({ DB: db }, { requests: 1 }, new Date("2026-08-31T00:00:01.000Z"));
+    assert.equal(result.suspended, false);
+    assert.equal(result.suspensionReason, null);
+    assert.equal(result.utcDay, "2026-08-31");
+    assert.equal(result.requestCount, 1);
+    assert.equal(result.rowsRead, 1);
+    assert.equal(result.rowsWritten, 2);
+  });
+}
+
+test("a per-minute write suspension recovers only after the UTC minute changes", async () => {
+  const db = usageGuardDb(usageRow({
+    utc_day: "2026-08-31",
+    utc_minute: "2026-08-31T00:00",
+    request_count: 12,
+    rows_read: 30,
+    rows_written: 40,
+    suspension_reason: "per-minute-write-action-limit",
+  }));
+  const result = await reserveUsage({ DB: db }, { requests: 1, writeActions: 1 }, new Date("2026-08-31T00:01:00.000Z"));
+  assert.equal(result.suspended, false);
+  assert.equal(result.writeActions, 1);
+  assert.equal(result.requestCount, 13);
+  assert.equal(result.rowsWritten, 42);
+});
+
+for (const reason of ["manual-suspension", "concurrent-quota-check-failed"]) {
+  test(`${reason} remains fail-closed across time-bucket changes`, async () => {
+    const db = usageGuardDb(usageRow({ suspension_reason: reason }));
+    await assert.rejects(
+      () => reserveUsage({ DB: db }, { requests: 1 }, new Date("2026-08-31T00:00:01.000Z")),
+      (response) => response instanceof Response && response.status === 503,
+    );
+    assert.equal(db.executed.length, 0);
+    assert.equal(db.row.suspended, 1);
+  });
+}
+
+test("a daily suspension remains fail-closed until the UTC day actually changes", async () => {
+  const db = usageGuardDb(usageRow({
+    utc_day: "2026-08-31",
+    utc_minute: "2026-08-31T00:00",
+  }));
+  await assert.rejects(
+    () => reserveUsage({ DB: db }, { requests: 1 }, new Date("2026-08-31T00:01:00.000Z")),
+    (response) => response instanceof Response && response.status === 503,
+  );
+  assert.equal(db.executed.length, 0);
 });
 
 test("client synchronization has bounded batches, retries, background timing, and failure suspension", () => {

@@ -84,6 +84,51 @@ test("Cloudflare exchange routes require fresh exchange consent and reserve usag
   assert.equal(reservations.length, 1);
   assert.equal(reservations[0].reservationEnv, handlerEnv);
   assert.equal(reservations[0].delta.writeActions, 1);
+  assert.equal(reservations[0].delta.rowsWritten, 245);
+});
+
+test("a declared small Study Coach output reserves fewer rows without weakening the unknown-size fallback", async () => {
+  const reservations = [];
+  const db = {
+    prepare(sql) {
+      return {
+        bind() {
+          return {
+            async first() {
+              if (/FROM assistant_weakness_permissions/.test(sql)) {
+                return { enabled: 1, consent_version: 2, exchange_consent_version: 0 };
+              }
+              return null;
+            },
+            async all() { return { results: [] }; },
+          };
+        },
+      };
+    },
+  };
+  const response = await handleAssistantWeaknessRequest(
+    new Request("https://study.example/api/assistant/study-coach/output", {
+      method: "PUT",
+      headers: {
+        "content-length": "27766",
+        "content-type": "application/json",
+        "x-abpn-device-id": "device-123",
+      },
+      body: "{}",
+    }),
+    { APP_ENV: "staging", ASSISTANT_WEAKNESS_ENABLED: "true", DB: db },
+    {
+      json(data, status = 200) { return new Response(JSON.stringify(data), { status }); },
+      requireSyncReady() {},
+      requireContext() { return { userId: "study-user", deviceId: "device-123" }; },
+      async ensureUserAndDevice() {},
+      async parseBoundedJson(request) { return request.json(); },
+      async reserveUsage(_env, delta) { reservations.push(delta); },
+    },
+  );
+  assert.equal(response.status, 403);
+  assert.equal(reservations.length, 1);
+  assert.equal(reservations[0].rowsWritten, 126);
 });
 
 test("Cloudflare output publishing rejects a generated deck copied from the current protected package", async () => {
