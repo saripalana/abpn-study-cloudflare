@@ -101,24 +101,64 @@ const usageRow = (overrides = {}) => ({
   request_count: 1_999,
   write_actions: 5,
   rows_read: 49_999,
-  rows_written: 2_499,
+  rows_written: SYNC_LIMITS.maxRowsWrittenPerUtcDay - 1,
   suspended: 1,
   suspension_reason: "daily-rows-written-limit",
   updated_at: "2026-08-30T23:59:59.000Z",
   ...overrides,
 });
 
-test("server quotas remain far below Cloudflare free-plan allowances", () => {
+test("server quotas preserve substantial headroom below Cloudflare free-plan allowances", () => {
   assert.deepEqual(SYNC_LIMITS, {
     maxAuthorizedUsers: 1,
     maxRequestBodyBytes: 2 * 1024 * 1024,
     maxWriteActionsPerMinute: 5,
     maxSyncRequestsPerUtcDay: 2_000,
     maxRowsReadPerUtcDay: 50_000,
-    maxRowsWrittenPerUtcDay: 2_500,
+    maxRowsWrittenPerUtcDay: 25_000,
     maxPushChanges: 100,
     maxPullRows: 200,
   });
+});
+
+test("a former 2500-row suspension recovers under the raised budget without resetting same-day counters", async () => {
+  const db = usageGuardDb(usageRow({
+    utc_day: "2026-08-31",
+    utc_minute: "2026-08-31T05:06",
+    request_count: 67,
+    write_actions: 0,
+    rows_read: 2_743,
+    rows_written: 2_494,
+    suspended: 1,
+    suspension_reason: "daily-rows-written-limit",
+  }));
+  const result = await reserveUsage(
+    { DB: db },
+    { requests: 1, writeActions: 1, rowsRead: 101, rowsWritten: 302 },
+    new Date("2026-08-31T05:06:30.000Z"),
+  );
+  assert.equal(result.suspended, false);
+  assert.equal(result.suspensionReason, null);
+  assert.equal(result.rowsWritten, 2_798);
+});
+
+test("health labels the quota row as a UTC-day internal reservation rather than provider billing", async () => {
+  const db = usageGuardDb(usageRow({
+    suspended: 0,
+    suspension_reason: null,
+  }));
+  const response = await worker.fetch(new Request("https://study.example/api/health"), {
+    APP_ENV: "production",
+    APP_RELEASE_MODE: "full",
+    CLOUD_SYNC_ENABLED: "true",
+    STUDY_USER_ID: "test-user",
+    DB: db,
+  });
+  assert.equal(response.status, 200);
+  const health = await response.json();
+  assert.equal(health.usage.accountingScope, "utc-day");
+  assert.equal(health.usage.accountingMode, "internal-reservation");
+  assert.equal(health.usage.providerBillingMeter, false);
 });
 
 for (const reason of ["daily-sync-request-limit", "daily-rows-read-limit", "daily-rows-written-limit"]) {
@@ -312,6 +352,8 @@ test("the visible application has one guarded sync controller with local-only fa
   assert.match(bootstrap, /backup-controller\.js/);
   assert.match(bootstrap, /data-management-controller\.js/);
   assert.match(controller, /Local only · sync paused/);
+  assert.match(controller, /internal daily sync write budget/);
+  assert.match(controller, /not the Cloudflare billing meter/);
   assert.match(controller, /Restart staging sync/);
   assert.match(controller, /STAGING_SESSION_KEY/);
   assert.match(controller, /Local study data is safe/);

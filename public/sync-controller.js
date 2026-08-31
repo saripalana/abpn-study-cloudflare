@@ -25,6 +25,16 @@ function showStatus(text, detail = text) {
   syncStatus.setAttribute("aria-label", detail);
 }
 
+function describeSuspension(reason) {
+  const descriptions = {
+    "daily-rows-written-limit": "the application's internal daily sync write budget was reached; it is not the Cloudflare billing meter",
+    "daily-rows-read-limit": "the application's internal daily sync read budget was reached; it is not the Cloudflare billing meter",
+    "daily-sync-request-limit": "the application's internal daily sync request budget was reached",
+    "per-minute-write-action-limit": "the application's short-term sync write budget was reached",
+  };
+  return descriptions[reason] || reason || "safety shutdown";
+}
+
 function showStaleStagingState(reason) {
   staleStagingSession = true;
   syncButton.textContent = "Restart staging sync";
@@ -41,7 +51,7 @@ async function renderStoredSyncState() {
       showStaleStagingState(state.suspensionReason);
       return;
     }
-    showStatus("Local only · sync paused", `Cloud synchronization is paused: ${state.suspensionReason || "safety shutdown"}. Local study data remains available.`);
+    showStatus("Local only · sync paused", `Cloud synchronization is paused: ${describeSuspension(state.suspensionReason)}. Local study data remains available.`);
     return;
   }
   if (state.lastSuccessAt) {
@@ -60,7 +70,7 @@ async function runSync({ background = false } = {}) {
     if (!background) await clearSyncSuspension();
     const result = await client.synchronize({ background, force: !background });
     if (result.status === "suspended") {
-      showStatus("Local only · sync paused", `Cloud synchronization is paused: ${result.reason}. Local study data remains available.`);
+      showStatus("Local only · sync paused", `Cloud synchronization is paused: ${describeSuspension(result.reason)}. Local study data remains available.`);
     } else if (result.status === "skipped") {
       showStatus("Local only", "No cloud operation was needed. Local study data remains available.");
     } else {
@@ -79,7 +89,7 @@ async function runSync({ background = false } = {}) {
     }
     const state = error.syncState || await getSyncState();
     if (state.suspended) {
-      showStatus("Local only · sync paused", `Cloud synchronization was paused after a safety failure: ${state.suspensionReason || error.message}. Local study data is safe.`);
+      showStatus("Local only · sync paused", `Cloud synchronization was paused after a safety failure: ${describeSuspension(state.suspensionReason || error.message)}. Local study data is safe.`);
     } else {
       showStatus("Sync failed · local data safe", error.message || "Cloud synchronization failed. Local study data remains available.");
     }
