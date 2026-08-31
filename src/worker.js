@@ -21,7 +21,9 @@ export const SYNC_LIMITS = Object.freeze({
   maxWriteActionsPerMinute: 5,
   maxSyncRequestsPerUtcDay: 2_000,
   maxRowsReadPerUtcDay: 50_000,
-  maxRowsWrittenPerUtcDay: 2_500,
+  // This is an internal reservation budget, not Cloudflare's billing meter.
+  // Keep substantial account-wide headroom for other D1 databases and routes.
+  maxRowsWrittenPerUtcDay: 25_000,
   maxPushChanges: 100,
   maxPullRows: 200,
 });
@@ -218,6 +220,9 @@ async function suspendCloudSync(env, reason) {
 function usageSnapshot(row) {
   if (!row) return null;
   return {
+    accountingScope: "utc-day",
+    accountingMode: "internal-reservation",
+    providerBillingMeter: false,
     utcDay: row.utc_day,
     utcMinute: row.utc_minute,
     requestCount: Number(row.request_count || 0),
@@ -243,10 +248,17 @@ const DAILY_QUOTA_SUSPENSIONS = new Set([
   "daily-rows-read-limit",
   "daily-rows-written-limit",
 ]);
+const LEGACY_MAX_ROWS_WRITTEN_PER_UTC_DAY = 2_500;
 
 function suspensionCanRecover(row, bucket) {
   if (!row?.suspended) return false;
-  if (DAILY_QUOTA_SUSPENSIONS.has(row.suspension_reason)) return row.utc_day !== bucket.day;
+  if (DAILY_QUOTA_SUSPENSIONS.has(row.suspension_reason)) {
+    if (row.utc_day !== bucket.day) return true;
+    // The only same-day recovery path is the known legacy write-budget latch.
+    // Future suspensions at the current policy remain fail-closed until rollover.
+    return row.suspension_reason === "daily-rows-written-limit"
+      && Number(row.rows_written || 0) < LEGACY_MAX_ROWS_WRITTEN_PER_UTC_DAY;
+  }
   if (row.suspension_reason === "per-minute-write-action-limit") return row.utc_minute !== bucket.minute;
   return false;
 }
@@ -268,7 +280,7 @@ export async function reserveUsage(env, delta = {}, now = new Date()) {
 
   let resetWrite = 0;
 
-  if (dayChanged || minuteChanged) {
+  if (dayChanged || minuteChanged || recoverSuspension) {
     const refreshed = await env.DB.prepare(`
       UPDATE app_usage
       SET utc_day = ?,
