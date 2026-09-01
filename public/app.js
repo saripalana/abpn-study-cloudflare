@@ -750,6 +750,7 @@ async function renderDashboard() {
           <h3>Study Coach access</h3>
           <p class="muted">Study Coach can use your bounded study package to return a focused plan. Credentials and unrelated browser or device data are never included.</p>
           <p class="muted">The package is limited to performance, timing, flags, subjects, test sections, and attempted, flagged, or annotated question details with choices, answers, explanations, and notes.</p>
+          <p class="notice"><strong>Normal path:</strong> Cloudflare keeps the latest package and coach output in one protected exchange. No downloads, file selection, or chat attachments are needed.</p>
         </div>
       </div>
       <div class="study-coach-guide" aria-label="How to use Study Coach">
@@ -762,21 +763,21 @@ async function renderDashboard() {
         </div>
         <div class="study-coach-step">
           <span class="study-coach-step-number">2</span>
-          <div><strong>Send your current study package</strong><p class="muted">Use this when you want the coach to work from your latest progress and question details.</p><button id="publishStudyCoachPackageBtn" class="primary" type="button">Share package to Study Coach</button></div>
+          <div><strong>Send your latest package to Cloudflare</strong><p class="muted">This replaces the protected Study Coach inbox with your current progress and question details.</p><button id="publishStudyCoachPackageBtn" class="primary" type="button">Send latest package</button></div>
         </div>
         <div class="study-coach-step">
           <span class="study-coach-step-number">3</span>
-          <div><strong>Update your Study Coach</strong><p class="muted">Pull the latest coaching plan and automatically add its new questions as the next test in the Study Coach Question Bank.</p><button id="pullStudyCoachOutputBtn" class="primary" type="button">Update Study Coach</button></div>
+          <div><strong>Install the latest coach update</strong><p class="muted">Pull the protected Cloudflare output and automatically add its new questions as the next test in the Study Coach Question Bank.</p><button id="pullStudyCoachOutputBtn" class="primary" type="button">Update Study Coach</button></div>
         </div>
       </div>
       <p id="studyCoachPackageStatus" class="muted" aria-live="polite"></p>
       <p id="studyCoachStatus" class="muted" aria-live="polite"></p>
       <details class="study-coach-advanced">
-        <summary>Advanced tools and data controls</summary>
+        <summary>Manual fallback and data controls</summary>
         <div class="study-coach-advanced-body">
           <section class="study-coach-advanced-group">
-            <h4>Local files</h4>
-            <p class="muted">These recovery controls are not needed for the normal cloud update path.</p>
+            <h4>Manual fallback if Cloudflare is unavailable</h4>
+            <p class="muted">Download the package and import the returned output only when the normal Cloudflare exchange cannot be used.</p>
             <div class="actions">
               <button id="exportStudyCoachPackageBtn" class="secondary" type="button">Download full coach package</button>
               <button id="importStudyCoachOutputBtn" class="secondary" type="button">Import coach output file</button>
@@ -784,8 +785,8 @@ async function renderDashboard() {
             </div>
           </section>
           <section class="study-coach-advanced-group">
-            <h4>Archive and coach publishing</h4>
-            <p class="muted">Google Drive is a secondary archive. Publishing a coach-output file is an operator fallback; routine study updates use the button above.</p>
+            <h4>Operator publishing and archive</h4>
+            <p class="muted">Google Drive is a secondary archive. Publishing a coach-output file is an operator fallback; routine study updates use the three steps above.</p>
             <div class="actions">
               <button id="archiveStudyCoachPackageBtn" class="secondary" type="button">Archive package to Google Drive</button>
               <button id="publishStudyCoachOutputBtn" class="secondary" type="button">Publish coach output file</button>
