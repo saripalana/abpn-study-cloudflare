@@ -162,7 +162,7 @@ test("changing an existing question is rejected after progress exists", async ()
   );
 });
 
-test("verified application seeds can advance an immutable source revision without weakening user-import protections", async () => {
+test("verified catalog seeds can advance an immutable source revision without weakening ordinary imports", async () => {
   const existing = (await prepareQuestionBankPackage(packageDefinition({
     id: "seed-bank",
     sourceType: "application-seed",
@@ -185,11 +185,39 @@ test("verified application seeds can advance an immutable source revision withou
   );
   const verified = analyzeQuestionBankUpdate(existing, incoming, {
     hasStudyData: true,
-    allowVerifiedApplicationSeedUpdate: true,
+    allowVerifiedCatalogSeedUpdate: true,
   });
   assert.equal(verified.status, "update");
-  assert.equal(verified.verifiedApplicationSeedUpdate, true);
+  assert.equal(verified.verifiedCatalogSeedUpdate, true);
   assert.equal(verified.additive, false);
+});
+
+test("verified bundled catalog updates can retain user-imported source provenance", async () => {
+  const existing = (await prepareQuestionBankPackage(packageDefinition({
+    id: "approved-catalog-bank",
+    sourceType: "user-imported",
+  }))).bank;
+  const incoming = (await prepareQuestionBankPackage(packageDefinition({
+    id: "approved-catalog-bank",
+    version: "2.0.0",
+    sourceType: "user-imported",
+    questions: [{
+      ...packageDefinition({ id: "approved-catalog-bank" }).bank.questions[0],
+      id: "approved-catalog-bank-1",
+      explanation: "A corrected explanation from the application-bundled catalog.",
+    }],
+  }))).bank;
+
+  assert.throws(
+    () => analyzeQuestionBankUpdate(existing, incoming, { hasStudyData: true }),
+    /Import it under a new bank id/i,
+  );
+  const verified = analyzeQuestionBankUpdate(existing, incoming, {
+    hasStudyData: true,
+    allowVerifiedCatalogSeedUpdate: true,
+  });
+  assert.equal(verified.status, "update");
+  assert.equal(verified.verifiedCatalogSeedUpdate, true);
 });
 
 test("changed content requires a new version even before progress exists", async () => {

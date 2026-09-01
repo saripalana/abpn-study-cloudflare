@@ -27,6 +27,26 @@ function deckPackage() {
   };
 }
 
+function staleCatalogPackage(id, sourceType) {
+  return {
+    format: "abpn-question-bank",
+    schemaVersion: 1,
+    checksum: `stale-${id}`,
+    bank: {
+      ...deckPackage().bank,
+      id,
+      version: "stale-catalog-revision",
+      sourceType,
+      sourceLabel: "Stale cloud catalog fixture",
+      checksum: `stale-${id}`,
+      questions: [{
+        ...deckPackage().bank.questions[0],
+        id: `${id}-stale-1`,
+      }],
+    },
+  };
+}
+
 function installDeckApiRoute(page, store, observedHeaders) {
   return page.route("**/api/decks**", async (route) => {
     const request = route.request();
@@ -174,7 +194,30 @@ test("an added deck appears in a clean second browser profile like K&S", async (
   await secondContext.close();
 });
 
-test("a same-version local seed mismatch does not block Deck Library startup", async ({ page }) => {
+test("approved bundled catalog decks repair stale cloud copies without startup errors", async ({ page }) => {
+  const cloudStore = new Map([
+    ["ks-psychiatry-core", staleCatalogPackage("ks-psychiatry-core", "application-seed")],
+    ["spiegel-test-prep", staleCatalogPackage("spiegel-test-prep", "user-imported")],
+  ]);
+  const observedHeaders = [];
+  const errors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await installDeckApiRoute(page, cloudStore, observedHeaders);
+
+  await page.goto("/");
+  await expect(page.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
+  await expect.poll(() => cloudStore.get("ks-psychiatry-core")?.bank?.questions?.length).toBe(602);
+  await expect.poll(() => cloudStore.get("spiegel-test-prep")?.bank?.questions?.length).toBe(1060);
+  expect(cloudStore.get("ks-psychiatry-core").checksum).not.toBe("stale-ks-psychiatry-core");
+  expect(cloudStore.get("spiegel-test-prep").checksum).not.toBe("stale-spiegel-test-prep");
+  expect(errors.filter((message) => message.includes("Cloud deck "))).toEqual([]);
+  expect(observedHeaders.length).toBeGreaterThan(0);
+  expect(observedHeaders.every(Boolean)).toBe(true);
+});
+
+test("a same-version local seed mismatch is repaired before cloud promotion", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
 
@@ -215,6 +258,24 @@ test("a same-version local seed mismatch does not block Deck Library startup", a
 
   await expect(page.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
   await expect(page.getByRole("heading", { name: "K&S Psychiatry Question Bank" })).toBeVisible();
+  const repairedCount = await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("abpn-study", 2);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const transaction = db.transaction("questionBankContent", "readonly");
+      return await new Promise((resolve, reject) => {
+        const request = transaction.objectStore("questionBankContent").get("ks-psychiatry-core");
+        request.onsuccess = () => resolve(request.result?.questions?.length || 0);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
+  });
+  expect(repairedCount).toBe(602);
   expect(warnings.join("\n")).not.toContain("Local deck cache is unavailable");
   expect(warnings.join("\n")).not.toContain("Updated deck catalog could not be loaded");
 });

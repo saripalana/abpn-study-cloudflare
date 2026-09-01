@@ -159,18 +159,38 @@ export async function flushPendingCloudDeckUploads(fetchImpl = globalThis.fetch.
   return results;
 }
 
-export async function promoteLocallyInstalledDecks({ reservedIds = [], fetchImpl = globalThis.fetch.bind(globalThis) } = {}) {
+export async function promoteLocallyInstalledDecks({
+  reservedIds = [],
+  authoritativeIds = [],
+  fetchImpl = globalThis.fetch.bind(globalThis),
+} = {}) {
   const [localDecks, remoteDecks] = await Promise.all([
     getAllRecords(STORES.BANK_CONTENT),
     listCloudDecks(fetchImpl),
   ]);
   const remoteById = new Map(remoteDecks.map((deck) => [deck.id, deck]));
+  const authoritative = new Set(authoritativeIds);
   const results = [];
 
   for (const bank of localDecks) {
     if (reservedIds.includes(bank.id)) continue;
     const remote = remoteById.get(bank.id);
     if (remote) {
+      if (remote.checksum !== bank.checksum && authoritative.has(bank.id)) {
+        const prepared = {
+          format: QUESTION_BANK_PACKAGE_FORMAT,
+          schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
+          checksum: bank.checksum,
+          bank,
+        };
+        const publication = await publishCloudDeckPackage(prepared, fetchImpl);
+        results.push({
+          deckId: bank.id,
+          status: publication.queued ? "queued-authoritative-update" : "updated-authoritative",
+          publication,
+        });
+        continue;
+      }
       results.push({
         deckId: bank.id,
         status: remote.checksum === bank.checksum ? "current" : "remote-authoritative",
@@ -202,8 +222,13 @@ export async function removeCloudDeck(deckId, fetchImpl = globalThis.fetch.bind(
   return response.json();
 }
 
-export async function refreshCloudDeckLibrary({ reservedIds = [], fetchImpl = globalThis.fetch.bind(globalThis) } = {}) {
+export async function refreshCloudDeckLibrary({
+  reservedIds = [],
+  authoritativeIds = [],
+  fetchImpl = globalThis.fetch.bind(globalThis),
+} = {}) {
   const metadata = await listCloudDecks(fetchImpl);
+  const authoritative = new Set(authoritativeIds);
   const results = [];
 
   for (const deck of metadata) {
@@ -215,6 +240,10 @@ export async function refreshCloudDeckLibrary({ reservedIds = [], fetchImpl = gl
       const local = await getRecord(STORES.BANK_CONTENT, deck.id);
       if (local?.checksum === deck.checksum) {
         results.push({ id: deck.id, status: "current" });
+        continue;
+      }
+      if (local && authoritative.has(deck.id)) {
+        results.push({ id: deck.id, status: "local-authoritative" });
         continue;
       }
       const rawPackage = await fetchCloudDeckPackage(deck.id, fetchImpl);
