@@ -242,15 +242,22 @@ test("browser deployment assets have one deterministic source and no runtime pat
 });
 
 test("startup import remains disabled until its file handler is attached", async () => {
-  const [html, bridge, controller] = await Promise.all([
+  const [html, bridge, bootstrap, controller] = await Promise.all([
     read("src/browser/index.html"),
     read("src/browser/import-button-bridge.js"),
+    read("src/browser/bootstrap.js"),
     read("src/browser/question-bank-controller.js"),
   ]);
   assert.match(html, /id="importBankBtn"[\s\S]*?disabled/);
   assert.match(bridge, /button\.disabled = true/);
-  assert.match(controller, /button\.disabled = false/);
+  assert.ok(
+    bootstrap.indexOf('await import("./question-bank-controller.js")')
+      < bootstrap.indexOf("await flushPendingCloudDeckUploads()"),
+    "the local import handler must attach before optional cloud catalog work",
+  );
+  assert.match(controller, /button\.disabled = importBusy \|\| importWaitingForCatalog/);
   assert.match(controller, /importInput\.addEventListener\("change"/);
+  assert.match(controller, /await deckCatalogReady/);
 });
 
 test("Cloudflare Access JWT validation is the outer request gateway", async () => {
