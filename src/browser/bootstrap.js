@@ -19,6 +19,7 @@ const SEED_QUESTION_BANKS = BUILT_IN_QUESTION_BANKS.filter((bank) => bank.conten
 const SYSTEM_VALIDATION_FIXTURES = BUILT_IN_QUESTION_BANKS.filter((bank) => bank.contentClass === "system-validation");
 const LOCAL_STARTUP_TIMEOUT_MS = 2_000;
 const CLOUD_STARTUP_TIMEOUT_MS = 5_000;
+let installedSeedIds = [];
 
 // Local-only preferences must remain usable even when staging cleanup or its
 // health check is slow. The staging gate still completes before decks or study
@@ -37,7 +38,10 @@ function withStartupTimeout(operation, timeoutMs, message) {
 async function loadAvailableDecks(timeoutMs = LOCAL_STARTUP_TIMEOUT_MS) {
   return withStartupTimeout(
     (async () => {
-      await installSeedQuestionBanks(SEED_QUESTION_BANKS);
+      const seedResults = await installSeedQuestionBanks(SEED_QUESTION_BANKS);
+      installedSeedIds = seedResults
+        .filter((result) => result.bank && result.status !== "skipped")
+        .map((result) => result.id);
       return loadInstalledQuestionBanks(SYSTEM_VALIDATION_FIXTURES);
     })(),
     timeoutMs,
@@ -100,11 +104,15 @@ try {
     const reservedIds = QUESTION_BANKS
       .filter((bank) => bank.contentClass === "system-validation")
       .map((bank) => bank.id);
+    // Only seeds successfully reconciled from this exact bundled catalog may
+    // repair a stale cloud head. A skipped local seed never gains authority by
+    // id alone.
+    const authoritativeIds = [...installedSeedIds];
     try {
       await withStartupTimeout((async () => {
         await flushPendingCloudDeckUploads();
-        await promoteLocallyInstalledDecks({ reservedIds });
-        await refreshCloudDeckLibrary({ reservedIds });
+        await promoteLocallyInstalledDecks({ reservedIds, authoritativeIds });
+        await refreshCloudDeckLibrary({ reservedIds, authoritativeIds });
       })(), CLOUD_STARTUP_TIMEOUT_MS, "Cloud deck startup timed out.");
     } catch (error) {
       console.warn("Cloud deck library is unavailable; continuing with bundled and locally cached decks.", error);

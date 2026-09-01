@@ -213,11 +213,14 @@ export function questionFingerprint(question) {
 
 export function analyzeQuestionBankUpdate(existing, incoming, {
   hasStudyData = false,
-  allowVerifiedApplicationSeedUpdate = false,
+  allowVerifiedCatalogSeedUpdate = false,
 } = {}) {
   if (!existing) return { status: "new", additive: true, addedQuestions: incoming.questions.length };
   if (existing.checksum === incoming.checksum) return { status: "unchanged", additive: true, addedQuestions: 0 };
-  if (existing.version === incoming.version) {
+  // This flag is set only by the application-bundled seed installer. It also
+  // permits that trusted package to repair a corrupted same-version cache.
+  const verifiedCatalogSeedUpdate = Boolean(allowVerifiedCatalogSeedUpdate);
+  if (existing.version === incoming.version && !verifiedCatalogSeedUpdate) {
     throw new Error("The package content changed without a new bank version. Increase the version before importing it.");
   }
   if (existing.contentClass !== incoming.contentClass || existing.sourceType !== incoming.sourceType) {
@@ -229,10 +232,9 @@ export function analyzeQuestionBankUpdate(existing, incoming, {
     const next = incomingById.get(question.id);
     return !next || questionFingerprint(question) !== questionFingerprint(next);
   });
-  const verifiedApplicationSeedUpdate = allowVerifiedApplicationSeedUpdate
-    && existing.sourceType === "application-seed"
-    && incoming.sourceType === "application-seed";
-  if (hasStudyData && changedOrRemoved.length && !verifiedApplicationSeedUpdate) {
+  // Some approved catalog decks retain user-imported provenance, so
+  // sourceType alone cannot identify the trusted update boundary.
+  if (hasStudyData && changedOrRemoved.length && !verifiedCatalogSeedUpdate) {
     throw new Error(
       `This update changes or removes ${changedOrRemoved.length} existing question(s) while progress or test history exists. Import it under a new bank id to protect prior results.`
     );
@@ -240,7 +242,7 @@ export function analyzeQuestionBankUpdate(existing, incoming, {
   return {
     status: "update",
     additive: changedOrRemoved.length === 0,
-    verifiedApplicationSeedUpdate,
+    verifiedCatalogSeedUpdate,
     changedOrRemovedQuestions: changedOrRemoved.map((question) => question.id),
     addedQuestions: incoming.questions.filter((question) => !existing.questions.some((old) => old.id === question.id)).length,
   };
@@ -281,7 +283,7 @@ function installationRecords(incoming, existing, now) {
 
 export async function installQuestionBankPackagesAtomically(packages, {
   reservedIds = [],
-  allowVerifiedApplicationSeedUpdate = false,
+  allowVerifiedCatalogSeedUpdate = false,
 } = {}) {
   if (!Array.isArray(packages) || packages.length < 1 || packages.length > 12) {
     throw new Error("Question-bank batch must contain between 1 and 12 packages.");
@@ -304,7 +306,7 @@ export async function installQuestionBankPackagesAtomically(packages, {
     ]);
     const analysis = analyzeQuestionBankUpdate(existing, incoming, {
       hasStudyData: progress.length > 0 || sets.length > 0,
-      allowVerifiedApplicationSeedUpdate,
+      allowVerifiedCatalogSeedUpdate,
     });
     return { incoming, existing, progress, analysis };
   }));
@@ -344,7 +346,7 @@ export async function installQuestionBankPackagesAtomically(packages, {
       transaction.objectStore(STORES.BANK_REVISIONS).put(operation.records.revision);
       transaction.objectStore(STORES.BANK_CONTENT).put(operation.records.installed);
       transaction.objectStore(STORES.BANKS).put(operation.records.metadata);
-      if (operation.analysis.verifiedApplicationSeedUpdate) {
+      if (operation.analysis.verifiedCatalogSeedUpdate) {
         const questionById = new Map(operation.records.installed.questions.map((question) => [question.id, question]));
         for (const progress of operation.progress) {
           const question = questionById.get(progress.questionId);
@@ -395,7 +397,7 @@ export async function installSeedQuestionBanks(seedDefinitions = []) {
         bank: { ...definition, protected: false },
       });
       const installed = await installQuestionBankPackage(prepared, {
-        allowVerifiedApplicationSeedUpdate: true,
+        allowVerifiedCatalogSeedUpdate: true,
       });
       results.push({ id: definition.id, status: installed.status, bank: installed.bank });
     } catch (error) {
