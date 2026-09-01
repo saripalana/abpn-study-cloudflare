@@ -76,8 +76,11 @@ test("Study Coach permission, automatic refresh, revocation, and deletion remain
   await expect(section).toContainText("choices, answers, explanations, and notes");
   await expect(section).toContainText("Credentials and unrelated browser or device data are never included");
   await expect(section).toContainText("until I revoke it");
-  await expect(section).toContainText("Send your current study package");
-  await expect(section).toContainText("Update your Study Coach");
+  await expect(section).toContainText("No downloads, file selection, or chat attachments are needed");
+  await expect(section).toContainText("Send your latest package to Cloudflare");
+  await expect(section).toContainText("Install the latest coach update");
+  await expect(page.getByRole("button", { name: "Send latest package" })).toBeVisible();
+  await expect(page.locator(".study-coach-advanced").locator("summary")).toContainText("Manual fallback and data controls");
   await expect(page.locator(".study-coach-advanced")).not.toHaveAttribute("open", "");
 
   const dataProtectionHeading = page.getByRole("heading", { name: "Data protection" });
@@ -100,6 +103,7 @@ test("Study Coach permission, automatic refresh, revocation, and deletion remain
   }
 
   await openAdvancedStudyCoachTools(page);
+  await expect(section).toContainText("Manual fallback if Cloudflare is unavailable");
   await page.locator("#verifyStudyCoachAccessBtn").click();
   await expect(page.locator("#studyCoachStatus")).toContainText("1 snapshot access(es)");
   await expect(page.locator("#studyCoachStatus")).toContainText("Study Coach access verified");
@@ -470,7 +474,7 @@ test("Study Coach package can share through Cloudflare, archive to Google Drive,
   await expect(page.locator("#studyCoachPackageStatus")).toContainText("Cloudflare is the live Study Coach lane");
 
   const publishResponse = page.waitForResponse("**/api/assistant/study-coach/package");
-  await page.getByRole("button", { name: "Share package to Study Coach" }).click();
+  await page.getByRole("button", { name: "Send latest package" }).click();
   await publishResponse;
   expect(latestPackage?.format).toBe("abpn-study-coach-package");
   expect(latestPackage?.banks?.length).toBeGreaterThan(0);
