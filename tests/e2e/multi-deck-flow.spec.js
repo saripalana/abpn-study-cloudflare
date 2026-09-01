@@ -56,6 +56,12 @@ test("combined K&S and added-deck set survives reload, submission, history, and 
   await page.locator('input[name="practiceDeckFilter"][value="ks-psychiatry-core"]').check();
   await page.locator('input[name="practiceDeckFilter"][value="combined-flow-deck"]').check();
   await expect(page.locator("#deckScopeAvailability")).toContainText("2 selected decks");
+  const allStatuses = page.locator('input[name="questionStatusFilter"][value="all"]');
+  await allStatuses.uncheck();
+  await expect(page.getByRole("button", { name: "Start combined set" })).toBeDisabled();
+  await expect(page.locator("#eligibleCount")).toContainText("Select at least one question status");
+  await allStatuses.check();
+  await expect(page.getByRole("button", { name: "Start combined set" })).toBeEnabled();
   await page.locator("#countInput").fill("2");
   await page.locator("#modeSelect").selectOption("tutor");
   await page.locator("#timingSelect").selectOption("untimed");
@@ -122,7 +128,7 @@ test("special retest criteria preserve multi-answer behavior and show a dated an
   await page.getByRole("button", { name: "Submit set" }).click();
   await page.getByRole("button", { name: "Back to dashboard" }).click();
 
-  await page.locator("#poolSelect").selectOption("new");
+  await page.locator('input[name="questionStatusFilter"][value="new"]').check();
   await page.locator("#specialCriteriaPicker summary").click();
   await page.locator("#rangeStartInput").fill("1");
   await page.locator("#rangeEndInput").fill("1");

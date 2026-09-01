@@ -4,6 +4,7 @@ import {
   buildBankCatalog,
   chooseQuestionIds,
   eligibleQuestionIds,
+  normalizeQuestionPools,
   calculateSetResult,
   categoryStatistics,
   subjectStatistics
@@ -22,6 +23,8 @@ test('rejects duplicate bank and question ids',()=>{assert.throws(()=>buildBankC
 test('rejects malformed questions before the app starts',()=>{assert.throws(()=>buildBankCatalog([{id:'bad',questions:[{id:'x',question:'Broken',choices:['Only one'],correctLetter:'A'}]}]),/Invalid question/)});
 
 test('filters new incorrect and flagged pools without crossing bank state',()=>{const [bank]=buildBankCatalog([definition]);const progress=new Map([['q1',{timesUsed:1,isCorrect:false}],['q2',{timesUsed:1,isCorrect:true,isFlagged:true}]]);assert.deepEqual(chooseQuestionIds(bank,progress,'new',10,()=>0),['q3']);assert.deepEqual(chooseQuestionIds(bank,progress,'incorrect',10,()=>0),['q1']);assert.deepEqual(chooseQuestionIds(bank,progress,'flagged',10,()=>0),['q2'])});
+
+test('combines multiple question statuses as a union while preserving legacy single pools',()=>{const [bank]=buildBankCatalog([definition]);const progress=new Map([['q1',{timesUsed:1,isCorrect:false}],['q2',{timesUsed:1,isCorrect:true,isFlagged:true}]]);assert.deepEqual(normalizeQuestionPools('new'),['new']);assert.deepEqual(eligibleQuestionIds(bank,progress,['new','incorrect']),['q1','q3']);assert.deepEqual(eligibleQuestionIds(bank,progress,['incorrect','flagged']),['q1','q2']);assert.deepEqual(eligibleQuestionIds(bank,progress,[]),[]);assert.deepEqual(eligibleQuestionIds(bank,progress,['all','incorrect']),['q1','q2','q3'])});
 
 test('combines subject filters with all new used wrong and flagged pools',()=>{const [bank]=buildBankCatalog([definition]);const progress=new Map([['q1',{timesUsed:1,isCorrect:false}],['q2',{timesUsed:2,isCorrect:true,isFlagged:true}]]);assert.deepEqual(eligibleQuestionIds(bank,progress,'all',['Mood']),['q1','q2']);assert.deepEqual(eligibleQuestionIds(bank,progress,'used',['Mood']),['q1','q2']);assert.deepEqual(eligibleQuestionIds(bank,progress,'new',['Mood']),[]);assert.deepEqual(eligibleQuestionIds(bank,progress,'incorrect',['Mood']),['q1']);assert.deepEqual(eligibleQuestionIds(bank,progress,'flagged',['Mood']),['q2']);assert.deepEqual(eligibleQuestionIds(bank,progress,'new',['Psychosis']),['q3']);assert.deepEqual(eligibleQuestionIds(bank,progress,'all',[]),[])});
 

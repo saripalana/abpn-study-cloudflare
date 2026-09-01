@@ -8,7 +8,7 @@ async function startOrderedValidationSet(page, mode) {
   await page.locator('#countInput').fill('2');
   await page.selectOption('#modeSelect', mode);
   await page.selectOption('#timingSelect', 'untimed');
-  await page.selectOption('#poolSelect', 'all');
+  await page.locator('input[name="questionStatusFilter"][value="all"]').check();
   await page.getByLabel('Randomize question order').uncheck();
   await page.locator('#startBtn').click();
 }
@@ -106,7 +106,7 @@ test('Tutor mode supports confirmed submission at any point, answer states, and 
   await page.locator('#countInput').fill('3');
   await page.selectOption('#modeSelect', 'tutor');
   await page.selectOption('#timingSelect', 'untimed');
-  await page.selectOption('#poolSelect', 'all');
+  await page.locator('input[name="questionStatusFilter"][value="all"]').check();
   await page.locator('#startBtn').click();
 
   await expect(page.locator('#submitBtn')).toHaveText('Submit set');

@@ -9,15 +9,22 @@ async function useValidationBank(page) {
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
 }
 
+const statusInput = (page, value) => page.locator(`input[name="questionStatusFilter"][value="${value}"]`);
+
+async function setQuestionStatuses(page, values) {
+  await statusInput(page, 'all').check();
+  for (const value of values) await statusInput(page, value).check();
+}
+
 test('question order defaults to random for All and sequential for filtered pools', async ({ page }) => {
   await useValidationBank(page);
   const order = page.getByLabel('Randomize question order');
   await expect(order).toBeChecked();
-  await page.locator('#poolSelect').selectOption('new');
+  await setQuestionStatuses(page, ['new']);
   await expect(order).not.toBeChecked();
   await order.check();
   await expect(order).toBeChecked();
-  await page.locator('#poolSelect').selectOption('all');
+  await setQuestionStatuses(page, []);
   await expect(order).toBeChecked();
 });
 
@@ -40,14 +47,14 @@ test('filters a practice set by subjects and remembers builder choices per bank'
   await page.locator('#countInput').fill('1');
   await page.locator('#modeSelect').selectOption('tutor');
   await page.locator('#timingSelect').selectOption('untimed');
-  await page.locator('#poolSelect').selectOption('new');
+  await setQuestionStatuses(page, ['new']);
 
   await page.reload();
   await expectActiveBank(page, 'validation-bank');
   await expect(page.locator('#countInput')).toHaveValue('1');
   await expect(page.locator('#modeSelect')).toHaveValue('tutor');
   await expect(page.locator('#timingSelect')).toHaveValue('untimed');
-  await expect(page.locator('#poolSelect')).toHaveValue('new');
+  await expect(statusInput(page, 'new')).toBeChecked();
   await expect(page.locator('input[name="subjectFilter"][value="Application Safety"]')).not.toBeChecked();
   await expect(page.locator('input[name="subjectFilter"][value="Question Banks"]')).toBeChecked();
 
@@ -59,18 +66,18 @@ test('filters a practice set by subjects and remembers builder choices per bank'
   await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
   await expect(page.locator('#modeSelect')).toHaveValue('test');
   await expect(page.locator('#timingSelect')).toHaveValue('timed');
-  await expect(page.locator('#poolSelect')).toHaveValue('all');
+  await expect(statusInput(page, 'all')).toBeChecked();
   await expect(page.locator('input[name="subjectFilter"]:checked')).toHaveCount(34);
-  await page.locator('#poolSelect').selectOption('flagged');
+  await setQuestionStatuses(page, ['flagged']);
   await page.locator('#subjectPicker summary').click();
   await page.getByRole('button', { name: 'Clear', exact: true }).click();
   await page.locator('input[name="subjectFilter"]').first().check();
 
   await selectActiveBank(page, 'validation-bank');
-  await expect(page.locator('#poolSelect')).toHaveValue('new');
+  await expect(statusInput(page, 'new')).toBeChecked();
   await expect(page.locator('input[name="subjectFilter"][value="Question Banks"]')).toBeChecked();
   await selectActiveBank(page, 'ks-psychiatry-core');
-  await expect(page.locator('#poolSelect')).toHaveValue('flagged');
+  await expect(statusInput(page, 'flagged')).toBeChecked();
   await expect(page.locator('input[name="subjectFilter"]:checked')).toHaveCount(1);
 });
 
@@ -79,7 +86,7 @@ test('ignores malformed builder settings instead of blocking dashboard startup',
   await page.evaluate(() => localStorage.setItem('abpn-study:builder-settings:validation-bank', 'null'));
   await selectActiveBank(page, 'validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
-  await expect(page.locator('#poolSelect')).toHaveValue('all');
+  await expect(statusInput(page, 'all')).toBeChecked();
   await expect(page.locator('input[name="subjectFilter"]:checked')).toHaveCount(2);
 
   await page.locator('#countInput').fill('0');
@@ -90,7 +97,7 @@ test('ignores malformed builder settings instead of blocking dashboard startup',
   await expect(page.locator('#countInput')).toHaveValue('2');
 });
 
-test('combines subject selection with wrong and flagged pools in the live builder', async ({ page }) => {
+test('combines subject selection with multiple question statuses in the live builder', async ({ page }) => {
   await useValidationBank(page);
   await page.locator('#subjectPicker summary').click();
   await page.getByRole('button', { name: 'Clear', exact: true }).click();
@@ -108,9 +115,12 @@ test('combines subject selection with wrong and flagged pools in the live builde
   await page.getByRole('button', { name: 'Submit set' }).click();
   await page.getByRole('button', { name: 'Back to dashboard' }).click();
 
-  await page.locator('#poolSelect').selectOption('incorrect');
+  await setQuestionStatuses(page, ['incorrect']);
   await expect(page.locator('#eligibleCount')).toContainText('2 questions available');
-  await page.locator('#poolSelect').selectOption('flagged');
+  await statusInput(page, 'flagged').check();
+  await expect(page.locator('#questionStatusSummary')).toHaveText('Wrong + Flagged');
+  await expect(page.locator('#eligibleCount')).toContainText('2 questions available');
+  await setQuestionStatuses(page, ['flagged']);
   await expect(page.locator('#eligibleCount')).toContainText('1 question available');
   await page.locator('#subjectPicker summary').click();
   await page.getByRole('button', { name: 'Clear', exact: true }).click();
@@ -130,7 +140,7 @@ test('offers a Used pool after a question has been completed', async ({ page }) 
   page.once('dialog', async (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Submit set' }).click();
   await page.getByRole('button', { name: 'Back to dashboard' }).click();
-  await page.locator('#poolSelect').selectOption('used');
+  await setQuestionStatuses(page, ['used']);
   await expect(page.locator('#eligibleCount')).toContainText('1 question available');
 });
 

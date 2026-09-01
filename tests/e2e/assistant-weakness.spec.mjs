@@ -1,6 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
+async function openAdvancedStudyCoachTools(page) {
+  const details = page.locator(".study-coach-advanced");
+  if (!(await details.evaluate((element) => element.open))) {
+    await details.locator("summary").click();
+  }
+}
+
 test("Study Coach permission, automatic refresh, revocation, and deletion remain separate", async ({ page }) => {
   let enabled = false;
   let publishCount = 0;
@@ -69,6 +76,9 @@ test("Study Coach permission, automatic refresh, revocation, and deletion remain
   await expect(section).toContainText("choices, answers, explanations, and notes");
   await expect(section).toContainText("Credentials and unrelated browser or device data are never included");
   await expect(section).toContainText("until I revoke it");
+  await expect(section).toContainText("Send your current study package");
+  await expect(section).toContainText("Bring the latest plan into this app");
+  await expect(page.locator(".study-coach-advanced")).not.toHaveAttribute("open", "");
 
   const dataProtectionHeading = page.getByRole("heading", { name: "Data protection" });
   await expect(dataProtectionHeading).toBeVisible();
@@ -89,6 +99,7 @@ test("Study Coach permission, automatic refresh, revocation, and deletion remain
     expect(serialized.toLowerCase()).not.toContain(forbidden.toLowerCase());
   }
 
+  await openAdvancedStudyCoachTools(page);
   await page.locator("#verifyStudyCoachAccessBtn").click();
   await expect(page.locator("#studyCoachStatus")).toContainText("1 snapshot access(es)");
   await expect(page.locator("#studyCoachStatus")).toContainText("Study Coach access verified");
@@ -120,6 +131,7 @@ test("assistant controls remain visible with a clear unavailable state when stat
   await expect(section).toContainText("until I revoke it");
   await expect(page.locator("#studyCoachStatus")).toContainText("temporarily unavailable");
   await expect(page.locator("#studyCoachPermission")).toBeDisabled();
+  await openAdvancedStudyCoachTools(page);
   await expect(page.getByRole("button", { name: "Download full coach package" })).toBeEnabled();
 });
 
@@ -150,6 +162,7 @@ test("Study Coach package export and local coach-output import remain usable", a
   }));
 
   await page.goto("/");
+  await openAdvancedStudyCoachTools(page);
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download full coach package" }).click();
   const path = await (await downloadPromise).path();
@@ -461,6 +474,7 @@ test("Study Coach package can share through Cloudflare, archive to Google Drive,
   expect(latestPackage?.banks?.length).toBeGreaterThan(0);
   await expect(page.locator("#studyCoachPackageStatus")).toContainText("Study Coach package shared to Cloudflare");
 
+  await openAdvancedStudyCoachTools(page);
   const archiveResponse = page.waitForResponse("**/api/study-coach/google-drive/package");
   await page.getByRole("button", { name: "Archive package to Google Drive" }).click();
   await archiveResponse;

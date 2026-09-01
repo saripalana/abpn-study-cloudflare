@@ -155,6 +155,33 @@ select {
   color: var(--navy);
 }
 
+.field-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--navy);
+}
+
+.question-status-field {
+  grid-column: 1 / -1;
+}
+
+.question-status-picker {
+  margin-top: 0;
+}
+
+.status-picker-help {
+  margin: 12px 0 8px;
+  font-size: 12px;
+}
+
+.question-status-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  gap: 8px;
+}
+
 .subject-picker {
   margin-top: 14px;
   border: 1px solid var(--border);
@@ -703,6 +730,77 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   border: 1px solid var(--border);
   border-radius: .8rem;
   background: var(--blue2);
+}
+
+.study-coach-guide {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0 10px;
+}
+
+.study-coach-step {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfcfd;
+}
+
+.study-coach-step-number {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: white;
+  font-weight: 850;
+}
+
+.study-coach-step p {
+  margin: 5px 0 10px;
+}
+
+.study-coach-step .assistant-permission {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.study-coach-advanced {
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfcfd;
+  overflow: hidden;
+}
+
+.study-coach-advanced > summary {
+  padding: 13px 14px;
+  color: var(--navy);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.study-coach-advanced-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.study-coach-advanced-group {
+  padding-top: 14px;
+}
+
+.study-coach-advanced-group + .study-coach-advanced-group {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.study-coach-advanced-group h4 {
+  margin: 0 0 5px;
 }
 
 .study-coach-package-block,
