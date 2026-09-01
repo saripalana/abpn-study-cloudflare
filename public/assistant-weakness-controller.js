@@ -14,6 +14,10 @@ import {
   saveStudyCoachOutput,
 } from "./client/study-coach-package.js";
 import { installQuestionBankPackagesAtomically, loadInstalledQuestionBanks } from "./client/question-bank-import.js";
+import {
+  buildStudyCoachDeckLibraryUpdate,
+  STUDY_COACH_BANK_ID,
+} from "./client/study-coach-deck-library.js";
 import { QUESTION_BANKS } from "./banks/catalog.js";
 
 await ensureStagingSession();
@@ -153,8 +157,8 @@ function renderCoachOutput(outputNode, output) {
       ${output.recommendedSets.length ? `<div class="coach-output-block"><h5>Recommended sets</h5><ul>${output.recommendedSets.map((set) => `
         <li><strong>${esc(set.title)}</strong>: ${esc(set.objective)} · ${set.questionCount} question(s) · ${esc(set.mode)} · ${set.timed ? "timed" : "untimed"}${set.instructions ? `<div class="muted">${esc(set.instructions)}</div>` : ""}${set.questionRefs.length ? `<div class="muted">${set.questionRefs.length} linked question reference(s)</div>` : ""}</li>
       `).join("")}</ul></div>` : ""}
-      ${output.generatedDecks?.length ? `<div class="coach-output-block"><h5>Recommended coach decks</h5><ul>${output.generatedDecks.map((deck) => `
-        <li><strong>${esc(deck.title)}</strong>${deck.objective ? `: ${esc(deck.objective)}` : ""}<div class="muted">${deck.questionCount} question(s) · installs as ${esc(deck.bankId)}</div></li>
+      ${output.generatedDecks?.length ? `<div class="coach-output-block"><h5>Generated question sets</h5><ul>${output.generatedDecks.map((deck) => `
+        <li><strong>${esc(deck.title)}</strong>${deck.objective ? `: ${esc(deck.objective)}` : ""}<div class="muted">${deck.questionCount} question(s) · added to the next numbered Study Coach test</div></li>
       `).join("")}</ul></div>` : ""}
       ${output.studyActions.length ? `<div class="coach-output-block"><h5>Study actions</h5><ul>${output.studyActions.map((action) => `<li>${esc(action)}</li>`).join("")}</ul></div>` : ""}
       ${output.notes.length ? `<div class="coach-output-block"><h5>Notes</h5><ul>${output.notes.map((note) => `<li>${esc(note)}</li>`).join("")}</ul></div>` : ""}
@@ -168,16 +172,21 @@ async function installGeneratedDecks(output) {
   const protectedBanks = protectedStudyCoachBanks(currentBanks);
   await assertNoProtectedQuestionCopies(generatedDecks, protectedBanks);
   const reservedIds = protectedBanks.map((bank) => bank.id);
-  const installedBatch = await installQuestionBankPackagesAtomically(generatedDecks.map((deck) => deck.package), { reservedIds });
-  return generatedDecks.map((deck, index) => {
-    const installed = installedBatch[index];
-    return {
-      title: deck.title,
-      bankId: installed.bank.id,
-      questionCount: installed.bank.questions.length,
-      status: installed.status,
-    };
+  const existingBank = currentBanks.find((bank) => bank.id === STUDY_COACH_BANK_ID) || null;
+  const update = buildStudyCoachDeckLibraryUpdate({
+    existingBank,
+    generatedDecks,
+    generatedAt: output.generatedAt,
   });
+  if (!update.changed) return [];
+  const [installed] = await installQuestionBankPackagesAtomically([update.package], { reservedIds });
+  return [{
+    title: update.testTitle,
+    bankId: installed.bank.id,
+    questionCount: update.addedQuestions,
+    totalQuestionCount: installed.bank.questions.length,
+    status: installed.status,
+  }];
 }
 
 async function refreshCoachDeckView() {
@@ -267,7 +276,7 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
       await refreshCoachDeckView();
     }
     packageStatusNode.textContent = installedDecks.length
-      ? `${message} Installed ${installedDecks.length} coach deck(s): ${installedDecks.map((deck) => `${deck.title} (${deck.questionCount})`).join(", ")}.`
+      ? `${message} Added ${installedDecks.map((deck) => `${deck.title} (${deck.questionCount} new; ${deck.totalQuestionCount} total)`).join(", ")} to the Study Coach Question Bank in the Deck Library.`
       : message;
   };
 

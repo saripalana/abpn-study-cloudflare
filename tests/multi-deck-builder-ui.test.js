@@ -17,8 +17,8 @@ test("selector offers current, all, and specific-deck modes", () => {
   const markup = multiDeckSelectorMarkup({ decks, activeBankId: "ks", settings: { scope: "all" } });
   assert.match(markup, />Current deck</);
   assert.match(markup, />All study decks</);
-  assert.match(markup, />Coach decks</);
   assert.match(markup, />Choose specific decks</);
+  assert.doesNotMatch(markup, />Coach decks</);
   assert.match(markup, /All 3 study decks · 1682 questions/);
 });
 
