@@ -7,6 +7,7 @@ import {
 import { loadInstalledQuestionBanks } from "./client/question-bank-import.js";
 import { installSeedQuestionBanks } from "./client/question-bank-import.js";
 import { initExamCountdown } from "./client/exam-countdown.js";
+import { markDeckCatalogReady } from "./client/startup-readiness.js";
 import {
   ensureStagingSession,
   importLiveBackupIntoStaging,
@@ -62,6 +63,11 @@ try {
   const { applicationReady, refreshApplication } = await import("./app.js");
   await applicationReady;
 
+  // File selection is a local-first capability and must not wait behind the
+  // optional cloud catalog. The controller queues the selected file until the
+  // catalog is stable, so an early picker cannot race a late cloud refresh.
+  await import("./question-bank-controller.js");
+
   // The working dashboard renders first. Only a brand-new disposable staging
   // session then imports the latest complete live backup and refreshes once.
   // Reloads retain that temporary session; closing it causes the next launch
@@ -90,29 +96,33 @@ try {
   // rendered local-first dashboard during an offline timeout.
   // Only the hidden system fixture is reserved. Every user-facing deck,
   // including application-supplied seeds, synchronizes through one library.
-  const reservedIds = QUESTION_BANKS
-    .filter((bank) => bank.contentClass === "system-validation")
-    .map((bank) => bank.id);
   try {
-    await withStartupTimeout((async () => {
-      await flushPendingCloudDeckUploads();
-      await promoteLocallyInstalledDecks({ reservedIds });
-      await refreshCloudDeckLibrary({ reservedIds });
-    })(), CLOUD_STARTUP_TIMEOUT_MS, "Cloud deck startup timed out.");
-  } catch (error) {
-    console.warn("Cloud deck library is unavailable; continuing with bundled and locally cached decks.", error);
-  }
-
-  try {
-    const definitions = await loadAvailableDecks();
-    const updatedCatalog = catalogSignature(definitions);
-    QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...definitions);
-
-    if (updatedCatalog !== startupCatalog) {
-      await refreshApplication();
+    const reservedIds = QUESTION_BANKS
+      .filter((bank) => bank.contentClass === "system-validation")
+      .map((bank) => bank.id);
+    try {
+      await withStartupTimeout((async () => {
+        await flushPendingCloudDeckUploads();
+        await promoteLocallyInstalledDecks({ reservedIds });
+        await refreshCloudDeckLibrary({ reservedIds });
+      })(), CLOUD_STARTUP_TIMEOUT_MS, "Cloud deck startup timed out.");
+    } catch (error) {
+      console.warn("Cloud deck library is unavailable; continuing with bundled and locally cached decks.", error);
     }
-  } catch (error) {
-    console.warn("Updated deck catalog could not be loaded; current dashboard remains available.", error);
+
+    try {
+      const definitions = await loadAvailableDecks();
+      const updatedCatalog = catalogSignature(definitions);
+      QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...definitions);
+
+      if (updatedCatalog !== startupCatalog) {
+        await refreshApplication();
+      }
+    } catch (error) {
+      console.warn("Updated deck catalog could not be loaded; current dashboard remains available.", error);
+    }
+  } finally {
+    markDeckCatalogReady();
   }
 
   // Controllers load only after the dashboard and its bounded catalog refresh
@@ -120,7 +130,6 @@ try {
   await import("./sync-controller.js");
   await import("./backup-controller.js");
   await import("./data-management-controller.js");
-  await import("./question-bank-controller.js");
   await import("./github-question-bank-controller.js");
 } catch (error) {
   console.error("Question-bank bootstrap failed", error);

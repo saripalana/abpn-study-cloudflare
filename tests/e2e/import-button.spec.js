@@ -40,3 +40,21 @@ test('Import from file opens the native file chooser through one activation path
   await expect(page.locator('#bankImportInput')).toHaveAttribute('accept', /json/);
   expect(await page.evaluate(() => window.__ABPN_IMPORT_BUTTON_BRIDGE__?.ready)).toBe(true);
 });
+
+test('Import from file becomes usable before a slow optional cloud catalog finishes', async ({ page }) => {
+  test.setTimeout(20_000);
+
+  await page.route('**/api/decks', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'simulated slow optional catalog' }),
+    });
+  });
+
+  await page.goto('/', { waitUntil: 'commit' });
+  const button = page.getByRole('button', { name: 'Import from file' });
+  await expect(button).toBeEnabled({ timeout: 2_500 });
+  await expect(page.getByRole('heading', { name: 'Create practice set' })).toBeVisible();
+});

@@ -7,6 +7,7 @@ import {
   parseQuestionBankPackageFile,
 } from "./client/question-bank-import.js";
 import { publishCloudDeckPackage } from "./client/deck-library.js";
+import { deckCatalogReady, isDeckCatalogReady } from "./client/startup-readiness.js";
 import { STORES, getRecord, putRecord, recordsByIndex } from "./client/storage.js";
 
 const app = document.getElementById("app");
@@ -14,6 +15,7 @@ const importInput = document.getElementById("bankImportInput");
 const SELECTED_BANK_KEY = "abpn-study:selected-bank";
 let attaching = false;
 let importBusy = false;
+let importWaitingForCatalog = false;
 let metadataSignature = null;
 
 const protectedBankIds = () => QUESTION_BANKS.filter((bank) => bank.protected).map((bank) => bank.id);
@@ -57,7 +59,7 @@ function ensureImportControl() {
   button.setAttribute("aria-controls", importInput.id);
   button.setAttribute("aria-haspopup", "dialog");
   button.onclick = null;
-  button.disabled = false;
+  button.disabled = importBusy || importWaitingForCatalog;
   return button;
 }
 
@@ -269,7 +271,20 @@ async function attachControls() {
 
 importInput.addEventListener("change", () => {
   const [file] = importInput.files || [];
-  void importPackage(file);
+  if (!file || importBusy || importWaitingForCatalog) return;
+  importWaitingForCatalog = !isDeckCatalogReady();
+  ensureImportControl();
+  void (async () => {
+    try {
+      await deckCatalogReady;
+      importWaitingForCatalog = false;
+      ensureImportControl();
+      await importPackage(file);
+    } finally {
+      importWaitingForCatalog = false;
+      ensureImportControl();
+    }
+  })();
 });
 
 const observer = new MutationObserver(() => void attachControls());
