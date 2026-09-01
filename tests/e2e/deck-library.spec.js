@@ -218,3 +218,104 @@ test("a same-version local seed mismatch does not block Deck Library startup", a
   expect(warnings.join("\n")).not.toContain("Local deck cache is unavailable");
   expect(warnings.join("\n")).not.toContain("Updated deck catalog could not be loaded");
 });
+
+test("a verified K&S seed revision preserves answers while restoring multi-select metadata", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
+
+  const staged = await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("abpn-study", 2);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const tx = db.transaction(["questionBankContent", "progress"], "readwrite");
+      const bankStore = tx.objectStore("questionBankContent");
+      const progressStore = tx.objectStore("progress");
+      const bank = await new Promise((resolve, reject) => {
+        const request = bankStore.get("ks-psychiatry-core");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const target = bank.questions.find((question) => question.isMultiSelect);
+      const selectedAnswer = [target.correctLetters[0]];
+      bankStore.put({
+        ...bank,
+        version: "ddfcba21e97973f77c08311400d05310a4ea1ee3",
+        checksum: "prior-verified-seed-checksum",
+        questions: bank.questions.map((question) => question.id === target.id ? {
+          ...question,
+          correctLetters: [question.correctLetters[0]],
+          isMultiSelect: false,
+        } : question),
+      });
+      progressStore.put({
+        bankId: bank.id,
+        questionId: target.id,
+        selectedAnswer,
+        isCorrect: true,
+        revision: 4,
+        deviceId: "upgrade-test-device",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+      });
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+      return { questionId: target.id, selectedAnswer };
+    } finally {
+      db.close();
+    }
+  });
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "K&S Psychiatry Question Bank" })).toBeVisible();
+
+  const upgraded = await page.evaluate(async ({ questionId }) => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("abpn-study", 2);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const read = (store, key) => new Promise((resolve, reject) => {
+      const request = store.get(key);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const tx = db.transaction(["questionBankContent", "questionBankRevisions", "progress", "syncOutbox"], "readonly");
+      const bank = await read(tx.objectStore("questionBankContent"), "ks-psychiatry-core");
+      const progress = await read(tx.objectStore("progress"), ["ks-psychiatry-core", questionId]);
+      const outbox = await read(tx.objectStore("syncOutbox"), `questionProgress:ks-psychiatry-core:${questionId}`);
+      const revisions = await new Promise((resolve, reject) => {
+        const request = tx.objectStore("questionBankRevisions").index("byBank").getAll("ks-psychiatry-core");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const question = bank.questions.find((candidate) => candidate.id === questionId);
+      return {
+        version: bank.version,
+        multiAnswerCount: question.correctLetters.length,
+        isMultiSelect: question.isMultiSelect,
+        selectedAnswer: progress.selectedAnswer,
+        isCorrect: progress.isCorrect,
+        revision: progress.revision,
+        archivedPrior: revisions.some((item) => item.checksum === "prior-verified-seed-checksum"),
+        outboxCorrectness: outbox?.payload?.isCorrect,
+      };
+    } finally {
+      db.close();
+    }
+  }, staged);
+
+  expect(upgraded.version).toBe("020aae0f5c55ad3bb0c122760c7b7d3fe26f1b46-dedupe-v1");
+  expect(upgraded.multiAnswerCount).toBeGreaterThan(1);
+  expect(upgraded.isMultiSelect).toBe(true);
+  expect(upgraded.selectedAnswer).toEqual(staged.selectedAnswer);
+  expect(upgraded.isCorrect).toBe(false);
+  expect(upgraded.revision).toBe(5);
+  expect(upgraded.archivedPrior).toBe(true);
+  expect(upgraded.outboxCorrectness).toBe(false);
+});

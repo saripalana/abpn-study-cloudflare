@@ -341,6 +341,13 @@ function normalizeProgressRow(row, index) {
 
 function normalizePracticeSet(row, index) {
   const prefix = `studyState.practiceSets[${index}]`;
+  const specialCriteria = row.specialCriteria && typeof row.specialCriteria === "object"
+    ? {
+      rangeStart: row.specialCriteria.rangeStart == null ? null : integer(row.specialCriteria.rangeStart, `${prefix}.specialCriteria.rangeStart`),
+      rangeEnd: row.specialCriteria.rangeEnd == null ? null : integer(row.specialCriteria.rangeEnd, `${prefix}.specialCriteria.rangeEnd`),
+      includeFlagged: Boolean(row.specialCriteria.includeFlagged),
+    }
+    : null;
   return {
     id: text(row.id, `${prefix}.id`, 200),
     bankId: optionalText(row.bankId, `${prefix}.bankId`, 100),
@@ -354,6 +361,8 @@ function normalizePracticeSet(row, index) {
     pool: optionalText(row.pool, `${prefix}.pool`, 40),
     categories: boundedArray(row.categories || [], `${prefix}.categories`, 200)
       .map((entry, entryIndex) => text(entry, `${prefix}.categories[${entryIndex}]`, 500)),
+    specialCriteria,
+    priorAttemptQuestionIds: questionIdList(row.priorAttemptQuestionIds || [], `${prefix}.priorAttemptQuestionIds`),
     index: integer(row.index ?? 0, `${prefix}.index`),
     remainingSeconds: row.remainingSeconds == null ? null : integer(row.remainingSeconds, `${prefix}.remainingSeconds`),
     submitted: Boolean(row.submitted),

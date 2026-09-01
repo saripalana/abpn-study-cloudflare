@@ -15,8 +15,15 @@ export function hasQuestionAnswer(answer) {
   return selectedAnswerLetters(answer?.selectedAnswer).length > 0;
 }
 
+function normalizeDisplayText(value) {
+  return String(value ?? "")
+    .normalize("NFC")
+    .replace(/[ \t]+([,.;:!?])/g, "$1")
+    .trim();
+}
+
 export function normalizeQuestion(question, index, bankId) {
-  const choices = Array.isArray(question?.choices) ? question.choices.map(String) : [];
+  const choices = Array.isArray(question?.choices) ? question.choices.map(normalizeDisplayText) : [];
   const letters = Array.isArray(question?.choiceLetters) && question.choiceLetters.length === choices.length
     ? question.choiceLetters.map(String)
     : choices.map((_, i) => String.fromCharCode(65 + i));
@@ -66,8 +73,9 @@ export function normalizeQuestion(question, index, bankId) {
       || question.category
       || "Uncategorized"
     ).trim() || "Uncategorized",
-    question: String(question.question),
-    vignetteStem: String(question.vignetteStem || ""),
+    question: normalizeDisplayText(question.question),
+    vignetteStem: normalizeDisplayText(question.vignetteStem || ""),
+    image: String(question.image || ""),
     linkedGroupId,
     linkedOrder,
     choices,
@@ -75,8 +83,8 @@ export function normalizeQuestion(question, index, bankId) {
     correctLetter: correctLetters[0],
     correctLetters: Object.freeze(correctLetters),
     isMultiSelect,
-    answerText: String(question.answerText || ""),
-    explanation: String(question.explanation || "No explanation provided.")
+    answerText: normalizeDisplayText(question.answerText || ""),
+    explanation: normalizeDisplayText(question.explanation || "No explanation provided.")
   });
 }
 
@@ -117,14 +125,54 @@ export function buildBankCatalog(definitions) {
   });
 }
 
-export function eligibleQuestionIds(bank, progress, pool = "all", categories = null) {
-  const selectedCategories = categories == null
+export function normalizeSpecialTestCriteria(criteria = null, questionCount = Infinity) {
+  const source = criteria && typeof criteria === "object" ? criteria : {};
+  const maximum = Number.isFinite(Number(questionCount))
+    ? Math.max(1, Math.trunc(Number(questionCount)))
+    : Infinity;
+  const start = source.rangeStart == null || source.rangeStart === ""
     ? null
-    : new Set(Array.from(categories, (category) => String(category)));
+    : Math.max(1, Math.trunc(Number(source.rangeStart)) || 1);
+  const end = source.rangeEnd == null || source.rangeEnd === ""
+    ? null
+    : Math.max(1, Math.trunc(Number(source.rangeEnd)) || 1);
+  const rangeStart = start == null ? null : Math.min(start, maximum);
+  const rangeEnd = end == null ? null : Math.min(end, maximum);
+  return {
+    rangeStart: rangeStart == null && rangeEnd != null ? 1 : rangeStart,
+    rangeEnd: rangeEnd == null && rangeStart != null ? maximum : rangeEnd,
+    includeFlagged: Boolean(source.includeFlagged),
+  };
+}
+
+function questionMatchesSpecialCriteria(bank, question, criteria) {
+  const normalized = normalizeSpecialTestCriteria(criteria, bank.questions.length);
+  if (normalized.rangeStart == null && normalized.rangeEnd == null) return true;
+  const position = bank.questions.indexOf(question) + 1;
+  return position >= normalized.rangeStart && position <= normalized.rangeEnd;
+}
+
+export function eligibleQuestionIds(bank, progress, pool = "all", categories = null, specialCriteria = null) {
+  const structuredFilters = categories
+    && typeof categories === "object"
+    && !Array.isArray(categories)
+    && !(categories instanceof Set);
+  const subjectFilters = structuredFilters ? categories.subjects : categories;
+  const sectionFilters = structuredFilters ? categories.sections : null;
+  const selectedCategories = subjectFilters == null
+    ? null
+    : new Set(Array.from(subjectFilters, (category) => String(category)));
+  const selectedSections = sectionFilters == null
+    ? null
+    : new Set(Array.from(sectionFilters, (section) => String(section)));
+  const criteria = normalizeSpecialTestCriteria(specialCriteria, bank.questions.length);
 
   return bank.questions.filter((question) => {
     if (selectedCategories && !selectedCategories.has(question.subjectTitle || question.chapterTitle)) return false;
+    if (selectedSections && !selectedSections.has(question.chapterTitle || "Test 1")) return false;
+    if (!questionMatchesSpecialCriteria(bank, question, criteria)) return false;
     const record = progress.get(question.id);
+    if (criteria.includeFlagged && record?.isFlagged === true) return true;
     if (pool === "new") return !record || !record.timesUsed;
     if (pool === "used") return Number(record?.timesUsed || 0) > 0;
     if (pool === "incorrect") return record?.isCorrect === false;
@@ -133,8 +181,8 @@ export function eligibleQuestionIds(bank, progress, pool = "all", categories = n
   }).map((question) => question.id);
 }
 
-export function eligibleQuestionGroups(bank, progress, pool = "all", categories = null) {
-  const matched = new Set(eligibleQuestionIds(bank, progress, pool, categories));
+export function eligibleQuestionGroups(bank, progress, pool = "all", categories = null, specialCriteria = null) {
+  const matched = new Set(eligibleQuestionIds(bank, progress, pool, categories, specialCriteria));
   const groups = new Map();
   for (const question of bank.questions) {
     const key = question.linkedGroupId || `question:${question.id}`;
@@ -158,22 +206,34 @@ export function chooseQuestionIds(
   random = Math.random,
   categories = null,
   randomized = true,
+  specialCriteria = null,
 ) {
-  const groups = eligibleQuestionGroups(bank, progress, pool, categories);
+  const criteria = normalizeSpecialTestCriteria(specialCriteria, bank.questions.length);
+  const groups = eligibleQuestionGroups(bank, progress, pool, categories, criteria);
   if (!groups.length) return [];
-  // Preserve source order unless the user explicitly requests randomization.
-  const orderedGroups = groups.slice();
-  if (randomized) {
-    for (let i = orderedGroups.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(random() * (i + 1));
-      [orderedGroups[i], orderedGroups[j]] = [orderedGroups[j], orderedGroups[i]];
+  // Additive flagged criteria are guaranteed inclusion. Linked groups remain
+  // indivisible, so a linked follow-up may extend the requested count.
+  const requiredGroups = criteria.includeFlagged
+    ? groups.filter((group) => group.some((id) => progress.get(id)?.isFlagged === true))
+    : [];
+  const requiredKeys = new Set(requiredGroups.map((group) => group.join("\u0000")));
+  const optionalGroups = groups.filter((group) => !requiredKeys.has(group.join("\u0000")));
+  const order = (items) => {
+    const ordered = items.slice();
+    if (randomized) {
+      for (let i = ordered.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(random() * (i + 1));
+        [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+      }
     }
-  }
+    return ordered;
+  };
   const requested = Math.max(1, Number(count) || 1);
   const selected = [];
-  for (const group of orderedGroups) {
-    selected.push(...group);
+  for (const group of order(requiredGroups)) selected.push(...group);
+  for (const group of order(optionalGroups)) {
     if (selected.length >= requested) break;
+    selected.push(...group);
   }
   return selected;
 }

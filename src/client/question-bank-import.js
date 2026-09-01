@@ -1,4 +1,4 @@
-import { normalizeBank } from "./study-engine.js";
+import { isQuestionAnswerCorrect, normalizeBank, selectedAnswerLetters } from "./study-engine.js";
 import {
   STORES,
   getAllRecords,
@@ -59,6 +59,10 @@ function validateQuestionShape(question, index, bankId) {
   text(question.subjectTitle || question.subject || question.domain || question.topic || question.chapterTitle || question.category || "Uncategorized", `Question ${id} subject`, 500);
   text(question.explanation || "No explanation provided.", `Question ${id} explanation`, 100_000);
   text(question.vignetteStem || "", `Question ${id} vignette stem`, 100_000, { required: false });
+  const image = text(question.image || "", `Question ${id} image`, 500, { required: false });
+  if (image && !/^\/banks\/generated\/spiegel-images\/[a-z0-9._-]+\.png$/i.test(image)) {
+    throw new Error(`Question ${id} contains an unsupported image path.`);
+  }
   text(question.linkedGroupId || question.groupId || "", `Question ${id} linked group`, 500, { required: false });
   text(question.answerText || "", `Question ${id} answer text`, 20_000, { required: false });
   if (!Array.isArray(question.choices) || question.choices.length < 2 || question.choices.length > 10) {
@@ -139,6 +143,7 @@ function normalizedPackageBank(bank) {
       subjectTitle: question.subjectTitle,
       question: question.question,
       vignetteStem: question.vignetteStem,
+      image: question.image,
       ...(questions[index]?.linkedGroupId || questions[index]?.groupId ? {
         linkedGroupId: question.linkedGroupId,
         linkedOrder: question.linkedOrder,
@@ -193,6 +198,7 @@ export function questionFingerprint(question) {
     chapterTitle: question.chapterTitle,
     question: question.question,
     vignetteStem: question.vignetteStem ?? "",
+    image: question.image ?? "",
     linkedGroupId: question.linkedGroupId ?? "",
     linkedOrder: question.linkedOrder ?? 0,
     choices: question.choices,
@@ -205,7 +211,10 @@ export function questionFingerprint(question) {
   });
 }
 
-export function analyzeQuestionBankUpdate(existing, incoming, { hasStudyData = false } = {}) {
+export function analyzeQuestionBankUpdate(existing, incoming, {
+  hasStudyData = false,
+  allowVerifiedApplicationSeedUpdate = false,
+} = {}) {
   if (!existing) return { status: "new", additive: true, addedQuestions: incoming.questions.length };
   if (existing.checksum === incoming.checksum) return { status: "unchanged", additive: true, addedQuestions: 0 };
   if (existing.version === incoming.version) {
@@ -220,7 +229,10 @@ export function analyzeQuestionBankUpdate(existing, incoming, { hasStudyData = f
     const next = incomingById.get(question.id);
     return !next || questionFingerprint(question) !== questionFingerprint(next);
   });
-  if (hasStudyData && changedOrRemoved.length) {
+  const verifiedApplicationSeedUpdate = allowVerifiedApplicationSeedUpdate
+    && existing.sourceType === "application-seed"
+    && incoming.sourceType === "application-seed";
+  if (hasStudyData && changedOrRemoved.length && !verifiedApplicationSeedUpdate) {
     throw new Error(
       `This update changes or removes ${changedOrRemoved.length} existing question(s) while progress or test history exists. Import it under a new bank id to protect prior results.`
     );
@@ -228,6 +240,7 @@ export function analyzeQuestionBankUpdate(existing, incoming, { hasStudyData = f
   return {
     status: "update",
     additive: changedOrRemoved.length === 0,
+    verifiedApplicationSeedUpdate,
     changedOrRemovedQuestions: changedOrRemoved.map((question) => question.id),
     addedQuestions: incoming.questions.filter((question) => !existing.questions.some((old) => old.id === question.id)).length,
   };
@@ -266,7 +279,10 @@ function installationRecords(incoming, existing, now) {
   };
 }
 
-export async function installQuestionBankPackagesAtomically(packages, { reservedIds = [] } = {}) {
+export async function installQuestionBankPackagesAtomically(packages, {
+  reservedIds = [],
+  allowVerifiedApplicationSeedUpdate = false,
+} = {}) {
   if (!Array.isArray(packages) || packages.length < 1 || packages.length > 12) {
     throw new Error("Question-bank batch must contain between 1 and 12 packages.");
   }
@@ -286,8 +302,11 @@ export async function installQuestionBankPackagesAtomically(packages, { reserved
       recordsByIndex(STORES.PROGRESS, "byBank", incoming.id),
       recordsByIndex(STORES.SETS, "byBank", incoming.id),
     ]);
-    const analysis = analyzeQuestionBankUpdate(existing, incoming, { hasStudyData: progress.length > 0 || sets.length > 0 });
-    return { incoming, existing, analysis };
+    const analysis = analyzeQuestionBankUpdate(existing, incoming, {
+      hasStudyData: progress.length > 0 || sets.length > 0,
+      allowVerifiedApplicationSeedUpdate,
+    });
+    return { incoming, existing, progress, analysis };
   }));
 
   const now = new Date().toISOString();
@@ -300,7 +319,13 @@ export async function installQuestionBankPackagesAtomically(packages, { reserved
 
   const db = await openStudyDatabase();
   try {
-    const transaction = db.transaction([STORES.BANK_CONTENT, STORES.BANK_REVISIONS, STORES.BANKS], "readwrite");
+    const transaction = db.transaction([
+      STORES.BANK_CONTENT,
+      STORES.BANK_REVISIONS,
+      STORES.BANKS,
+      STORES.PROGRESS,
+      STORES.OUTBOX,
+    ], "readwrite");
     for (const operation of operations) {
       if (!operation.records) continue;
       if (operation.existing) {
@@ -319,6 +344,30 @@ export async function installQuestionBankPackagesAtomically(packages, { reserved
       transaction.objectStore(STORES.BANK_REVISIONS).put(operation.records.revision);
       transaction.objectStore(STORES.BANK_CONTENT).put(operation.records.installed);
       transaction.objectStore(STORES.BANKS).put(operation.records.metadata);
+      if (operation.analysis.verifiedApplicationSeedUpdate) {
+        const questionById = new Map(operation.records.installed.questions.map((question) => [question.id, question]));
+        for (const progress of operation.progress) {
+          const question = questionById.get(progress.questionId);
+          if (!question || !selectedAnswerLetters(progress.selectedAnswer).length) continue;
+          const isCorrect = isQuestionAnswerCorrect(question, progress.selectedAnswer);
+          if (progress.isCorrect === isCorrect) continue;
+          const updated = {
+            ...progress,
+            isCorrect,
+            revision: Number(progress.revision ?? 0) + 1,
+            updatedAt: now,
+          };
+          transaction.objectStore(STORES.PROGRESS).put(updated);
+          transaction.objectStore(STORES.OUTBOX).put({
+            id: `questionProgress:${updated.bankId}:${updated.questionId}`,
+            entityType: "questionProgress",
+            entityKey: `${updated.bankId}:${updated.questionId}`,
+            operation: "upsert",
+            payload: updated,
+            createdAt: now,
+          });
+        }
+      }
     }
     await transactionDone(transaction);
   } finally {
@@ -345,7 +394,9 @@ export async function installSeedQuestionBanks(seedDefinitions = []) {
         schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
         bank: { ...definition, protected: false },
       });
-      const installed = await installQuestionBankPackage(prepared);
+      const installed = await installQuestionBankPackage(prepared, {
+        allowVerifiedApplicationSeedUpdate: true,
+      });
       results.push({ id: definition.id, status: installed.status, bank: installed.bank });
     } catch (error) {
       results.push({

@@ -57,7 +57,7 @@ test("proxies only the pinned K&S source with private immutable caching", async 
     request(),
     {},
     helpers(async (url, options) => {
-      assert.match(url, /raw\.githubusercontent\.com\/dancingremote\/ks-study-guide\/ddfcba21/);
+      assert.match(url, /raw\.githubusercontent\.com\/dancingremote\/ks-study-guide\/020aae0/);
       assert.equal(options.redirect, "error");
       return new Response(source, { status: 200 });
     }, await gitBlobSha1(source)),

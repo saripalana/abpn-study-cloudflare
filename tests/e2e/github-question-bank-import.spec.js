@@ -61,6 +61,25 @@ test("loads the approved Spiegel package without requiring a repeated import", a
   await expect(page.getByRole("heading", { name: "Spiegel Test Prep Question Bank" })).toBeVisible();
   await expect(page.getByText("Spiegel Test Prep · dancingremote/spiegel-test-prep")).toBeVisible();
   await expect(page.getByText("1060 questions loaded.", { exact: false })).toBeVisible();
+  await expect(page.locator(".source-organization-summary")).toContainText("6 source tests · 20 vignettes");
+  const sourcePicker = page.locator("#sourceSectionPicker");
+  await sourcePicker.locator("summary").click();
+  await expect(sourcePicker.getByRole("heading", { name: "Tests" })).toBeVisible();
+  await expect(sourcePicker.getByRole("heading", { name: "Vignettes" })).toBeVisible();
+  await page.locator("#clearSourceSectionsBtn").click();
+  await sourcePicker.locator('input[name="sourceSectionFilter"][value="Vignette 1"]').check();
+  await expect(page.locator("#eligibleCount")).toContainText("10 questions available");
+
+  const imageQuestionId = await page.evaluate(async () => {
+    const { QUESTION_BANKS } = await import("/banks/catalog.js");
+    return QUESTION_BANKS.find((bank) => bank.id === "spiegel-test-prep")
+      ?.questions.find((question) => question.image)?.id || "";
+  });
+  expect(imageQuestionId).toBeTruthy();
+  await page.locator(`.question-browser-number[data-question-id="${imageQuestionId}"]`).dblclick();
+  const image = page.locator('.question-image img');
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((element) => element.complete && element.naturalWidth > 0)).toBe(true);
 });
 
 test("preserves an unpackaged repository address and gives manual integration guidance", async ({ page }) => {

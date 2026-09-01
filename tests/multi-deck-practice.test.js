@@ -118,3 +118,20 @@ test("multi-deck sequential selection preserves deck and source order", () => {
     { bankId: "spiegel", questionId: "s2" },
   ]);
 });
+
+test("combined special criteria apply the range per deck and guarantee flagged inclusion", () => {
+  const alpha = deck("alpha", "Alpha", ["a1", "a2"]);
+  const beta = deck("beta", "Beta", ["b1", "b2"]);
+  const progressByBank = new Map([
+    ["alpha", new Map([["a2", { timesUsed: 1, isCorrect: true, isFlagged: true }]])],
+    ["beta", new Map()],
+  ]);
+  const selected = chooseMultiDeckQuestionRefs({
+    decks: [alpha, beta],
+    selectedBankIds: ["alpha", "beta"],
+    progressByBank,
+    pool: "new",
+    specialCriteria: { rangeStart: 2, rangeEnd: 2, includeFlagged: true },
+  }, 1, () => 0, false);
+  assert.deepEqual(selected, ["alpha::a2"]);
+});

@@ -11,6 +11,7 @@ import {
   subjectStatistics,
   hasQuestionAnswer,
   isQuestionAnswerCorrect,
+  normalizeSpecialTestCriteria,
   selectedAnswerLetters
 } from './client/study-engine.js';
 import { bindMultiDeckSelector, multiDeckSelectorMarkup, readMultiDeckSelector } from './client/multi-deck-builder-ui.js';
@@ -140,7 +141,28 @@ function categoryEntries(bank) {
   return [...counts].map(([title, count]) => ({ title, count }));
 }
 
-function loadBuilderSettings(bank, categories) {
+function sourceSectionEntries(bank) {
+  const counts = new Map();
+  for (const question of bank.questions) {
+    const title = String(question.chapterTitle || 'Test 1').trim() || 'Test 1';
+    const group = String(question.chapter || '').toLowerCase() === 'vignette' ? 'Vignettes' : 'Tests';
+    const key = `${group}\u0000${title}`;
+    const entry = counts.get(key) || { group, title, count: 0 };
+    entry.count += 1;
+    counts.set(key, entry);
+  }
+  return [...counts.values()].sort((a, b) => a.group.localeCompare(b.group)
+    || naturalTitleCollator.compare(a.title, b.title));
+}
+
+function sourceOrganizationSummary(entries) {
+  const tests = entries.filter((entry) => entry.group === 'Tests').length;
+  const vignettes = entries.filter((entry) => entry.group === 'Vignettes').length;
+  if (!vignettes) return '';
+  return `${tests} source test${tests === 1 ? '' : 's'} · ${vignettes} vignette${vignettes === 1 ? '' : 's'}`;
+}
+
+function loadBuilderSettings(bank, categories, sourceSections = []) {
   let saved = {};
   try {
     saved = JSON.parse(localStorage.getItem(`${BUILDER_SETTINGS_PREFIX}${bank.id}`) || '{}');
@@ -156,6 +178,12 @@ function loadBuilderSettings(bank, categories) {
       ? saved.categories.map(String).filter((category) => validCategories.has(category))
       : categories;
   const requestedCount = Math.max(1, Math.trunc(Number(saved.count)) || Math.min(40, bank.questions.length));
+  const validSections = new Set(sourceSections);
+  const selectedSections = saved.sourceSections == null
+    ? sourceSections
+    : Array.isArray(saved.sourceSections)
+      ? saved.sourceSections.map(String).filter((section) => validSections.has(section))
+      : sourceSections;
 
   return {
     count: Math.min(requestedCount, bank.questions.length),
@@ -163,7 +191,9 @@ function loadBuilderSettings(bank, categories) {
     timing: ['timed', 'untimed'].includes(saved.timing) ? saved.timing : 'timed',
     pool: ['all', 'new', 'used', 'incorrect', 'flagged'].includes(saved.pool) ? saved.pool : 'all',
     randomized: typeof saved.randomized === 'boolean' ? saved.randomized : saved.pool == null || saved.pool === 'all',
-    categories: selectedCategories
+    categories: selectedCategories,
+    sourceSections: selectedSections,
+    specialCriteria: normalizeSpecialTestCriteria(saved.specialCriteria, bank.questions.length)
   };
 }
 
@@ -180,6 +210,11 @@ function loadMultiDeckBuilderSettings(activeBankId) {
 
 function selectedSubjectCategories() {
   return [...document.querySelectorAll('input[name="subjectFilter"]:checked')]
+    .map((input) => input.value);
+}
+
+function selectedSourceSections() {
+  return [...document.querySelectorAll('input[name="sourceSectionFilter"]:checked')]
     .map((input) => input.value);
 }
 
@@ -241,6 +276,43 @@ async function completedSetHistory(bankId) {
       averageTimeMs: result.answered ? totalTimeMs / result.answered : 0,
     };
   })).then((items) => items.filter(Boolean));
+}
+
+async function completedAnswerHistory(bankId, questionId) {
+  const completed = (await recordsByIndex(STORES.SETS, 'byStatus', 'completed'))
+    .filter((record) => record.submitted)
+    .sort((a, b) => String(b.completedAt || b.updatedAt).localeCompare(String(a.completedAt || a.updatedAt)));
+  const history = [];
+  for (const record of completed) {
+    const normalized = normalizeStoredSet(record, banks);
+    if (!normalized) continue;
+    const item = setQuestionItems(banks, normalized)
+      .find((candidate) => candidate.bankId === bankId && candidate.questionId === questionId);
+    if (!item) continue;
+    const stored = (await recordsByIndex(STORES.ANSWERS, 'bySet', record.id))
+      .find((entry) => entry.questionId === item.answerKey);
+    if (!hasQuestionAnswer(stored)) continue;
+    history.push({
+      setId: record.id,
+      selectedAnswer: selectedAnswerLetters(stored.selectedAnswer),
+      isCorrect: isQuestionAnswerCorrect(item.question, stored.selectedAnswer),
+      submittedAt: record.completedAt || record.updatedAt,
+      mode: record.mode,
+    });
+  }
+  return history;
+}
+
+function answerHistoryMarkup(history) {
+  if (!history.length) return '';
+  return `<section class="answer-history-log" aria-labelledby="answerHistoryTitle">
+    <div class="section-heading compact"><div><div class="eyebrow" style="color:var(--blue)">ATTEMPT HISTORY</div><h3 id="answerHistoryTitle">Answer log</h3></div><span class="pill">${history.length} ${history.length === 1 ? 'submission' : 'submissions'}</span></div>
+    <p class="muted">Each row is the final answer saved with a separate submitted test.</p>
+    <ol>${history.map((entry) => `<li class="${entry.isCorrect ? 'correct-attempt' : 'incorrect-attempt'}">
+      <div><strong>${entry.setId === activeSet.id ? 'This test' : formatDateTime(entry.submittedAt)}</strong><span>${entry.setId === activeSet.id ? formatDateTime(entry.submittedAt) : esc(entry.mode === 'tutor' ? 'Tutor set' : 'Test set')}</span></div>
+      <div><span>Answer ${esc(entry.selectedAnswer.join(', '))}</span><strong>${entry.isCorrect ? 'Correct' : 'Incorrect'}</strong></div>
+    </li>`).join('')}</ol>
+  </section>`;
 }
 
 function cumulativeSectionChartMarkup(rows) {
@@ -340,12 +412,23 @@ function historyMarkup(history) {
           <span class="pill good">Completed</span>
         </div>
         <small><strong>Decks:</strong> ${esc(practiceSetDeckLabel(banks, record))}</small>
+        ${specialCriteriaSummary(record.specialCriteria) ? `<small><strong>Special criteria:</strong> ${esc(specialCriteriaSummary(record.specialCriteria))}</small>` : ''}
         <small>${formatDateTime(record.completedAt || record.updatedAt)} · ${record.timed ? 'Timed' : 'Untimed'}</small>
         <small>${result.answered} answered · ${result.omitted} omitted · ${result.incorrect} incorrect · ${formatSeconds(averageTimeMs)} average/question</small>
       </div>
       <button class="secondary review-history-btn" type="button" data-set-id="${esc(record.id)}">Review test</button>
     </article>
   `).join('')}</div>`;
+}
+
+function specialCriteriaSummary(criteria) {
+  const normalized = normalizeSpecialTestCriteria(criteria);
+  const parts = [];
+  if (normalized.rangeStart != null || Number.isFinite(normalized.rangeEnd)) {
+    parts.push(`question range ${normalized.rangeStart || 1}–${Number.isFinite(normalized.rangeEnd) ? normalized.rangeEnd : 'end'}`);
+  }
+  if (normalized.includeFlagged) parts.push('flagged questions included');
+  return parts.join(' · ');
 }
 
 async function renderDashboard() {
@@ -379,7 +462,9 @@ async function renderDashboard() {
       || naturalTitleCollator.compare(a.title, b.title));
   const resumable = activeSet && !activeSet.submitted && (activeSet.bankId === activeBank.id || activeSet.selectedBankIds?.includes?.(activeBank.id));
   const categories = categoryEntries(activeBank);
-  const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title));
+  const sourceSections = activeBank.id === 'spiegel-test-prep' ? sourceSectionEntries(activeBank) : [];
+  const sourceSectionTitles = sourceSections.map((section) => section.title);
+  const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title), sourceSectionTitles);
   const multiDeckBuilder = loadMultiDeckBuilderSettings(activeBank.id);
   const installedDeckCount = banks.filter(isUserSelectableDeck).length;
   const questionBrowserRows = activeBank.questions.map((question, index) => {
@@ -387,7 +472,8 @@ async function renderDashboard() {
     const status = questionStatus(record);
     const preview = question.vignetteStem || question.question;
     const subject = question.subjectTitle || question.chapterTitle || 'Uncategorized';
-    return `<button class="question-browser-number ${status.toLowerCase()}" type="button" aria-label="Question ${index + 1}, ${status}. Double-click to open." title="${esc(subject)} · ${status}" data-question-id="${esc(question.id)}" data-search="${esc(`${index + 1} ${subject} ${preview} ${status}`.toLowerCase())}">${index + 1}</button>`;
+    const section = question.chapterTitle || 'Test 1';
+    return `<button class="question-browser-number ${status.toLowerCase()}" type="button" aria-label="Question ${index + 1}, ${status}. Double-click to open." title="${esc(section)} · ${esc(subject)} · ${status}" data-question-id="${esc(question.id)}" data-search="${esc(`${index + 1} ${section} ${subject} ${preview} ${status}`.toLowerCase())}">${index + 1}</button>`;
   }).join('');
 
   // Rendered controllers use this state marker instead of coupling data
@@ -400,6 +486,7 @@ async function renderDashboard() {
         <div class="eyebrow" style="color:var(--blue)">DECK LIBRARY · ${installedDeckCount} INSTALLED</div>
         <h2>${esc(activeBank.title)}</h2>
         <p class="muted">${esc(activeBank.description)} ${activeBank.questions.length} questions loaded.</p>
+        ${sourceOrganizationSummary(sourceSections) ? `<p class="source-organization-summary"><strong>Source organization:</strong> ${esc(sourceOrganizationSummary(sourceSections))}</p>` : ''}
         <p class="deck-library-contract">Every installed question bank uses the same versioned storage, protection, backup, study, and analytics system.</p>
         <div class="field deck-library-switcher">
           <label for="activeBankSelect">View study deck</label>
@@ -479,6 +566,50 @@ async function renderDashboard() {
                   </label>
                 `).join('')}
               </div>
+            </div>
+          </details>
+          ${sourceSections.length ? `<details id="sourceSectionPicker" class="subject-picker source-section-picker">
+            <summary>
+              <span>Source organization</span>
+              <span id="sourceSectionSummary" class="subject-summary"></span>
+            </summary>
+            <div class="subject-picker-body">
+              <p class="muted">Choose original Spiegel tests or complete vignette groups. Clinical Subjects remain a separate filter.</p>
+              <div class="subject-toolbar">
+                <button id="selectAllSourceSectionsBtn" class="secondary" type="button">Select all</button>
+                <button id="clearSourceSectionsBtn" class="secondary" type="button">Clear</button>
+              </div>
+              <div class="source-section-groups">
+                ${['Tests', 'Vignettes'].map((group) => `<section class="source-section-group" aria-label="${group}">
+                  <h4>${group}</h4>
+                  <div class="subject-options">
+                    ${sourceSections.filter((section) => section.group === group).map((section, index) => `
+                      <label class="subject-option" for="source-section-${group}-${index}">
+                        <input id="source-section-${group}-${index}" name="sourceSectionFilter" type="checkbox" value="${esc(section.title)}" ${builder.sourceSections.includes(section.title) ? 'checked' : ''}>
+                        <span>${esc(section.title)}</span>
+                        <small>${section.count}</small>
+                      </label>
+                    `).join('')}
+                  </div>
+                </section>`).join('')}
+              </div>
+            </div>
+          </details>` : ''}
+          <details id="specialCriteriaPicker" class="subject-picker special-criteria-picker" ${specialCriteriaSummary(builder.specialCriteria) ? 'open' : ''}>
+            <summary>
+              <span>Special test criteria</span>
+              <span id="specialCriteriaSummary" class="subject-summary">${esc(specialCriteriaSummary(builder.specialCriteria) || 'Optional')}</span>
+            </summary>
+            <div class="subject-picker-body special-criteria-body">
+              <p class="muted">Limit questions by their source number. For combined sets, the same range applies within each selected deck. Linked follow-ups stay together.</p>
+              <div class="special-range-grid">
+                <label class="field" for="rangeStartInput"><span>Question from</span><input id="rangeStartInput" type="number" min="1" max="${activeBank.questions.length}" placeholder="1" value="${builder.specialCriteria.rangeStart ?? ''}"></label>
+                <label class="field" for="rangeEndInput"><span>Question through</span><input id="rangeEndInput" type="number" min="1" max="${activeBank.questions.length}" placeholder="${activeBank.questions.length}" value="${Number.isFinite(builder.specialCriteria.rangeEnd) ? builder.specialCriteria.rangeEnd : ''}"></label>
+              </div>
+              <label class="subject-option" for="includeFlaggedInput">
+                <input id="includeFlaggedInput" type="checkbox" ${builder.specialCriteria.includeFlagged ? 'checked' : ''}>
+                <span><strong>Include flagged questions</strong><small>Add matching flagged questions even when the selected status pool would exclude them.</small></span>
+              </label>
             </div>
           </details>
           <p id="eligibleCount" class="builder-availability"></p>
@@ -689,19 +820,41 @@ async function renderDashboard() {
   });
 
   const subjectInputs = [...document.querySelectorAll('input[name="subjectFilter"]')];
+  const sourceSectionInputs = [...document.querySelectorAll('input[name="sourceSectionFilter"]')];
   const countInput = document.getElementById('countInput');
   const modeSelect = document.getElementById('modeSelect');
   const timingSelect = document.getElementById('timingSelect');
   const poolSelect = document.getElementById('poolSelect');
   const randomizeOrder = document.getElementById('randomizeOrder');
+  const rangeStartInput = document.getElementById('rangeStartInput');
+  const rangeEndInput = document.getElementById('rangeEndInput');
+  const includeFlaggedInput = document.getElementById('includeFlaggedInput');
+  const specialCriteriaSummaryElement = document.getElementById('specialCriteriaSummary');
   const eligibleCount = document.getElementById('eligibleCount');
   const subjectSummary = document.getElementById('subjectSummary');
+  const sourceSectionSummary = document.getElementById('sourceSectionSummary');
   const startButton = document.getElementById('startBtn');
   let preferredCount = builder.count;
 
+  const readSpecialCriteria = () => normalizeSpecialTestCriteria({
+    rangeStart: rangeStartInput.value,
+    rangeEnd: rangeEndInput.value,
+    includeFlagged: includeFlaggedInput.checked,
+  }, activeBank.questions.length);
+
   const updateBuilderAvailability = ({ countChanged = false } = {}) => {
     const selectedCategories = selectedSubjectCategories();
-    const eligible = eligibleQuestionIds(activeBank, progress, poolSelect.value, selectedCategories);
+    const selectedSections = selectedSourceSections();
+    const specialCriteria = readSpecialCriteria();
+    const invalidRange = specialCriteria.rangeStart != null
+      && specialCriteria.rangeEnd != null
+      && specialCriteria.rangeStart > specialCriteria.rangeEnd;
+    const eligible = invalidRange
+      ? []
+      : eligibleQuestionIds(activeBank, progress, poolSelect.value, {
+        subjects: selectedCategories,
+        sections: sourceSections.length ? selectedSections : null,
+      }, specialCriteria);
     if (countChanged) {
       preferredCount = Math.min(
         activeBank.questions.length,
@@ -713,16 +866,26 @@ async function renderDashboard() {
 
     countInput.value = String(displayedCount);
     countInput.max = String(Math.max(1, eligible.length));
-    startButton.disabled = eligible.length === 0;
+    startButton.disabled = eligible.length === 0 || invalidRange;
 
     subjectSummary.textContent = selectedCategories.length === categories.length
       ? `All ${categories.length} selected`
       : selectedCategories.length
         ? `${selectedCategories.length} of ${categories.length} selected`
         : 'No subjects selected';
-    eligibleCount.textContent = eligible.length
+    if (sourceSectionSummary) {
+      sourceSectionSummary.textContent = selectedSections.length === sourceSections.length
+        ? `All ${sourceSections.length} selected`
+        : selectedSections.length
+          ? `${selectedSections.length} of ${sourceSections.length} selected`
+          : 'No source sections selected';
+    }
+    specialCriteriaSummaryElement.textContent = specialCriteriaSummary(specialCriteria) || 'Optional';
+    eligibleCount.textContent = invalidRange
+      ? 'The start of the question range must be before the end.'
+      : eligible.length
       ? `${eligible.length} question${eligible.length === 1 ? '' : 's'} available${capped ? '; requested set size adjusted to match.' : '.'}`
-      : 'No questions match the selected subjects and question status.';
+      : 'No questions match the selected subjects, source sections, and question status.';
     eligibleCount.dataset.empty = eligible.length ? 'false' : 'true';
 
     localStorage.setItem(`${BUILDER_SETTINGS_PREFIX}${activeBank.id}`, JSON.stringify({
@@ -732,7 +895,9 @@ async function renderDashboard() {
       timing: timingSelect.value,
       pool: poolSelect.value,
       randomized: randomizeOrder.checked,
-      categories: selectedCategories.length === categories.length ? null : selectedCategories
+      categories: selectedCategories.length === categories.length ? null : selectedCategories,
+      sourceSections: sourceSections.length && selectedSections.length !== sourceSections.length ? selectedSections : null,
+      specialCriteria,
     }));
   };
 
@@ -767,7 +932,16 @@ async function renderDashboard() {
     subjectInputs.forEach((input) => { input.checked = false; });
     updateBuilderAvailability();
   };
+  document.getElementById('selectAllSourceSectionsBtn')?.addEventListener('click', () => {
+    sourceSectionInputs.forEach((input) => { input.checked = true; });
+    updateBuilderAvailability();
+  });
+  document.getElementById('clearSourceSectionsBtn')?.addEventListener('click', () => {
+    sourceSectionInputs.forEach((input) => { input.checked = false; });
+    updateBuilderAvailability();
+  });
   subjectInputs.forEach((input) => input.addEventListener('change', updateBuilderAvailability));
+  sourceSectionInputs.forEach((input) => input.addEventListener('change', updateBuilderAvailability));
   countInput.addEventListener('input', () => {
     const nextCount = Number(countInput.value);
     if (Number.isFinite(nextCount) && nextCount >= 1) {
@@ -782,6 +956,9 @@ async function renderDashboard() {
     updateBuilderAvailability();
   });
   randomizeOrder.addEventListener('change', updateBuilderAvailability);
+  rangeStartInput.addEventListener('input', updateBuilderAvailability);
+  rangeEndInput.addEventListener('input', updateBuilderAvailability);
+  includeFlaggedInput.addEventListener('change', updateBuilderAvailability);
   updateBuilderAvailability();
   void attachAssistantWeaknessControls({ root: assistantSection, banks });
 }
@@ -794,7 +971,11 @@ async function startSet() {
   if (activeSet && !activeSet.submitted) await saveActiveSet('abandoned');
 
   const categories = selectedSubjectCategories();
+  const sourceSections = selectedSourceSections();
   if (!categories.length) return alert('Select at least one subject before starting a practice set.');
+  if (document.querySelector('input[name="sourceSectionFilter"]') && !sourceSections.length) {
+    return alert('Select at least one source test or vignette before starting a practice set.');
+  }
 
   // Use the live form state when starting a set. The selector is also persisted
   // on change, but start-time reads must not depend on localStorage being fresh:
@@ -807,7 +988,15 @@ async function startSet() {
   const mode = document.getElementById('modeSelect').value;
   const timed = document.getElementById('timingSelect').value === 'timed';
   const randomized = document.getElementById('randomizeOrder').checked;
-  const categoriesByBank = categoriesByDeckForSession(banks, activeBank.id, categories);
+  const specialCriteria = normalizeSpecialTestCriteria({
+    rangeStart: document.getElementById('rangeStartInput').value,
+    rangeEnd: document.getElementById('rangeEndInput').value,
+    includeFlagged: document.getElementById('includeFlaggedInput').checked,
+  }, activeBank.questions.length);
+  if (specialCriteria.rangeStart != null && specialCriteria.rangeEnd != null && specialCriteria.rangeStart > specialCriteria.rangeEnd) {
+    return alert('The start of the question range must be before the end.');
+  }
+  const categoriesByBank = categoriesByDeckForSession(banks, activeBank.id, categories, sourceSections.length ? sourceSections : null);
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 
@@ -825,9 +1014,10 @@ async function startSet() {
     id,
     random: Math.random,
     randomized,
-    createSingleDeckSet: async ({ activeBank: selectedBank, pool: selectedPool, count: requestedCount, mode: selectedMode, timed: isTimed, now: startedAt, id: setId, random, randomized: randomizeQuestions, categories: selectedCategories }) => {
+    specialCriteria,
+    createSingleDeckSet: async ({ activeBank: selectedBank, pool: selectedPool, count: requestedCount, mode: selectedMode, timed: isTimed, now: startedAt, id: setId, random, randomized: randomizeQuestions, categories: selectedCategories, specialCriteria: selectedSpecialCriteria }) => {
       const progress = await progressMap(selectedBank.id);
-      const ids = chooseQuestionIds(selectedBank, progress, selectedPool, requestedCount, random, selectedCategories, randomizeQuestions);
+      const ids = chooseQuestionIds(selectedBank, progress, selectedPool, requestedCount, random, selectedCategories, randomizeQuestions, selectedSpecialCriteria);
       if (!ids.length) return null;
       return {
         id: setId,
@@ -840,6 +1030,8 @@ async function startSet() {
         submitted: false,
         startedAt,
         completedAt: null,
+        specialCriteria: selectedSpecialCriteria,
+        priorAttemptQuestionIds: ids.filter((questionId) => Number(progress.get(questionId)?.timesUsed || 0) > 0),
       };
     },
   });
@@ -871,6 +1063,7 @@ async function openSpecificQuestion(questionId) {
       .sort((a, b) => Number(a.linkedOrder || 0) - Number(b.linkedOrder || 0))
       .map((question) => question.id)
     : [selected.id];
+  const existingProgress = await progressMap(activeBank.id);
 
   activeSet = {
     id: crypto.randomUUID(),
@@ -884,6 +1077,8 @@ async function openSpecificQuestion(questionId) {
     submitted: false,
     startedAt: new Date().toISOString(),
     completedAt: null,
+    specialCriteria: null,
+    priorAttemptQuestionIds: questionIds.filter((id) => Number(existingProgress.get(id)?.timesUsed || 0) > 0),
   };
   await saveActiveSet();
   await renderQuestion();
@@ -913,7 +1108,7 @@ function submissionConfirmation() {
 // may show that an answer exists, but it cannot disclose whether it is correct
 // until the full set has been submitted. Tutor mode may disclose a finalized
 // incorrect answer immediately because its explanation is already visible.
-function questionMapState(entry, { mode, submitted, flagged = false, current = false } = {}) {
+function questionMapState(entry, { mode, submitted, flagged = false, current = false, previouslyAttempted = false } = {}) {
   const answered = hasQuestionAnswer(entry);
   const discloseCorrectness = submitted || (mode === 'tutor' && entry?.finalized === true);
   const incorrect = answered && discloseCorrectness && entry?.isCorrect === false;
@@ -924,13 +1119,14 @@ function questionMapState(entry, { mode, submitted, flagged = false, current = f
       answered ? 'answered' : 'unanswered',
       incorrect ? 'incorrect-answer' : '',
       flagged ? 'flagged' : '',
+      previouslyAttempted ? 'previously-attempted' : '',
       current ? 'current' : '',
     ].filter(Boolean).join(' '),
   };
 }
 
-function questionMapLegend({ discloseCorrectness = false } = {}) {
-  return `<div class="question-map-legend"><span><i class="legend-swatch answered"></i>Answered</span><span><i class="legend-swatch unanswered"></i>Unanswered</span>${discloseCorrectness ? '<span><i class="legend-incorrect-dot"></i>Incorrect</span>' : ''}<span><i class="legend-flag">★</i>Flagged</span></div>`;
+function questionMapLegend({ discloseCorrectness = false, hasPriorAttempts = false } = {}) {
+  return `<div class="question-map-legend"><span><i class="legend-swatch answered"></i>Answered</span><span><i class="legend-swatch unanswered"></i>Unanswered</span>${hasPriorAttempts ? '<span><i class="legend-prior-ring"></i>Prior attempt</span>' : ''}${discloseCorrectness ? '<span><i class="legend-incorrect-dot"></i>Incorrect</span>' : ''}<span><i class="legend-flag">★</i>Flagged</span></div>`;
 }
 
 function questionMapMarkup(items, {
@@ -940,8 +1136,9 @@ function questionMapMarkup(items, {
   sessionIndexes = items.map((_, index) => index),
 } = {}) {
   const discloseCorrectness = activeSet.submitted || activeSet.mode === 'tutor';
+  const priorAttemptIds = new Set(activeSet.priorAttemptQuestionIds || []);
   const mapClass = resultMap ? 'question-map results-question-map' : 'question-map';
-  return `${questionMapLegend({ discloseCorrectness })}<div class="${mapClass}">${sessionIndexes.map((sessionIndex) => {
+  return `${questionMapLegend({ discloseCorrectness, hasPriorAttempts: priorAttemptIds.size > 0 })}<div class="${mapClass}">${sessionIndexes.map((sessionIndex) => {
     const item = items[sessionIndex];
     const entry = activeSet.answers.get(item.answerKey);
     const state = questionMapState(entry, {
@@ -949,8 +1146,9 @@ function questionMapMarkup(items, {
       submitted: activeSet.submitted,
       flagged: Boolean(progressByBank?.get(item.bankId)?.get(item.questionId)?.isFlagged),
       current: showCurrent && sessionIndex === activeSet.index,
+      previouslyAttempted: priorAttemptIds.has(item.answerKey),
     });
-    const status = state.answered ? (state.incorrect ? 'answered, incorrect' : 'answered') : 'unanswered';
+    const status = `${state.answered ? (state.incorrect ? 'answered, incorrect' : 'answered') : 'unanswered'}${priorAttemptIds.has(item.answerKey) ? ', previously attempted' : ''}`;
     return `<button type="button" data-index="${sessionIndex}" class="${state.classes}" aria-label="Question ${sessionIndex + 1}, ${status}">${sessionIndex + 1}</button>`;
   }).join('')}</div>`;
 }
@@ -996,6 +1194,9 @@ async function renderQuestion() {
   const reviewLabel = activeSet.submitted && Array.isArray(reviewQuestionIndexes)
     ? `<span class="pill">Incorrect review ${reviewPosition + 1} of ${reviewIndexes.length}</span>`
     : '';
+  const answerHistory = activeSet.submitted
+    ? await completedAnswerHistory(context.bankId, context.questionId)
+    : [];
 
   startedQuestionAt = Date.now();
   app.innerHTML = `
@@ -1010,10 +1211,12 @@ async function renderQuestion() {
           <div class="exam-head"><div>
             <div class="eyebrow" style="color:var(--blue)">${esc(context.displayDeckTitle)}</div>
             <h2>Question ${activeSet.index + 1} of ${items.length}</h2>
+            <div class="question-source-section">${esc(question.chapterTitle || 'Test 1')}</div>
             <div class="question-status-row"><span class="question-state ${hasAnswer ? 'answered' : 'unanswered'}">${hasAnswer ? 'Answered' : 'Unanswered'}</span><span class="muted">${answeredCount} answered · ${unansweredCount} unanswered</span></div>
           </div><div id="timer" class="timer">${activeSet.timed ? formatTime(activeSet.remainingSeconds) : 'Untimed'}</div></div>
           <div class="progress"><span style="width:${(activeSet.index + 1) / items.length * 100}%"></span></div>
           ${question.vignetteStem ? `<div class="vignette-stem"><strong>Clinical vignette</strong><div>${esc(question.vignetteStem)}</div></div>` : ''}
+          ${question.image ? `<figure class="question-image"><img src="${esc(question.image)}" alt="Question illustration" loading="lazy" decoding="async"></figure>` : ''}
           <div class="question">${esc(question.question)}</div>
           ${question.isMultiSelect ? '<p class="multi-select-hint">Select all that apply. Full credit requires the exact set of correct choices.</p>' : ''}
           <div class="choices">${question.choices.map((choice, index) => {
@@ -1028,6 +1231,7 @@ async function renderQuestion() {
         return `<button class="${classes}" data-answer="${esc(letter)}" aria-pressed="${selected}" ${answerLocked ? 'disabled' : ''}><span class="letter">${esc(letter)}</span><span>${esc(choice)}</span></button>`;
           }).join('')}</div>
           ${reveal ? `<div class="explanation"><strong>${answeredCorrectly ? 'Correct' : `Correct answer${correctLetters.length === 1 ? '' : 's'}: ${esc(correctLetters.join(', '))}`}</strong>${question.answerText ? `<div class="answer-text">${esc(question.answerText)}</div>` : ''}<div>${esc(question.explanation)}</div></div>` : ''}
+          ${activeSet.submitted ? answerHistoryMarkup(answerHistory) : ''}
           <div class="actions question-actions"><button id="flagBtn" class="secondary" type="button">${flagged ? 'Unflag' : 'Flag'} question</button>${question.isMultiSelect && activeSet.mode === 'tutor' && !activeSet.submitted && !reveal ? `<button id="checkAnswerBtn" class="primary" type="button" ${hasAnswer ? '' : 'disabled'}>Check answer</button>` : ''}${!activeSet.submitted ? '<button id="submitBtn" class="danger" type="button">Submit set</button>' : ''}</div>
           <div class="exam-nav"><button id="prevBtn" class="secondary" type="button" ${isFirstQuestion ? 'disabled' : ''}>Previous</button><button id="exitBtn" class="secondary" type="button">${activeSet.submitted ? 'Back to test summary' : 'Save and exit'}</button>${finalNavigation}</div>
         </div>

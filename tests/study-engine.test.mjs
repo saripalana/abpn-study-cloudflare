@@ -25,6 +25,8 @@ test('filters new incorrect and flagged pools without crossing bank state',()=>{
 
 test('combines subject filters with all new used wrong and flagged pools',()=>{const [bank]=buildBankCatalog([definition]);const progress=new Map([['q1',{timesUsed:1,isCorrect:false}],['q2',{timesUsed:2,isCorrect:true,isFlagged:true}]]);assert.deepEqual(eligibleQuestionIds(bank,progress,'all',['Mood']),['q1','q2']);assert.deepEqual(eligibleQuestionIds(bank,progress,'used',['Mood']),['q1','q2']);assert.deepEqual(eligibleQuestionIds(bank,progress,'new',['Mood']),[]);assert.deepEqual(eligibleQuestionIds(bank,progress,'incorrect',['Mood']),['q1']);assert.deepEqual(eligibleQuestionIds(bank,progress,'flagged',['Mood']),['q2']);assert.deepEqual(eligibleQuestionIds(bank,progress,'new',['Psychosis']),['q3']);assert.deepEqual(eligibleQuestionIds(bank,progress,'all',[]),[])});
 
+test('combines clinical subject and source-section filters without merging the dimensions',()=>{const [bank]=buildBankCatalog([{id:'spiegel-like',title:'Spiegel-like',questions:[{id:'t1',chapter:'test',chapterTitle:'Test 1',subjectTitle:'Mood',question:'One?',choices:['A','B'],correctLetter:'A',explanation:'x'},{id:'t2',chapter:'test',chapterTitle:'Test 2',subjectTitle:'Mood',question:'Two?',choices:['A','B'],correctLetter:'B',explanation:'y'},{id:'v1',chapter:'vignette',chapterTitle:'Vignette 1',subjectTitle:'Psychosis',linkedGroupId:'case-1',question:'Three?',choices:['A','B'],correctLetter:'A',explanation:'z'}]}]);assert.deepEqual(eligibleQuestionIds(bank,new Map(),'all',{subjects:['Mood'],sections:['Test 2']}),['t2']);assert.deepEqual(eligibleQuestionIds(bank,new Map(),'all',{subjects:['Psychosis'],sections:['Vignette 1']}),['v1']);assert.deepEqual(eligibleQuestionIds(bank,new Map(),'all',{subjects:['Mood'],sections:[]}),[])});
+
 test('random selection never leaves the selected subjects',()=>{const [bank]=buildBankCatalog([definition]);const ids=chooseQuestionIds(bank,new Map(),'all',10,()=>0,['Psychosis']);assert.deepEqual(ids,['q3'])});
 
 test('sequential selection preserves source question order',()=>{
@@ -40,6 +42,34 @@ test('linked questions stay ordered and expand past the requested boundary',()=>
     {id:'solo',chapterTitle:'Other',question:'Solo?',choices:['A','B'],correctLetter:'A',explanation:'z'},
   ]}]);
   assert.deepEqual(chooseQuestionIds(bank,new Map(),'all',1,()=>0,['Mood']),['case-1','case-2']);
+});
+
+test('special criteria limit source question range and add flagged questions from another status pool',()=>{
+  const [bank]=buildBankCatalog([definition]);
+  const progress=new Map([
+    ['q1',{timesUsed:1,isCorrect:true}],
+    ['q2',{timesUsed:1,isCorrect:true,isFlagged:true}],
+  ]);
+  assert.deepEqual(
+    chooseQuestionIds(bank,progress,'new',1,()=>0,null,false,{rangeStart:2,rangeEnd:3,includeFlagged:true}),
+    ['q2']
+  );
+  assert.deepEqual(
+    eligibleQuestionIds(bank,progress,'all',null,{rangeStart:2,rangeEnd:3}),
+    ['q2','q3']
+  );
+});
+
+test('special criteria keep linked follow-ups together when the range touches one member',()=>{
+  const [bank]=buildBankCatalog([{id:'linked-range',title:'Linked range',questions:[
+    {id:'case-1',linkedGroupId:'case',linkedOrder:0,question:'Case?',choices:['A','B'],correctLetter:'A',explanation:'x'},
+    {id:'case-2',linkedGroupId:'case',linkedOrder:1,question:'Follow-up?',choices:['A','B'],correctLetter:'B',explanation:'y'},
+    {id:'solo',question:'Solo?',choices:['A','B'],correctLetter:'A',explanation:'z'},
+  ]}]);
+  assert.deepEqual(
+    chooseQuestionIds(bank,new Map(),'all',1,()=>0,null,false,{rangeStart:2,rangeEnd:2}),
+    ['case-1','case-2']
+  );
 });
 
 test('calculates answered omitted correct and incorrect totals',()=>{const [bank]=buildBankCatalog([definition]);const answers=new Map([['q1',{selectedAnswer:'A'}],['q2',{selectedAnswer:'A'}]]);assert.deepEqual(calculateSetResult(['q1','q2','q3'],answers,bank),{total:3,answered:2,omitted:1,correct:1,incorrect:1})});

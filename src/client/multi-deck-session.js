@@ -1,4 +1,4 @@
-import { chooseMultiDeckQuestionRefs } from "./multi-deck-practice.js";
+import { chooseMultiDeckQuestionRefs, decodeQuestionRef } from "./multi-deck-practice.js";
 import { createMultiDeckSetRecord } from "./multi-deck-set.js";
 import { selectedDecksForScope } from "./multi-deck-builder.js";
 
@@ -20,6 +20,7 @@ export function createCombinedPracticeSet({
   id = crypto.randomUUID(),
   random = Math.random,
   randomized = true,
+  specialCriteria = null,
 } = {}) {
   const selectedDecks = selectedDecksForScope({ decks, activeBankId, settings });
   if (selectedDecks.length < 2) return null;
@@ -31,6 +32,7 @@ export function createCombinedPracticeSet({
     progressByBank: selectedProgressByBank(selectedDecks, progressByBank),
     pool,
     categoriesByBank,
+    specialCriteria,
   }, count, random, randomized);
 
   if (!references.length) return null;
@@ -44,5 +46,10 @@ export function createCombinedPracticeSet({
     remainingSeconds: timed ? Math.ceil(references.length * 70.6) : 0,
     startedAt: now,
     updatedAt: now,
+    specialCriteria,
+    priorAttemptQuestionIds: references.filter((reference) => {
+      const { bankId, questionId } = decodeQuestionRef(reference);
+      return Number(progressByBank.get(bankId)?.get(questionId)?.timesUsed || 0) > 0;
+    }),
   });
 }

@@ -2,11 +2,15 @@ import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings, selectedDecksForScope }
 import { createCombinedPracticeSet } from "./multi-deck-session.js";
 import { currentSetQuestion } from "./multi-deck-runtime.js";
 
-export function categoriesByDeckForSession(decks, activeBankId, selectedCategories) {
+export function categoriesByDeckForSession(decks, activeBankId, selectedCategories, selectedSections = null) {
   const activeCategories = Array.isArray(selectedCategories) ? selectedCategories.map(String) : null;
+  const activeSections = Array.isArray(selectedSections) ? selectedSections.map(String) : null;
+  const activeFilters = activeSections == null
+    ? activeCategories
+    : { subjects: activeCategories, sections: activeSections };
   return new Map((decks || []).map((deck) => [
     deck.id,
-    deck.id === activeBankId ? activeCategories : null,
+    deck.id === activeBankId ? activeFilters : null,
   ]));
 }
 
@@ -34,6 +38,7 @@ export async function createPracticeSession({
   id,
   random,
   randomized = true,
+  specialCriteria = null,
 }) {
   const normalized = normalizeDeckScopeSettings({ decks, activeBankId: activeBank?.id, saved: settings });
   const selectedDecks = selectedDecksForScope({ decks, activeBankId: activeBank?.id, settings: normalized });
@@ -54,6 +59,7 @@ export async function createPracticeSession({
       random,
       randomized,
       categories: categoriesByBank.get(selectedBank?.id) ?? null,
+      specialCriteria,
     });
   }
 
@@ -78,6 +84,7 @@ export async function createPracticeSession({
     id,
     random,
     randomized,
+    specialCriteria,
   });
 }
 
@@ -103,5 +110,7 @@ export function persistenceRecordForSession(set, updatedAt = new Date().toISOStr
     startedAt: set.startedAt,
     completedAt: set.completedAt ?? null,
     updatedAt,
+    specialCriteria: set.specialCriteria ?? null,
+    priorAttemptQuestionIds: [...(set.priorAttemptQuestionIds || [])],
   };
 }

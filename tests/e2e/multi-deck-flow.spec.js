@@ -96,5 +96,60 @@ test("combined K&S and added-deck set survives reload, submission, history, and 
   await expect(page.getByText("SET RESULTS")).toBeVisible();
   await expect(page.getByRole("heading", { name: /1\/2 correct/ })).toBeVisible();
   await page.getByRole("button", { name: "Review all questions" }).click();
-  await expect(page.locator(".exam .eyebrow")).toBeVisible();
+  await expect(page.locator(".exam-head .eyebrow")).toBeVisible();
+});
+
+test("special retest criteria preserve multi-answer behavior and show a dated answer log", async ({ page }) => {
+  test.setTimeout(90_000);
+  page.on("dialog", async (dialog) => dialog.accept());
+  await page.goto("/");
+  await expect(page.locator("#importBankBtn")).toBeEnabled();
+  await page.locator("#bankImportInput").setInputFiles({
+    name: "combined-flow-deck.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(combinedDeckPackage())),
+  });
+  await expectActiveBank(page, "combined-flow-deck");
+
+  await page.locator("#countInput").fill("1");
+  await page.locator("#modeSelect").selectOption("tutor");
+  await page.locator("#timingSelect").selectOption("untimed");
+  await page.getByRole("button", { name: "Start set" }).click();
+  await page.locator('.choice[data-answer="A"]').click();
+  await page.getByRole("button", { name: "Check answer" }).click();
+  await expect(page.locator(".explanation strong")).toContainText("Correct answers");
+  await page.getByRole("button", { name: "Flag question" }).click();
+  await page.getByRole("button", { name: "Submit set" }).click();
+  await page.getByRole("button", { name: "Back to dashboard" }).click();
+
+  await page.locator("#poolSelect").selectOption("new");
+  await page.locator("#specialCriteriaPicker summary").click();
+  await page.locator("#rangeStartInput").fill("1");
+  await page.locator("#rangeEndInput").fill("1");
+  await page.locator("#includeFlaggedInput").check();
+  await expect(page.locator("#eligibleCount")).toContainText("1 question available");
+  await page.locator("#modeSelect").selectOption("test");
+  await page.getByRole("button", { name: "Start set" }).click();
+
+  const mapButton = page.locator(".question-map button").first();
+  await expect(mapButton).toHaveClass(/previously-attempted/);
+  await expect(mapButton).not.toHaveClass(/incorrect-answer/);
+  await page.locator('.choice[data-answer="A"]').click();
+  await page.locator('.choice[data-answer="C"]').click();
+  await page.getByRole("button", { name: "Submit set" }).click();
+  await expect(page.getByRole("heading", { name: /1\/1 correct/ })).toBeVisible();
+  await page.getByRole("button", { name: "Review all questions" }).click();
+
+  await expect(page.getByRole("heading", { name: "Answer log" })).toBeVisible();
+  await expect(page.locator(".answer-history-log li")).toHaveCount(2);
+  await expect(page.locator(".answer-history-log")).toContainText("Answer A, C");
+  await expect(page.locator(".answer-history-log")).toContainText("Answer A");
+  await expect(page.locator(".answer-history-log")).toContainText("This test");
+  await expect(page.locator(".answer-history-log")).toContainText(/\w{3} \d{1,2}, \d{4}/);
+
+  await page.getByRole("button", { name: "Back to test summary" }).click();
+  await page.getByRole("button", { name: "Back to dashboard" }).click();
+  await expect(page.locator(".history-item")).toHaveCount(2);
+  await expect(page.locator(".history-item").first()).toContainText("question range 1–1");
+  await expect(page.locator(".history-item").first()).toContainText("flagged questions included");
 });
