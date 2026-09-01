@@ -44,9 +44,10 @@ export function multiDeckQuestionRefs({
   progressByBank = new Map(),
   pool = "all",
   categoriesByBank = new Map(),
+  specialCriteria = null,
 }) {
   return multiDeckQuestionRefGroups({
-    decks, selectedBankIds, progressByBank, pool, categoriesByBank,
+    decks, selectedBankIds, progressByBank, pool, categoriesByBank, specialCriteria,
   }).flat();
 }
 
@@ -56,12 +57,13 @@ export function multiDeckQuestionRefGroups({
   progressByBank = new Map(),
   pool = "all",
   categoriesByBank = new Map(),
+  specialCriteria = null,
 }) {
   const groups = [];
   for (const deck of selectedStudyDecks(decks, selectedBankIds)) {
     const progress = progressByBank.get(deck.id) || new Map();
     const categories = categoriesByBank.get(deck.id) ?? null;
-    for (const questionIds of eligibleQuestionGroups(deck, progress, pool, categories)) {
+    for (const questionIds of eligibleQuestionGroups(deck, progress, pool, categories, specialCriteria)) {
       groups.push(questionIds.map((questionId) => encodeQuestionRef(deck.id, questionId)));
     }
   }
@@ -72,18 +74,33 @@ export function chooseMultiDeckQuestionRefs(options, requestedCount, random = Ma
   const groups = multiDeckQuestionRefGroups(options);
   const count = Math.max(0, Math.trunc(Number(requestedCount)) || 0);
   if (!count) return [];
-  // Keep deck and source-question order stable for sequential sets.
-  const orderedGroups = [...groups];
-  if (randomized) {
-    for (let index = orderedGroups.length - 1; index > 0; index -= 1) {
-      const swapIndex = Math.floor(random() * (index + 1));
-      [orderedGroups[index], orderedGroups[swapIndex]] = [orderedGroups[swapIndex], orderedGroups[index]];
+  const flaggedRefs = new Set();
+  if (options.specialCriteria?.includeFlagged) {
+    for (const deck of selectedStudyDecks(options.decks, options.selectedBankIds)) {
+      const progress = options.progressByBank?.get(deck.id) || new Map();
+      for (const [questionId, record] of progress) {
+        if (record?.isFlagged) flaggedRefs.add(encodeQuestionRef(deck.id, questionId));
+      }
     }
   }
+  const requiredGroups = groups.filter((group) => group.some((reference) => flaggedRefs.has(reference)));
+  const requiredKeys = new Set(requiredGroups.map((group) => group.join("\u0000")));
+  const optionalGroups = groups.filter((group) => !requiredKeys.has(group.join("\u0000")));
+  const order = (items) => {
+    const ordered = [...items];
+    if (randomized) {
+      for (let index = ordered.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(random() * (index + 1));
+        [ordered[index], ordered[swapIndex]] = [ordered[swapIndex], ordered[index]];
+      }
+    }
+    return ordered;
+  };
   const selected = [];
-  for (const group of orderedGroups) {
-    selected.push(...group);
+  for (const group of order(requiredGroups)) selected.push(...group);
+  for (const group of order(optionalGroups)) {
     if (selected.length >= count) break;
+    selected.push(...group);
   }
   return selected;
 }

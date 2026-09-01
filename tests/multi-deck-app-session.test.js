@@ -25,6 +25,12 @@ test("applies selected subjects only to the active deck in a combined set", () =
   assert.equal(categories.get("validation"), null);
 });
 
+test("applies source sections with subjects only to the active deck", () => {
+  const filters = categoriesByDeckForSession(decks, alpha.id, ["Alpha subject"], ["Test 2"]);
+  assert.deepEqual(filters.get("alpha"), { subjects: ["Alpha subject"], sections: ["Test 2"] });
+  assert.equal(filters.get("beta"), null);
+});
+
 test("loads progress only for selected study decks", async () => {
   const calls = [];
   const result = await loadProgressForSelectedDecks({
@@ -157,4 +163,18 @@ test("persists multi-deck metadata without changing legacy fields", () => {
   assert.deepEqual(record.selectedBankIds, ["alpha", "beta"]);
   assert.deepEqual(record.questionIds, ["alpha::shared", "beta::shared"]);
   assert.equal(record.updatedAt, "2026-07-24T12:05:00.000Z");
+});
+
+test("persists special criteria and the prior-attempt snapshot", () => {
+  const record = persistenceRecordForSession({
+    id: "special",
+    bankId: "alpha",
+    questionIds: ["shared"],
+    mode: "test",
+    timed: false,
+    specialCriteria: { rangeStart: 1, rangeEnd: 20, includeFlagged: true },
+    priorAttemptQuestionIds: ["shared"],
+  });
+  assert.deepEqual(record.specialCriteria, { rangeStart: 1, rangeEnd: 20, includeFlagged: true });
+  assert.deepEqual(record.priorAttemptQuestionIds, ["shared"]);
 });

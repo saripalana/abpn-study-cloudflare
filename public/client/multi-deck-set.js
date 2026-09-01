@@ -26,6 +26,8 @@ export function createMultiDeckSetRecord({
   index = 0,
   submitted = false,
   completedAt = null,
+  specialCriteria = null,
+  priorAttemptQuestionIds = [],
 }) {
   const questionRefs = [...new Set((references || []).map(String))];
   if (!String(id || "").trim()) throw new Error("A combined practice set requires an ID.");
@@ -47,6 +49,8 @@ export function createMultiDeckSetRecord({
     startedAt,
     completedAt,
     updatedAt,
+    specialCriteria,
+    priorAttemptQuestionIds: [...new Set((priorAttemptQuestionIds || []).map(String))],
   };
 }
 

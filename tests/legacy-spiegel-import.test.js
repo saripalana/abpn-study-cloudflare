@@ -21,6 +21,7 @@ const sourceQuestions = [{
   choiceLetters: ["A", "B", "C"],
   correctLetters: ["B"],
   isMultiSelect: false,
+  image: "images/test1-q1.png",
   explanation: "B is correct.",
 }, {
   id: "vignette1-q1",
@@ -48,6 +49,7 @@ test("converts Spiegel questions into an isolated, versioned ABPN bank", async (
   const converted = await convertLegacySpiegelScript(
     legacyScript,
     "https://raw.githubusercontent.com/dancingremote/spiegel-test-prep/main/data.js",
+    { resolveImagePath: (sourcePath) => sourcePath ? `/banks/generated/spiegel-images/${sourcePath.split("/").pop()}` : "" },
   );
   assert.equal(converted.format, "abpn-question-bank");
   assert.equal(converted.bank.id, "spiegel-test-prep");
@@ -59,7 +61,13 @@ test("converts Spiegel questions into an isolated, versioned ABPN bank", async (
   assert.equal(converted.bank.questions[0].subjectTitle, "Examination and Diagnosis of the Psychiatric Patient");
   assert.notEqual(converted.bank.questions[0].subjectTitle, "Test 1");
   assert.equal(converted.bank.questions[0].chapterTitle, "Test 1");
+  assert.equal(converted.bank.questions[0].image, "/banks/generated/spiegel-images/test1-q1.png");
   assert.equal(converted.bank.questions[1].chapterTitle, "Vignette 1");
+});
+
+test("does not retain source image paths unless an approved resolver maps them", async () => {
+  const converted = await convertLegacySpiegelScript(legacyScript, "https://example.invalid/data.js");
+  assert.equal(converted.bank.questions[0].image, "");
 });
 
 test("places a Spiegel question without a source division in Test 1", async () => {

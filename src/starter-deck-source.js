@@ -1,7 +1,7 @@
 // Recovery reads the immutable original K&S revision; the bundled Deck Library
 // package remains the offline-first runtime copy.
-const KS_SOURCE_URL = "https://raw.githubusercontent.com/dancingremote/ks-study-guide/ddfcba21e97973f77c08311400d05310a4ea1ee3/data.js";
-const KS_SOURCE_GIT_BLOB_SHA = "f4180d69a4a6bbd8a7f764bb88e7f2f404f7431f";
+const KS_SOURCE_URL = "https://raw.githubusercontent.com/dancingremote/ks-study-guide/020aae0f5c55ad3bb0c122760c7b7d3fe26f1b46/data.js";
+const KS_SOURCE_GIT_BLOB_SHA = "da048a097ee9d2bca4142a0e2e7444fe21b5da2e";
 const MAX_STARTER_SOURCE_BYTES = 20 * 1024 * 1024;
 
 const hex = (bytes) => [...new Uint8Array(bytes)]

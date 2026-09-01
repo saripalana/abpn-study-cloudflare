@@ -51,6 +51,21 @@ test("prepares a normalized package with a deterministic checksum", async () => 
   assert.equal(Object.hasOwn(first.bank.questions[0], "linkedOrder"), false);
 });
 
+test("question images are restricted to verified application-owned Spiegel assets", async () => {
+  const approved = packageDefinition({ questions: [{
+    ...packageDefinition().bank.questions[0],
+    image: "/banks/generated/spiegel-images/test1-q1.png",
+  }] });
+  const prepared = await prepareQuestionBankPackage(approved);
+  assert.equal(prepared.bank.questions[0].image, "/banks/generated/spiegel-images/test1-q1.png");
+
+  const external = packageDefinition({ questions: [{
+    ...packageDefinition().bank.questions[0],
+    image: "https://example.invalid/question.png",
+  }] });
+  await assert.rejects(() => prepareQuestionBankPackage(external), /unsupported image path/i);
+});
+
 test("application seeds use the same normalized unprivileged package contract", async () => {
   const prepared = await prepareQuestionBankPackage(packageDefinition({
     id: "seed-bank",
@@ -145,6 +160,36 @@ test("changing an existing question is rejected after progress exists", async ()
     () => analyzeQuestionBankUpdate(existing, incoming, { hasStudyData: true }),
     /Import it under a new bank id/i
   );
+});
+
+test("verified application seeds can advance an immutable source revision without weakening user-import protections", async () => {
+  const existing = (await prepareQuestionBankPackage(packageDefinition({
+    id: "seed-bank",
+    sourceType: "application-seed",
+  }))).bank;
+  const incoming = (await prepareQuestionBankPackage(packageDefinition({
+    id: "seed-bank",
+    version: "2.0.0",
+    sourceType: "application-seed",
+    questions: [{
+      ...packageDefinition({ id: "seed-bank" }).bank.questions[0],
+      id: "seed-bank-1",
+      correctLetters: ["A", "B"],
+      isMultiSelect: true,
+    }],
+  }))).bank;
+
+  assert.throws(
+    () => analyzeQuestionBankUpdate(existing, incoming, { hasStudyData: true }),
+    /Import it under a new bank id/i,
+  );
+  const verified = analyzeQuestionBankUpdate(existing, incoming, {
+    hasStudyData: true,
+    allowVerifiedApplicationSeedUpdate: true,
+  });
+  assert.equal(verified.status, "update");
+  assert.equal(verified.verifiedApplicationSeedUpdate, true);
+  assert.equal(verified.additive, false);
 });
 
 test("changed content requires a new version even before progress exists", async () => {

@@ -157,7 +157,7 @@ export function inferClinicalSubject(question) {
   return best.title;
 }
 
-function convertQuestion(question, index) {
+function convertQuestion(question, index, resolveImagePath) {
   const choices = Array.isArray(question?.choices) ? question.choices.map(String) : [];
   const choiceLetters = Array.isArray(question?.choiceLetters) && question.choiceLetters.length === choices.length
     ? question.choiceLetters.map(String)
@@ -180,6 +180,7 @@ function convertQuestion(question, index) {
     subjectTitle: inferClinicalSubject(question),
     question: String(question?.question || ""),
     vignetteStem: String(question?.vignetteStem || ""),
+    image: resolveImagePath(String(question?.image || "")),
     choices,
     choiceLetters,
     correctLetter: correctLetters[0] || "",
@@ -190,8 +191,9 @@ function convertQuestion(question, index) {
   };
 }
 
-export async function convertLegacySpiegelScript(source, sourceUrl) {
-  const questions = parseLegacySpiegelQuestions(source).map(convertQuestion);
+export async function convertLegacySpiegelScript(source, sourceUrl, { resolveImagePath = () => "" } = {}) {
+  const questions = parseLegacySpiegelQuestions(source)
+    .map((question, index) => convertQuestion(question, index, resolveImagePath));
   const sourceChecksum = await sha256Hex(String(source || ""));
   const multiSelectCount = questions.filter((question) => question.isMultiSelect).length;
   return {

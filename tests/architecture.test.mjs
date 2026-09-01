@@ -119,7 +119,7 @@ test("Study Coach generated decks install through one atomic batch after full pr
   assert.doesNotMatch(controller, /for[\s\S]{0,300}installQuestionBankPackage\(/);
   assert.match(importer, /export async function installQuestionBankPackagesAtomically/);
   assert.match(importer, /Promise\.all\(preparedPackages\.map/);
-  assert.match(importer, /transaction\(\[STORES\.BANK_CONTENT, STORES\.BANK_REVISIONS, STORES\.BANKS\], "readwrite"\)/);
+  assert.match(importer, /STORES\.BANK_CONTENT,[\s\S]{0,200}STORES\.BANK_REVISIONS,[\s\S]{0,200}STORES\.BANKS,[\s\S]{0,200}STORES\.PROGRESS,[\s\S]{0,200}STORES\.OUTBOX/);
   assert.match(coachPackage, /crypto\.subtle\.digest\("SHA-256"/);
   assert.match(coachPackage, /Generated Study Coach decks cannot copy protected source question content/);
 });
@@ -153,12 +153,13 @@ test("worker exposes health and bidirectional sync endpoints behind release cont
 });
 
 test("all user-facing banks use one protected persistent Deck Library", async () => {
-  const [worker, api, sourceProxy, importer, generatedManifest, browserClient, bootstrap, migration, bootstrapMigration] = await Promise.all([
+  const [worker, api, sourceProxy, importer, generatedManifest, spiegelGeneratedManifest, browserClient, bootstrap, migration, bootstrapMigration] = await Promise.all([
     read("src/worker.js"),
     read("src/deck-library-api.js"),
     read("src/starter-deck-source.js"),
     read("scripts/import-approved-banks.mjs"),
     read("public/banks/generated/ks-psychiatry-core.manifest.json"),
+    read("public/banks/generated/spiegel-test-prep.manifest.json"),
     read("public/client/deck-library.js"),
     read("public/bootstrap.js"),
     read("migrations/0004_cloud_deck_library.sql"),
@@ -170,16 +171,24 @@ test("all user-facing banks use one protected persistent Deck Library", async ()
   assert.match(api, /deck_package_chunks/);
   assert.match(api, /deck_library_state/);
   assert.match(api, /shared immutable revision protection contract/);
-  assert.match(sourceProxy, /raw\.githubusercontent\.com\/dancingremote\/ks-study-guide\/ddfcba21/);
+  assert.match(sourceProxy, /raw\.githubusercontent\.com\/dancingremote\/ks-study-guide\/020aae0/);
   assert.match(sourceProxy, /redirect: "error"/);
   assert.match(importer, /repository: 'dancingremote\/ks-study-guide'/);
   const ksManifest = JSON.parse(generatedManifest);
   assert.equal(ksManifest.repository, "dancingremote/ks-study-guide");
-  assert.equal(ksManifest.commit, "ddfcba21e97973f77c08311400d05310a4ea1ee3");
-  assert.equal(ksManifest.expectedGitBlobSha, "f4180d69a4a6bbd8a7f764bb88e7f2f404f7431f");
+  assert.equal(ksManifest.commit, "020aae0f5c55ad3bb0c122760c7b7d3fe26f1b46");
+  assert.equal(ksManifest.expectedGitBlobSha, "da048a097ee9d2bca4142a0e2e7444fe21b5da2e");
   assert.equal(ksManifest.questionCount, 602);
+  assert.deepEqual(ksManifest.transformations, ["exact-duplicate-choice-dedup-v1"]);
   assert.match(importer, /repository: 'dancingremote\/spiegel-test-prep'/);
   assert.match(importer, /expectedQuestionCount: 1060/);
+  const spiegelManifest = JSON.parse(spiegelGeneratedManifest);
+  assert.equal(spiegelManifest.repository, "dancingremote/spiegel-test-prep");
+  assert.equal(spiegelManifest.commit, "67922b76a181f7aaa15e9b74e18850019add360b");
+  assert.equal(spiegelManifest.expectedGitBlobSha, "2a39e53c784d9067892197018186375500116abd");
+  assert.equal(spiegelManifest.version, "legacy-ks-subjects-v2-f5c34b4ef2ad");
+  assert.equal(spiegelManifest.questionCount, 1060);
+  assert.equal((importer.match(/'images\/test[1-5]-q\d+\.png'/g) || []).length, 10);
   assert.match(browserClient, /publishCloudDeckPackage/);
   assert.match(browserClient, /refreshCloudDeckLibrary/);
   assert.match(browserClient, /getCloudDeckBootstrapState/);
