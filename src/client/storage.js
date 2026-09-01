@@ -207,6 +207,94 @@ export async function updatePracticeSetAnswer({ record, deviceId }) {
   });
 }
 
+export async function completePracticeSetSubmission({ record, progressUpdates = [], deviceId }) {
+  if (!record?.id || !record?.bankId) throw new Error("practice set id and bankId are required");
+  if (!record.submitted || record.status !== "completed") throw new Error("completed practice set record is required");
+  if (!deviceId) throw new Error("deviceId is required");
+  if (!Array.isArray(progressUpdates)) throw new Error("progressUpdates must be an array");
+
+  const seenProgressKeys = new Set();
+  const normalizedUpdates = progressUpdates.map((update) => {
+    const bankId = String(update?.bankId || "");
+    const questionId = String(update?.questionId || "");
+    if (!bankId || !questionId) throw new Error("progress bankId and questionId are required");
+    const key = `${bankId}:${questionId}`;
+    if (seenProgressKeys.has(key)) throw new Error(`duplicate progress update for ${key}`);
+    seenProgressKeys.add(key);
+    return {
+      bankId,
+      questionId,
+      selectedAnswer: update.selectedAnswer,
+      isCorrect: Boolean(update.isCorrect),
+      timeMs: Math.max(0, Number(update.timeMs || 0)),
+    };
+  });
+
+  const db = await openStudyDatabase();
+  try {
+    const tx = db.transaction([STORES.PROGRESS, STORES.SETS, STORES.OUTBOX], "readwrite");
+    const progressStore = tx.objectStore(STORES.PROGRESS);
+    const setStore = tx.objectStore(STORES.SETS);
+    const outboxStore = tx.objectStore(STORES.OUTBOX);
+    const currentSetRequest = setStore.get(record.id);
+    const currentProgressRequests = normalizedUpdates.map(({ bankId, questionId }) => progressStore.get([bankId, questionId]));
+    const [currentSet, currentProgress] = await Promise.all([
+      requestResult(currentSetRequest),
+      Promise.all(currentProgressRequests.map(requestResult)),
+    ]);
+    const updatedAt = new Date().toISOString();
+    const nextSet = {
+      ...(currentSet || { revision: 0 }),
+      ...record,
+      deviceId,
+      revision: Number(currentSet?.revision || 0) + 1,
+      updatedAt,
+    };
+
+    setStore.put(nextSet);
+    outboxStore.put({
+      id: `practiceSet:${record.id}`,
+      entityType: "practiceSet",
+      entityKey: record.id,
+      operation: "upsert",
+      payload: nextSet,
+      createdAt: updatedAt,
+    });
+
+    const nextProgress = normalizedUpdates.map((update, index) => {
+      const current = currentProgress[index] || { revision: 0 };
+      const next = {
+        ...current,
+        bankId: update.bankId,
+        questionId: update.questionId,
+        selectedAnswer: update.selectedAnswer,
+        isCorrect: update.isCorrect,
+        timesUsed: Number(current.timesUsed || 0) + 1,
+        totalTimeMs: Number(current.totalTimeMs || 0) + update.timeMs,
+        lastUsedAt: updatedAt,
+        deviceId,
+        revision: Number(current.revision || 0) + 1,
+        updatedAt,
+      };
+      progressStore.put(next);
+      outboxStore.put({
+        id: `questionProgress:${update.bankId}:${update.questionId}`,
+        entityType: "questionProgress",
+        entityKey: `${update.bankId}:${update.questionId}`,
+        operation: "upsert",
+        payload: next,
+        createdAt: updatedAt,
+      });
+      return next;
+    });
+
+    await transactionDone(tx);
+    return { set: nextSet, progress: nextProgress };
+  } finally {
+    db.close();
+  }
+}
+
 export async function createRecoverySnapshot(reason = "automatic") {
   const [banks, progress, sets, answers] = await Promise.all([
     getAllRecords(STORES.BANKS),

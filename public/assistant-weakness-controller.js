@@ -19,6 +19,11 @@ import {
   STUDY_COACH_BANK_ID,
 } from "./client/study-coach-deck-library.js";
 import { QUESTION_BANKS } from "./banks/catalog.js";
+import {
+  banksForOverallMetrics,
+  includeStudyCoachInOverallMetrics,
+  studyRecordsForBanks,
+} from "./client/study-coach-metrics-scope.js";
 
 await ensureStagingSession();
 
@@ -59,7 +64,16 @@ async function buildCurrentDataset() {
     getAllRecords(STORES.SETS),
     getAllRecords(STORES.ANSWERS),
   ]);
-  return buildStudyCoachDataset(currentBanks, progress, {}, { sets, answers });
+  const metricBanks = banksForOverallMetrics(currentBanks, includeStudyCoachInOverallMetrics());
+  const metricState = studyRecordsForBanks({ banks: metricBanks, progress, sets, answers });
+  return buildStudyCoachDataset(metricBanks, metricState.progress, {}, {
+    sets: metricState.sets,
+    answers: metricState.answers,
+  });
+}
+
+function currentPackageBanks() {
+  return banksForOverallMetrics(currentBanks, includeStudyCoachInOverallMetrics());
 }
 
 async function publishCurrentDataset() {
@@ -283,7 +297,7 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
   exportPackage?.addEventListener("click", async () => {
     exportPackage.disabled = true;
     try {
-      const pkg = await createCurrentStudyCoachPackage({ banks: currentBanks, appVersion: "1.0.0" });
+      const pkg = await createCurrentStudyCoachPackage({ banks: currentPackageBanks(), appVersion: "1.0.0" });
       downloadStudyCoachPackage(pkg);
       packageStatusNode.textContent = `Full Study Coach package downloaded: ${formatTimestamp(pkg.exportedAt)} · includes full question references, progress, tests, and answers.`;
     } catch (error) {
@@ -296,7 +310,7 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
   publishPackage?.addEventListener("click", async () => {
     publishPackage.disabled = true;
     try {
-      const pkg = await createCurrentStudyCoachPackage({ banks: currentBanks, appVersion: "1.0.0" });
+      const pkg = await createCurrentStudyCoachPackage({ banks: currentPackageBanks(), appVersion: "1.0.0" });
       const result = await request("/api/assistant/study-coach/package", {
         method: "PUT",
         body: JSON.stringify(pkg),
@@ -315,7 +329,7 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
     if (!driveExchangeConfigured) return;
     archivePackage.disabled = true;
     try {
-      const pkg = await createCurrentStudyCoachPackage({ banks: currentBanks, appVersion: "1.0.0" });
+      const pkg = await createCurrentStudyCoachPackage({ banks: currentPackageBanks(), appVersion: "1.0.0" });
       const result = await request("/api/study-coach/google-drive/package", {
         method: "PUT",
         body: JSON.stringify(pkg),

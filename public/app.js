@@ -21,6 +21,10 @@ import { createPracticeSession, persistenceRecordForSession, sessionQuestionCont
 import { normalizeStoredSet } from './client/multi-deck-set.js';
 import { setQuestionItems } from './client/multi-deck-runtime.js';
 import { calculateSessionResult, calculateSessionSectionResults, progressEntriesForSession, totalAnswerTimeMs } from './client/multi-deck-results.js';
+import {
+  INCLUDE_STUDY_COACH_METRICS_KEY,
+  includeStudyCoachInOverallMetrics,
+} from './client/study-coach-metrics-scope.js';
 
 // ABPN_MULTI_DECK_RUNTIME_APP_PATCH_V1
 // ABPN_MULTI_DECK_RESULTS_CORRECTNESS_PATCH_V1
@@ -38,6 +42,7 @@ import {
   getRecord,
   putRecord,
   recordsByIndex,
+  completePracticeSetSubmission,
   updateQuestionProgress,
   updatePracticeSet,
   updatePracticeSetAnswer,
@@ -480,6 +485,8 @@ async function renderDashboard() {
   const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title), sourceSectionTitles);
   const multiDeckBuilder = loadMultiDeckBuilderSettings(activeBank.id);
   const installedDeckCount = banks.filter(isUserSelectableDeck).length;
+  const studyCoachInstalled = banks.some((bank) => bank.contentClass === 'assistant-supplemental');
+  const includeStudyCoachMetrics = includeStudyCoachInOverallMetrics();
   const questionBrowserRows = activeBank.questions.map((question, index) => {
     const record = progress.get(question.id);
     const status = questionStatus(record);
@@ -507,6 +514,10 @@ async function renderDashboard() {
             ${banks.filter(isUserSelectableDeck).map((bank) => `<option value="${esc(bank.id)}" ${bank.id === activeBank.id ? 'selected' : ''}>${esc(bank.title)}</option>`).join('')}
           </select>
         </div>
+        ${studyCoachInstalled ? `<label class="subject-option overall-metrics-toggle" for="excludeStudyCoachMetrics">
+          <input id="excludeStudyCoachMetrics" type="checkbox" ${includeStudyCoachMetrics ? '' : 'checked'}>
+          <span><strong>Exclude Study Coach from overall metrics</strong><small id="studyCoachMetricsScope">${includeStudyCoachMetrics ? 'Overall coaching analytics and packages include every study deck.' : 'Overall coaching analytics and packages use source decks only.'} Selecting Study Coach above always shows its own metrics.</small></span>
+        </label>` : ''}
       </div>
     </section>
 
@@ -861,6 +872,15 @@ async function renderDashboard() {
     if (!selectedBank || selectedBank.id === activeBank.id) return;
     localStorage.setItem(SELECTED_BANK_KEY, selectedBank.id);
     location.reload();
+  });
+  document.getElementById('excludeStudyCoachMetrics')?.addEventListener('change', (event) => {
+    const included = !event.target.checked;
+    localStorage.setItem(INCLUDE_STUDY_COACH_METRICS_KEY, String(included));
+    const scope = document.getElementById('studyCoachMetricsScope');
+    if (scope) {
+      scope.textContent = `${included ? 'Overall coaching analytics and packages include every study deck.' : 'Overall coaching analytics and packages use source decks only.'} Selecting Study Coach above always shows its own metrics.`;
+    }
+    scheduleStudyCoachRefresh({ banks });
   });
   document.getElementById('importBankBtn').onclick = () => {
     alert('Additional bank import validation will be added before external banks are accepted.');
@@ -1369,15 +1389,34 @@ async function saveProgress(context, entry) {
 
 async function submitSet({ auto = false, showResults = true } = {}) {
   if (!activeSet || activeSet.submitted) return;
-  activeSet.submitted = true; activeSet.completedAt = new Date().toISOString();
-  if (activeSet.mode === 'test') {
-    for (const item of progressEntriesForSession(banks, activeSet, activeSet.answers, { hasAnswer: hasQuestionAnswer })) {
-      await saveProgress({ bankId: item.bankId, questionId: item.questionId, question: item.question }, item.entry);
-    }
+  const completedAt = new Date().toISOString();
+  activeSet.submitted = true;
+  activeSet.completedAt = completedAt;
+  try {
+    const progressUpdates = activeSet.mode === 'test'
+      ? progressEntriesForSession(banks, activeSet, activeSet.answers, { hasAnswer: hasQuestionAnswer })
+        .map((item) => ({
+          bankId: item.bankId,
+          questionId: item.questionId,
+          selectedAnswer: item.entry.selectedAnswer,
+          isCorrect: item.entry.isCorrect,
+          timeMs: item.entry.timeMs,
+        }))
+      : [];
+    const record = persistenceRecordForSession(activeSet);
+    record.status = 'completed';
+    await completePracticeSetSubmission({ record, progressUpdates, deviceId });
+    scheduleStudyCoachRefresh({ banks });
+  } catch (error) {
+    activeSet.submitted = false;
+    activeSet.completedAt = null;
+    console.error('Practice set submission failed', error);
+    alert('This test could not be submitted. Your selected answers are still saved locally, and the test remains resumable. Please try again.');
+    return false;
   }
-  await saveActiveSet('completed');
   if (auto) alert('Time expired. The set was submitted.');
   if (showResults) renderResults(); else await renderQuestion();
+  return true;
 }
 
 function renderResults() {

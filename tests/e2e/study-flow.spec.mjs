@@ -4,7 +4,11 @@ import { expectActiveBank, selectActiveBank } from './helpers/active-bank.mjs';
 async function useValidationBank(page) {
   await page.goto('/');
   await expect(page.getByText('ABPN PSYCHIATRY STUDY')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
+  // The validation helper needs the study dashboard, not the unrelated file
+  // import controller. Under full parallel load the static startup button can
+  // exist before the application has finished rendering, so wait on the
+  // boundary this helper actually consumes.
+  await expect(page.getByRole('heading', { name: 'Create practice set' })).toBeVisible({ timeout: 20_000 });
   await selectActiveBank(page, 'validation-bank');
   await expect(page.getByRole('heading', { name: 'System Validation Question Bank' })).toBeVisible();
 }
@@ -142,6 +146,70 @@ test('offers a Used pool after a question has been completed', async ({ page }) 
   await page.getByRole('button', { name: 'Back to dashboard' }).click();
   await setQuestionStatuses(page, ['used']);
   await expect(page.locator('#eligibleCount')).toContainText('1 question available');
+});
+
+test('submits a new test of previously answered questions, preserves both tests, and updates current answers', async ({ page }) => {
+  await useValidationBank(page);
+  await page.locator('#countInput').fill('2');
+  await page.locator('#modeSelect').selectOption('test');
+  await page.locator('#timingSelect').selectOption('untimed');
+  await page.getByLabel('Randomize question order').uncheck();
+  await page.getByRole('button', { name: 'Start set' }).click();
+
+  await page.locator('.choice').first().click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.locator('.choice').first().click();
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Submit set' }).click();
+  await expect(page.getByText('SET RESULTS')).toBeVisible();
+  await page.getByRole('button', { name: 'Back to dashboard' }).click();
+
+  await setQuestionStatuses(page, ['used']);
+  await page.locator('#countInput').fill('2');
+  await page.locator('#modeSelect').selectOption('test');
+  await page.locator('#timingSelect').selectOption('untimed');
+  await page.getByLabel('Randomize question order').uncheck();
+  await page.getByRole('button', { name: 'Start set' }).click();
+  await expect(page.locator('.question-map button.previously-attempted')).toHaveCount(2);
+
+  await page.locator('.choice').nth(1).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.locator('.choice').nth(1).click();
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Submit set' }).click();
+  await expect(page.getByText('SET RESULTS')).toBeVisible();
+  await page.getByRole('button', { name: 'Back to dashboard' }).click();
+  await expect(page.locator('.history-item')).toHaveCount(2);
+
+  const stored = await page.evaluate(async () => {
+    const { STORES, getAllRecords, recordsByIndex } = await import('/client/storage.js');
+    const progress = (await recordsByIndex(STORES.PROGRESS, 'byBank', 'validation-bank'))
+      .sort((a, b) => String(a.questionId).localeCompare(String(b.questionId)));
+    const sets = (await getAllRecords(STORES.SETS))
+      .filter((set) => set.bankId === 'validation-bank' && set.status === 'completed')
+      .sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)));
+    const answersBySet = [];
+    for (const set of sets) {
+      answersBySet.push((await recordsByIndex(STORES.ANSWERS, 'bySet', set.id))
+        .sort((a, b) => String(a.questionId).localeCompare(String(b.questionId)))
+        .map((answer) => answer.selectedAnswer));
+    }
+    return {
+      progress: progress.map((record) => ({
+        selectedAnswer: record.selectedAnswer,
+        timesUsed: record.timesUsed,
+      })),
+      completedSetCount: sets.length,
+      answersBySet,
+    };
+  });
+
+  expect(stored.completedSetCount).toBe(2);
+  expect(stored.answersBySet).toEqual([['A', 'A'], ['B', 'B']]);
+  expect(stored.progress).toEqual([
+    { selectedAnswer: 'B', timesUsed: 2 },
+    { selectedAnswer: 'B', timesUsed: 2 },
+  ]);
 });
 
 test('test-mode set restores question, answers, and results after reload', async ({ page }) => {
