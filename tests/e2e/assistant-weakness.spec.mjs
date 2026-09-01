@@ -77,7 +77,7 @@ test("Study Coach permission, automatic refresh, revocation, and deletion remain
   await expect(section).toContainText("Credentials and unrelated browser or device data are never included");
   await expect(section).toContainText("until I revoke it");
   await expect(section).toContainText("Send your current study package");
-  await expect(section).toContainText("Bring the latest plan into this app");
+  await expect(section).toContainText("Update your Study Coach");
   await expect(page.locator(".study-coach-advanced")).not.toHaveAttribute("open", "");
 
   const dataProtectionHeading = page.getByRole("heading", { name: "Data protection" });
@@ -206,7 +206,7 @@ test("Study Coach package export and local coach-output import remain usable", a
   await expect(page.locator("#studyCoachOutput")).toContainText("Psychopharmacology");
 });
 
-test("Study Coach output can install a coach-authored deck and expose it under Coach decks", async ({ page }) => {
+test("Study Coach output appends a numbered test to the normal Deck Library", async ({ page }) => {
   await page.route("**/api/assistant/study-coach/permission", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
@@ -299,11 +299,13 @@ test("Study Coach output can install a coach-authored deck and expose it under C
     }), "utf8"),
   });
 
-  await expect(page.locator("#studyCoachOutput")).toContainText("Recommended coach decks");
+  await expect(page.locator("#studyCoachOutput")).toContainText("Generated question sets");
   await expect(page.locator("#app")).toContainText("DECK LIBRARY · 3 INSTALLED");
-
-  await page.getByLabel("Practice from").selectOption("coach");
-  await expect(page.locator("#app")).toContainText("Coach decks · 1 deck · 2 questions");
+  await expect(page.getByLabel("View study deck").locator("option")).toContainText(["K&S Psychiatry Question Bank", "Spiegel Test Prep Question Bank", "Study Coach Question Bank"]);
+  await page.getByLabel("View study deck").selectOption("study-coach-question-bank");
+  await expect(page.locator("#app")).toContainText("Study Coach Question Bank");
+  await expect(page.locator("#app")).toContainText("1 source test");
+  await expect(page.getByLabel("Practice from")).not.toContainText("Coach decks");
 });
 
 test("Study Coach package can share through Cloudflare, archive to Google Drive, and pull latest coach output", async ({ page }) => {
@@ -483,7 +485,7 @@ test("Study Coach package can share through Cloudflare, archive to Google Drive,
   const publishOutputResponse = page.waitForResponse((response) =>
     response.url().includes("/api/assistant/study-coach/output") && response.request().method() === "PUT"
   );
-  await page.getByRole("button", { name: "Publish coach output to Study Coach" }).click();
+  await page.getByRole("button", { name: "Publish coach output file" }).click();
   await page.locator("#studyCoachOutputImportInput").setInputFiles({
     name: "study-coach-output.json",
     mimeType: "application/json",
@@ -493,7 +495,7 @@ test("Study Coach package can share through Cloudflare, archive to Google Drive,
   await expect(page.locator("#studyCoachPackageStatus")).toContainText("Study Coach output published to Cloudflare");
 
   const pullResponse = page.waitForResponse("**/api/assistant/study-coach/output");
-  await page.getByRole("button", { name: "Pull latest coach output" }).click();
+  await page.getByRole("button", { name: "Update Study Coach" }).click();
   await pullResponse;
   await expect(page.locator("#studyCoachPackageStatus")).toContainText("Latest Study Coach output pulled from Cloudflare");
   await expect(page.locator("#studyCoachOutput")).toContainText("Imported coaching plan");

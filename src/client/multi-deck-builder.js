@@ -37,16 +37,18 @@ export function normalizeDeckScopeSettings({
   const availableIds = new Set(available.map((deck) => deck.id));
   const coachAvailable = coachStudyDecks(decks);
   const activeId = currentDeckForScope({ decks, activeBankId })?.id || "";
-  const requestedScope = VALID_SCOPES.has(saved?.scope) ? saved.scope : DECK_SCOPE_CURRENT;
-  const requestedIds = Array.isArray(saved?.selectedBankIds)
+  const savedScope = VALID_SCOPES.has(saved?.scope) ? saved.scope : DECK_SCOPE_CURRENT;
+  const legacyCoachScope = savedScope === DECK_SCOPE_COACH;
+  const requestedScope = legacyCoachScope ? DECK_SCOPE_CUSTOM : savedScope;
+  const requestedIds = legacyCoachScope
+    ? coachAvailable.map((deck) => deck.id)
+    : Array.isArray(saved?.selectedBankIds)
     ? saved.selectedBankIds.map(String).filter((id) => availableIds.has(id))
     : [];
   const selectedBankIds = requestedScope === DECK_SCOPE_CURRENT
     ? (activeId ? [activeId] : [])
     : requestedScope === DECK_SCOPE_ALL
       ? available.map((deck) => deck.id)
-      : requestedScope === DECK_SCOPE_COACH
-        ? coachAvailable.map((deck) => deck.id)
       : requestedIds.length
         ? [...new Set(requestedIds)]
         : (activeId ? [activeId] : []);
@@ -81,9 +83,6 @@ export function deckScopeSummary({ decks, activeBankId, settings } = {}) {
   }
   if (normalized.scope === DECK_SCOPE_ALL) {
     return `All ${selected.length} study decks · ${count} questions`;
-  }
-  if (normalized.scope === DECK_SCOPE_COACH) {
-    return `Coach decks · ${selected.length} deck${selected.length === 1 ? "" : "s"} · ${count} questions`;
   }
   return `${selected.length} selected deck${selected.length === 1 ? "" : "s"} · ${count} questions`;
 }

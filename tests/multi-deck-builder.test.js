@@ -42,15 +42,16 @@ test("all scope includes every normal study deck and excludes validation", () =>
   assert.equal(selectedDeckQuestionCount({ decks, activeBankId: "ks", settings }), 9);
 });
 
-test("coach scope includes only assistant supplemental decks", () => {
+test("legacy coach scope migrates to a specific-deck selection", () => {
   const settings = normalizeDeckScopeSettings({ decks, activeBankId: "ks", saved: { scope: DECK_SCOPE_COACH } });
   assert.deepEqual(coachStudyDecks(decks).map((deck) => deck.id), ["coach-psych"]);
+  assert.equal(settings.scope, DECK_SCOPE_CUSTOM);
   assert.deepEqual(settings.selectedBankIds, ["coach-psych"]);
   assert.deepEqual(selectedDecksForScope({ decks, activeBankId: "ks", settings }).map((deck) => deck.id), ["coach-psych"]);
   assert.equal(selectedDeckQuestionCount({ decks, activeBankId: "ks", settings }), 4);
   assert.equal(
     deckScopeSummary({ decks, activeBankId: "ks", settings }),
-    "Coach decks · 1 deck · 4 questions",
+    "1 selected deck · 4 questions",
   );
 });
 

@@ -16,7 +16,7 @@ import {
   selectedAnswerLetters
 } from './client/study-engine.js';
 import { bindMultiDeckSelector, multiDeckSelectorMarkup, readMultiDeckSelector } from './client/multi-deck-builder-ui.js';
-import { DECK_SCOPE_COACH, DECK_SCOPE_CURRENT, normalizeDeckScopeSettings, selectedDeckQuestionCount } from './client/multi-deck-builder.js';
+import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings, selectedDeckQuestionCount } from './client/multi-deck-builder.js';
 import { createPracticeSession, persistenceRecordForSession, sessionQuestionContext } from './client/multi-deck-app-session.js';
 import { normalizeStoredSet } from './client/multi-deck-set.js';
 import { setQuestionItems } from './client/multi-deck-runtime.js';
@@ -159,8 +159,11 @@ function sourceSectionEntries(bank) {
 function sourceOrganizationSummary(entries) {
   const tests = entries.filter((entry) => entry.group === 'Tests').length;
   const vignettes = entries.filter((entry) => entry.group === 'Vignettes').length;
-  if (!vignettes) return '';
-  return `${tests} source test${tests === 1 ? '' : 's'} · ${vignettes} vignette${vignettes === 1 ? '' : 's'}`;
+  if (!tests && !vignettes) return '';
+  return [
+    tests ? `${tests} source test${tests === 1 ? '' : 's'}` : '',
+    vignettes ? `${vignettes} vignette${vignettes === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join(' · ');
 }
 
 function loadBuilderSettings(bank, categories, sourceSections = []) {
@@ -470,7 +473,9 @@ async function renderDashboard() {
       || naturalTitleCollator.compare(a.title, b.title));
   const resumable = activeSet && !activeSet.submitted && (activeSet.bankId === activeBank.id || activeSet.selectedBankIds?.includes?.(activeBank.id));
   const categories = categoryEntries(activeBank);
-  const sourceSections = activeBank.id === 'spiegel-test-prep' ? sourceSectionEntries(activeBank) : [];
+  const sourceSections = activeBank.id === 'spiegel-test-prep' || activeBank.contentClass === 'assistant-supplemental'
+    ? sourceSectionEntries(activeBank)
+    : [];
   const sourceSectionTitles = sourceSections.map((section) => section.title);
   const builder = loadBuilderSettings(activeBank, categories.map((category) => category.title), sourceSectionTitles);
   const multiDeckBuilder = loadMultiDeckBuilderSettings(activeBank.id);
@@ -591,7 +596,7 @@ async function renderDashboard() {
               <span id="sourceSectionSummary" class="subject-summary"></span>
             </summary>
             <div class="subject-picker-body">
-              <p class="muted">Choose original Spiegel tests or complete vignette groups. Clinical Subjects remain a separate filter.</p>
+              <p class="muted">Choose source tests or complete vignette groups. Clinical Subjects remain a separate filter.</p>
               <div class="subject-toolbar">
                 <button id="selectAllSourceSectionsBtn" class="secondary" type="button">Select all</button>
                 <button id="clearSourceSectionsBtn" class="secondary" type="button">Clear</button>
@@ -761,7 +766,7 @@ async function renderDashboard() {
         </div>
         <div class="study-coach-step">
           <span class="study-coach-step-number">3</span>
-          <div><strong>Bring the latest plan into this app</strong><p class="muted">Pull after a new coaching plan has been prepared.</p><button id="pullStudyCoachOutputBtn" class="secondary" type="button">Pull latest coach output</button></div>
+          <div><strong>Update your Study Coach</strong><p class="muted">Pull the latest coaching plan and automatically add its new questions as the next test in the Study Coach Question Bank.</p><button id="pullStudyCoachOutputBtn" class="primary" type="button">Update Study Coach</button></div>
         </div>
       </div>
       <p id="studyCoachPackageStatus" class="muted" aria-live="polite"></p>
@@ -771,19 +776,19 @@ async function renderDashboard() {
         <div class="study-coach-advanced-body">
           <section class="study-coach-advanced-group">
             <h4>Local files</h4>
-            <p class="muted">Download a portable package, import a coach-output file, or clear only the locally imported output.</p>
+            <p class="muted">These recovery controls are not needed for the normal cloud update path.</p>
             <div class="actions">
               <button id="exportStudyCoachPackageBtn" class="secondary" type="button">Download full coach package</button>
-              <button id="importStudyCoachOutputBtn" class="secondary" type="button">Import coach output</button>
+              <button id="importStudyCoachOutputBtn" class="secondary" type="button">Import coach output file</button>
               <button id="clearStudyCoachOutputBtn" class="secondary" type="button">Clear coach output</button>
             </div>
           </section>
           <section class="study-coach-advanced-group">
             <h4>Archive and coach publishing</h4>
-            <p class="muted">Google Drive is a secondary archive. Publishing coach output is for sending a prepared output back through the protected exchange.</p>
+            <p class="muted">Google Drive is a secondary archive. Publishing a coach-output file is an operator fallback; routine study updates use the button above.</p>
             <div class="actions">
               <button id="archiveStudyCoachPackageBtn" class="secondary" type="button">Archive package to Google Drive</button>
-              <button id="publishStudyCoachOutputBtn" class="secondary" type="button">Publish coach output to Study Coach</button>
+              <button id="publishStudyCoachOutputBtn" class="secondary" type="button">Publish coach output file</button>
             </div>
           </section>
           <section class="study-coach-advanced-group">
@@ -800,7 +805,7 @@ async function renderDashboard() {
       </details>
       <div class="study-coach-output-block">
         <h4>Coach outputs</h4>
-        <p class="muted">Imported coaching plans stay local to this study workspace and can be reloaded after backup and restore with the rest of app metadata.</p>
+        <p class="muted">Coaching plans stay with this study workspace. Generated questions are added to the Study Coach Question Bank in the Deck Library as numbered tests and linked vignettes.</p>
         <div id="studyCoachOutput" class="study-coach-output" aria-live="polite"></div>
       </div>
     </section>
@@ -976,11 +981,7 @@ async function renderDashboard() {
     onChange: (settings) => {
       localStorage.setItem(MULTI_DECK_BUILDER_KEY, JSON.stringify({ schemaVersion: 1, ...settings }));
       const combined = settings.scope !== DECK_SCOPE_CURRENT;
-      startButton.textContent = settings.scope === DECK_SCOPE_COACH
-        ? 'Start coach set'
-        : combined
-          ? 'Start combined set'
-          : 'Start set';
+      startButton.textContent = combined ? 'Start combined set' : 'Start set';
       updateBuilderAvailability();
     },
   });
