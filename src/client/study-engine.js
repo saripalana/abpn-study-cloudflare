@@ -145,6 +145,14 @@ export function normalizeSpecialTestCriteria(criteria = null, questionCount = In
   };
 }
 
+const QUESTION_POOLS = new Set(["all", "new", "used", "incorrect", "flagged"]);
+
+export function normalizeQuestionPools(value = null) {
+  if (value == null) return ["all"];
+  const values = Array.isArray(value) ? value : [value];
+  return [...new Set(values.map(String).filter((pool) => QUESTION_POOLS.has(pool)))];
+}
+
 function questionMatchesSpecialCriteria(bank, question, criteria) {
   const normalized = normalizeSpecialTestCriteria(criteria, bank.questions.length);
   if (normalized.rangeStart == null && normalized.rangeEnd == null) return true;
@@ -166,6 +174,7 @@ export function eligibleQuestionIds(bank, progress, pool = "all", categories = n
     ? null
     : new Set(Array.from(sectionFilters, (section) => String(section)));
   const criteria = normalizeSpecialTestCriteria(specialCriteria, bank.questions.length);
+  const selectedPools = normalizeQuestionPools(pool);
 
   return bank.questions.filter((question) => {
     if (selectedCategories && !selectedCategories.has(question.subjectTitle || question.chapterTitle)) return false;
@@ -173,11 +182,14 @@ export function eligibleQuestionIds(bank, progress, pool = "all", categories = n
     if (!questionMatchesSpecialCriteria(bank, question, criteria)) return false;
     const record = progress.get(question.id);
     if (criteria.includeFlagged && record?.isFlagged === true) return true;
-    if (pool === "new") return !record || !record.timesUsed;
-    if (pool === "used") return Number(record?.timesUsed || 0) > 0;
-    if (pool === "incorrect") return record?.isCorrect === false;
-    if (pool === "flagged") return record?.isFlagged === true;
-    return true;
+    if (selectedPools.includes("all")) return true;
+    return selectedPools.some((selectedPool) => {
+      if (selectedPool === "new") return !record || !record.timesUsed;
+      if (selectedPool === "used") return Number(record?.timesUsed || 0) > 0;
+      if (selectedPool === "incorrect") return record?.isCorrect === false;
+      if (selectedPool === "flagged") return record?.isFlagged === true;
+      return false;
+    });
   }).map((question) => question.id);
 }
 

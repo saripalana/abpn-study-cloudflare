@@ -11,6 +11,7 @@ import {
   subjectStatistics,
   hasQuestionAnswer,
   isQuestionAnswerCorrect,
+  normalizeQuestionPools,
   normalizeSpecialTestCriteria,
   selectedAnswerLetters
 } from './client/study-engine.js';
@@ -184,13 +185,15 @@ function loadBuilderSettings(bank, categories, sourceSections = []) {
     : Array.isArray(saved.sourceSections)
       ? saved.sourceSections.map(String).filter((section) => validSections.has(section))
       : sourceSections;
+  const normalizedPools = normalizeQuestionPools(saved.pools ?? saved.pool);
+  const pools = normalizedPools.includes('all') ? ['all'] : normalizedPools;
 
   return {
     count: Math.min(requestedCount, bank.questions.length),
     mode: ['test', 'tutor'].includes(saved.mode) ? saved.mode : 'test',
     timing: ['timed', 'untimed'].includes(saved.timing) ? saved.timing : 'timed',
-    pool: ['all', 'new', 'used', 'incorrect', 'flagged'].includes(saved.pool) ? saved.pool : 'all',
-    randomized: typeof saved.randomized === 'boolean' ? saved.randomized : saved.pool == null || saved.pool === 'all',
+    pools: pools.length ? pools : ['all'],
+    randomized: typeof saved.randomized === 'boolean' ? saved.randomized : pools.includes('all'),
     categories: selectedCategories,
     sourceSections: selectedSections,
     specialCriteria: normalizeSpecialTestCriteria(saved.specialCriteria, bank.questions.length)
@@ -215,6 +218,11 @@ function selectedSubjectCategories() {
 
 function selectedSourceSections() {
   return [...document.querySelectorAll('input[name="sourceSectionFilter"]:checked')]
+    .map((input) => input.value);
+}
+
+function selectedQuestionStatuses() {
+  return [...document.querySelectorAll('input[name="questionStatusFilter"]:checked')]
     .map((input) => input.value);
 }
 
@@ -532,19 +540,28 @@ async function renderDashboard() {
               <label for="timingSelect">Timing</label>
               <select id="timingSelect"><option value="timed" ${builder.timing === 'timed' ? 'selected' : ''}>Timed at 70.6 sec/question</option><option value="untimed" ${builder.timing === 'untimed' ? 'selected' : ''}>Untimed</option></select>
             </div>
-            <div class="field">
-              <label for="poolSelect">Question status</label>
-              <select id="poolSelect">
-                <option value="all" ${builder.pool === 'all' ? 'selected' : ''}>All / Random</option>
-                <option value="new" ${builder.pool === 'new' ? 'selected' : ''}>New</option>
-                <option value="used" ${builder.pool === 'used' ? 'selected' : ''}>Used</option>
-                <option value="incorrect" ${builder.pool === 'incorrect' ? 'selected' : ''}>Wrong</option>
-                <option value="flagged" ${builder.pool === 'flagged' ? 'selected' : ''}>Flagged</option>
-              </select>
+            <div class="field question-status-field">
+              <span class="field-label">Question status</span>
+              <details id="questionStatusPicker" class="subject-picker question-status-picker" open>
+                <summary>
+                  <span>Choose one or more</span>
+                  <span id="questionStatusSummary" class="subject-summary"></span>
+                </summary>
+                <div class="subject-picker-body">
+                  <p class="muted status-picker-help">Specific statuses are combined. For example, New + Wrong includes questions in either group.</p>
+                  <div class="question-status-options">
+                    <label class="subject-option" for="question-status-all"><input id="question-status-all" name="questionStatusFilter" type="checkbox" value="all" ${builder.pools.includes('all') ? 'checked' : ''}><span>All questions</span></label>
+                    <label class="subject-option" for="question-status-new"><input id="question-status-new" name="questionStatusFilter" type="checkbox" value="new" ${builder.pools.includes('new') ? 'checked' : ''}><span>New</span></label>
+                    <label class="subject-option" for="question-status-used"><input id="question-status-used" name="questionStatusFilter" type="checkbox" value="used" ${builder.pools.includes('used') ? 'checked' : ''}><span>Used</span></label>
+                    <label class="subject-option" for="question-status-incorrect"><input id="question-status-incorrect" name="questionStatusFilter" type="checkbox" value="incorrect" ${builder.pools.includes('incorrect') ? 'checked' : ''}><span>Wrong</span></label>
+                    <label class="subject-option" for="question-status-flagged"><input id="question-status-flagged" name="questionStatusFilter" type="checkbox" value="flagged" ${builder.pools.includes('flagged') ? 'checked' : ''}><span>Flagged</span></label>
+                  </div>
+                </div>
+              </details>
             </div>
             <label class="subject-option" for="randomizeOrder">
               <input id="randomizeOrder" type="checkbox" ${builder.randomized ? 'checked' : ''}>
-              <span><strong>Randomize question order</strong><small>Turn off to follow the source order. The All pool defaults to randomized.</small></span>
+              <span><strong>Randomize question order</strong><small>Turn off to follow the source order. All questions defaults to randomized.</small></span>
             </label>
           </div>
           <details id="subjectPicker" class="subject-picker">
@@ -724,36 +741,63 @@ async function renderDashboard() {
     <section id="studyCoachSection" class="card dashboard-section">
       <div class="section-heading">
         <div>
-          <div class="eyebrow" style="color:var(--blue)">PRIVATE STAGING · OPTIONAL</div>
+          <div class="eyebrow" style="color:var(--blue)">PRIVATE · OPTIONAL</div>
           <h3>Study Coach access</h3>
-          <p class="muted">While enabled, coaching data refreshes automatically after study changes. It includes performance, timing, flags, subjects, test sections, and attempted, flagged, or annotated question details with choices, answers, explanations, and notes. Credentials and unrelated browser or device data are never included.</p>
+          <p class="muted">Study Coach can use your bounded study package to return a focused plan. Credentials and unrelated browser or device data are never included.</p>
+          <p class="muted">The package is limited to performance, timing, flags, subjects, test sections, and attempted, flagged, or annotated question details with choices, answers, explanations, and notes.</p>
         </div>
       </div>
-      <div class="study-coach-package-block">
-        <h4>Study Coach package</h4>
-        <p class="muted">Download a full coach package locally at any time. The primary live lane shares that package to the protected Cloudflare Study Coach exchange and pulls the latest bounded coach output back into this app. Google Drive remains a secondary archive lane.</p>
-        <div class="actions">
-          <button id="exportStudyCoachPackageBtn" class="secondary" type="button">Download full coach package</button>
-          <button id="publishStudyCoachPackageBtn" class="secondary" type="button">Share package to Study Coach</button>
-          <button id="archiveStudyCoachPackageBtn" class="secondary" type="button">Archive package to Google Drive</button>
-          <button id="publishStudyCoachOutputBtn" class="secondary" type="button">Publish coach output to Study Coach</button>
-          <button id="pullStudyCoachOutputBtn" class="secondary" type="button">Pull latest coach output</button>
-          <button id="importStudyCoachOutputBtn" class="secondary" type="button">Import coach output</button>
-          <button id="clearStudyCoachOutputBtn" class="secondary" type="button">Clear coach output</button>
+      <div class="study-coach-guide" aria-label="How to use Study Coach">
+        <div class="study-coach-step">
+          <span class="study-coach-step-number">1</span>
+          <label class="assistant-permission" for="studyCoachPermission">
+            <input id="studyCoachPermission" type="checkbox">
+            <span><strong>Turn on Study Coach access</strong><small>Allow access until I revoke it. Study changes refresh the coaching data automatically.</small></span>
+          </label>
         </div>
-        <p id="studyCoachPackageStatus" class="muted" aria-live="polite"></p>
+        <div class="study-coach-step">
+          <span class="study-coach-step-number">2</span>
+          <div><strong>Send your current study package</strong><p class="muted">Use this when you want the coach to work from your latest progress and question details.</p><button id="publishStudyCoachPackageBtn" class="primary" type="button">Share package to Study Coach</button></div>
+        </div>
+        <div class="study-coach-step">
+          <span class="study-coach-step-number">3</span>
+          <div><strong>Bring the latest plan into this app</strong><p class="muted">Pull after a new coaching plan has been prepared.</p><button id="pullStudyCoachOutputBtn" class="secondary" type="button">Pull latest coach output</button></div>
+        </div>
       </div>
-      <label class="assistant-permission" for="studyCoachPermission">
-        <input id="studyCoachPermission" type="checkbox">
-        <span><strong>Allow Study Coach access and exchange until I revoke it</strong><small>This fresh approval includes the bounded full-package and coach-output exchange. Revoking stops access without deleting stored data; deletion remains a separate action.</small></span>
-      </label>
-      <div class="actions">
-        <button id="refreshStudyCoachBtn" class="primary" type="button" disabled>Refresh now</button>
-        <button id="verifyStudyCoachAccessBtn" class="secondary" type="button" disabled>Verify access</button>
-        <button id="revokeStudyCoachBtn" class="secondary" type="button" disabled>Revoke access</button>
-        <button id="deleteStudyCoachDataBtn" class="secondary danger" type="button" disabled>Delete shared study data</button>
-      </div>
+      <p id="studyCoachPackageStatus" class="muted" aria-live="polite"></p>
       <p id="studyCoachStatus" class="muted" aria-live="polite"></p>
+      <details class="study-coach-advanced">
+        <summary>Advanced tools and data controls</summary>
+        <div class="study-coach-advanced-body">
+          <section class="study-coach-advanced-group">
+            <h4>Local files</h4>
+            <p class="muted">Download a portable package, import a coach-output file, or clear only the locally imported output.</p>
+            <div class="actions">
+              <button id="exportStudyCoachPackageBtn" class="secondary" type="button">Download full coach package</button>
+              <button id="importStudyCoachOutputBtn" class="secondary" type="button">Import coach output</button>
+              <button id="clearStudyCoachOutputBtn" class="secondary" type="button">Clear coach output</button>
+            </div>
+          </section>
+          <section class="study-coach-advanced-group">
+            <h4>Archive and coach publishing</h4>
+            <p class="muted">Google Drive is a secondary archive. Publishing coach output is for sending a prepared output back through the protected exchange.</p>
+            <div class="actions">
+              <button id="archiveStudyCoachPackageBtn" class="secondary" type="button">Archive package to Google Drive</button>
+              <button id="publishStudyCoachOutputBtn" class="secondary" type="button">Publish coach output to Study Coach</button>
+            </div>
+          </section>
+          <section class="study-coach-advanced-group">
+            <h4>Access and shared data</h4>
+            <p class="muted">Refresh or verify the connection, revoke future access, or separately delete data already shared.</p>
+            <div class="actions">
+              <button id="refreshStudyCoachBtn" class="secondary" type="button" disabled>Refresh now</button>
+              <button id="verifyStudyCoachAccessBtn" class="secondary" type="button" disabled>Verify access</button>
+              <button id="revokeStudyCoachBtn" class="secondary" type="button" disabled>Revoke access</button>
+              <button id="deleteStudyCoachDataBtn" class="secondary danger" type="button" disabled>Delete shared study data</button>
+            </div>
+          </section>
+        </div>
+      </details>
       <div class="study-coach-output-block">
         <h4>Coach outputs</h4>
         <p class="muted">Imported coaching plans stay local to this study workspace and can be reloaded after backup and restore with the rest of app metadata.</p>
@@ -821,10 +865,10 @@ async function renderDashboard() {
 
   const subjectInputs = [...document.querySelectorAll('input[name="subjectFilter"]')];
   const sourceSectionInputs = [...document.querySelectorAll('input[name="sourceSectionFilter"]')];
+  const questionStatusInputs = [...document.querySelectorAll('input[name="questionStatusFilter"]')];
   const countInput = document.getElementById('countInput');
   const modeSelect = document.getElementById('modeSelect');
   const timingSelect = document.getElementById('timingSelect');
-  const poolSelect = document.getElementById('poolSelect');
   const randomizeOrder = document.getElementById('randomizeOrder');
   const rangeStartInput = document.getElementById('rangeStartInput');
   const rangeEndInput = document.getElementById('rangeEndInput');
@@ -833,6 +877,7 @@ async function renderDashboard() {
   const eligibleCount = document.getElementById('eligibleCount');
   const subjectSummary = document.getElementById('subjectSummary');
   const sourceSectionSummary = document.getElementById('sourceSectionSummary');
+  const questionStatusSummary = document.getElementById('questionStatusSummary');
   const startButton = document.getElementById('startBtn');
   let preferredCount = builder.count;
 
@@ -845,13 +890,14 @@ async function renderDashboard() {
   const updateBuilderAvailability = ({ countChanged = false } = {}) => {
     const selectedCategories = selectedSubjectCategories();
     const selectedSections = selectedSourceSections();
+    const selectedStatuses = selectedQuestionStatuses();
     const specialCriteria = readSpecialCriteria();
     const invalidRange = specialCriteria.rangeStart != null
       && specialCriteria.rangeEnd != null
       && specialCriteria.rangeStart > specialCriteria.rangeEnd;
     const eligible = invalidRange
       ? []
-      : eligibleQuestionIds(activeBank, progress, poolSelect.value, {
+      : eligibleQuestionIds(activeBank, progress, selectedStatuses, {
         subjects: selectedCategories,
         sections: sourceSections.length ? selectedSections : null,
       }, specialCriteria);
@@ -866,7 +912,7 @@ async function renderDashboard() {
 
     countInput.value = String(displayedCount);
     countInput.max = String(Math.max(1, eligible.length));
-    startButton.disabled = eligible.length === 0 || invalidRange;
+    startButton.disabled = eligible.length === 0 || invalidRange || selectedStatuses.length === 0;
 
     subjectSummary.textContent = selectedCategories.length === categories.length
       ? `All ${categories.length} selected`
@@ -880,25 +926,47 @@ async function renderDashboard() {
           ? `${selectedSections.length} of ${sourceSections.length} selected`
           : 'No source sections selected';
     }
+    const statusLabels = { all: 'All questions', new: 'New', used: 'Used', incorrect: 'Wrong', flagged: 'Flagged' };
+    questionStatusSummary.textContent = selectedStatuses.length
+      ? selectedStatuses.map((status) => statusLabels[status]).join(' + ')
+      : 'No status selected';
     specialCriteriaSummaryElement.textContent = specialCriteriaSummary(specialCriteria) || 'Optional';
     eligibleCount.textContent = invalidRange
       ? 'The start of the question range must be before the end.'
+      : !selectedStatuses.length
+      ? 'Select at least one question status.'
       : eligible.length
       ? `${eligible.length} question${eligible.length === 1 ? '' : 's'} available${capped ? '; requested set size adjusted to match.' : '.'}`
-      : 'No questions match the selected subjects, source sections, and question status.';
+      : 'No questions match the selected subjects, source sections, and question statuses.';
     eligibleCount.dataset.empty = eligible.length ? 'false' : 'true';
 
     localStorage.setItem(`${BUILDER_SETTINGS_PREFIX}${activeBank.id}`, JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       count: preferredCount,
       mode: modeSelect.value,
       timing: timingSelect.value,
-      pool: poolSelect.value,
+      pools: selectedStatuses,
       randomized: randomizeOrder.checked,
       categories: selectedCategories.length === categories.length ? null : selectedCategories,
       sourceSections: sourceSections.length && selectedSections.length !== sourceSections.length ? selectedSections : null,
       specialCriteria,
     }));
+
+    const liveDeckSettings = readMultiDeckSelector(app, { decks: banks, activeBankId: activeBank.id });
+    if (liveDeckSettings.scope !== DECK_SCOPE_CURRENT) {
+      const selectedDeckQuestions = selectedDeckQuestionCount({
+        decks: banks,
+        activeBankId: activeBank.id,
+        settings: liveDeckSettings,
+      });
+      startButton.disabled = selectedDeckQuestions === 0 || invalidRange || selectedStatuses.length === 0;
+      eligibleCount.textContent = invalidRange
+        ? 'The start of the question range must be before the end.'
+        : !selectedStatuses.length
+          ? 'Select at least one question status.'
+          : document.getElementById('deckScopeAvailability')?.textContent || 'Selected study decks ready.';
+      eligibleCount.dataset.empty = startButton.disabled ? 'true' : 'false';
+    }
   };
 
   bindMultiDeckSelector(app, {
@@ -908,19 +976,12 @@ async function renderDashboard() {
     onChange: (settings) => {
       localStorage.setItem(MULTI_DECK_BUILDER_KEY, JSON.stringify({ schemaVersion: 1, ...settings }));
       const combined = settings.scope !== DECK_SCOPE_CURRENT;
-      const selectedCount = selectedDeckQuestionCount({ decks: banks, activeBankId: activeBank.id, settings });
       startButton.textContent = settings.scope === DECK_SCOPE_COACH
         ? 'Start coach set'
         : combined
           ? 'Start combined set'
           : 'Start set';
-      startButton.disabled = selectedCount === 0;
-      if (combined) {
-        eligibleCount.textContent = document.getElementById('deckScopeAvailability')?.textContent || 'Selected study decks ready.';
-        eligibleCount.dataset.empty = selectedCount > 0 ? 'false' : 'true';
-      } else {
-        updateBuilderAvailability();
-      }
+      updateBuilderAvailability();
     },
   });
 
@@ -951,10 +1012,17 @@ async function renderDashboard() {
   countInput.addEventListener('change', () => updateBuilderAvailability({ countChanged: true }));
   modeSelect.addEventListener('change', updateBuilderAvailability);
   timingSelect.addEventListener('change', updateBuilderAvailability);
-  poolSelect.addEventListener('change', () => {
-    randomizeOrder.checked = poolSelect.value === 'all';
+  questionStatusInputs.forEach((input) => input.addEventListener('change', () => {
+    const allInput = questionStatusInputs.find((candidate) => candidate.value === 'all');
+    if (input.value === 'all' && input.checked) {
+      questionStatusInputs.forEach((candidate) => { candidate.checked = candidate === input; });
+      randomizeOrder.checked = true;
+    } else if (input.value !== 'all' && input.checked && allInput?.checked) {
+      allInput.checked = false;
+      randomizeOrder.checked = false;
+    }
     updateBuilderAvailability();
-  });
+  }));
   randomizeOrder.addEventListener('change', updateBuilderAvailability);
   rangeStartInput.addEventListener('input', updateBuilderAvailability);
   rangeEndInput.addEventListener('input', updateBuilderAvailability);
@@ -983,7 +1051,8 @@ async function startSet() {
   // leave the visible deck choice out of sync with the saved builder record.
   const settings = readMultiDeckSelector(app, { decks: banks, activeBankId: activeBank.id });
   localStorage.setItem(MULTI_DECK_BUILDER_KEY, JSON.stringify({ schemaVersion: 1, ...settings }));
-  const pool = document.getElementById('poolSelect').value;
+  const pool = selectedQuestionStatuses();
+  if (!pool.length) return alert('Select at least one question status before starting a practice set.');
   const count = document.getElementById('countInput').value;
   const mode = document.getElementById('modeSelect').value;
   const timed = document.getElementById('timingSelect').value === 'timed';
