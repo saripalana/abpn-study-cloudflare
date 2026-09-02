@@ -299,7 +299,6 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
   }
 
   if (request.method === "PUT" && parts.length === 1) {
-    const existing = await getHead(env, userId, deckId);
     const body = await readBoundedText(request);
     let parsed;
     try {
@@ -308,6 +307,24 @@ export async function handleDeckLibraryRequest(request, env, helpers) {
       throw new Error("Deck package is not valid JSON");
     }
     const bank = validatePackage(parsed, deckId);
+    const existing = await getHead(env, userId, deckId);
+    const expectedHeadChecksum = String(request.headers.get("x-abpn-expected-head-checksum") || "").trim();
+    const expectNoHead = request.headers.get("x-abpn-expect-no-head") === "true";
+    if (expectNoHead && existing) {
+      return json({
+        error: "Deck head was created before this update. Refresh, reconcile, and retry.",
+        currentChecksum: existing.checksum,
+      }, 409);
+    }
+    if (expectedHeadChecksum) {
+      safeChecksum(expectedHeadChecksum);
+      if (!existing || existing.checksum !== expectedHeadChecksum) {
+        return json({
+          error: "Deck head changed before this update. Refresh, reconcile, and retry.",
+          currentChecksum: existing?.checksum || null,
+        }, 409);
+      }
+    }
 
     if (existing?.checksum === bank.checksum) {
       return json({

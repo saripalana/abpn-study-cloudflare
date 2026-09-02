@@ -2,6 +2,7 @@ import { QUESTION_BANKS } from "./banks/catalog.js";
 import {
   flushPendingCloudDeckUploads,
   promoteLocallyInstalledDecks,
+  reconcileStudyCoachCloudDeck,
   refreshCloudDeckLibrary,
 } from "./client/deck-library.js";
 import { loadInstalledQuestionBanks } from "./client/question-bank-import.js";
@@ -111,6 +112,7 @@ try {
     try {
       await withStartupTimeout((async () => {
         await flushPendingCloudDeckUploads();
+        await reconcileStudyCoachCloudDeck({ reservedIds });
         await promoteLocallyInstalledDecks({ reservedIds, authoritativeIds });
         await refreshCloudDeckLibrary({ reservedIds, authoritativeIds });
       })(), CLOUD_STARTUP_TIMEOUT_MS, "Cloud deck startup timed out.");

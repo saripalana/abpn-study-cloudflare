@@ -4,6 +4,7 @@ import test from "node:test";
 import { prepareQuestionBankPackage } from "../public/client/question-bank-import.js";
 import {
   buildStudyCoachDeckLibraryUpdate,
+  reconcileStudyCoachBanks,
   STUDY_COACH_BANK_ID,
 } from "../public/client/study-coach-deck-library.js";
 
@@ -74,4 +75,58 @@ test("re-pulling the same output is idempotent and changed question ids are reje
     existingBank: installed,
     generatedDecks: [generatedDeck("cycle-1", [question("coach-q1", { prompt: "Changed question?" })])],
   }), /changed after it was installed/i);
+});
+
+test("reconciliation chooses the cumulative superset without removing questions", async () => {
+  const first = buildStudyCoachDeckLibraryUpdate({
+    generatedDecks: [generatedDeck("cycle-1", [question("coach-q1")])],
+  });
+  const remote = (await prepareQuestionBankPackage(first.package)).bank;
+  const second = buildStudyCoachDeckLibraryUpdate({
+    existingBank: remote,
+    generatedDecks: [generatedDeck("cycle-2", [question("coach-q2")])],
+  });
+  const local = (await prepareQuestionBankPackage(second.package)).bank;
+
+  const localAhead = reconcileStudyCoachBanks({ localBank: local, remoteBank: remote });
+  assert.equal(localAhead.status, "local-ahead");
+  assert.equal(localAhead.addedRemotely, 1);
+  assert.equal(localAhead.bank.questions.length, 2);
+
+  const remoteAhead = reconcileStudyCoachBanks({ localBank: remote, remoteBank: local });
+  assert.equal(remoteAhead.status, "remote-ahead");
+  assert.equal(remoteAhead.addedLocally, 1);
+  assert.equal(remoteAhead.bank.questions.length, 2);
+});
+
+test("reconciliation unions compatible branches and rejects changed reused ids", async () => {
+  const base = (await prepareQuestionBankPackage(buildStudyCoachDeckLibraryUpdate({
+    generatedDecks: [generatedDeck("cycle-1", [question("coach-q1")])],
+  }).package)).bank;
+  const local = (await prepareQuestionBankPackage(buildStudyCoachDeckLibraryUpdate({
+    existingBank: base,
+    generatedDecks: [generatedDeck("cycle-local", [question("coach-local")])],
+  }).package)).bank;
+  const remote = (await prepareQuestionBankPackage(buildStudyCoachDeckLibraryUpdate({
+    existingBank: base,
+    generatedDecks: [generatedDeck("cycle-remote", [question("coach-remote")])],
+  }).package)).bank;
+
+  const merged = reconcileStudyCoachBanks({ localBank: local, remoteBank: remote });
+  assert.equal(merged.status, "merged");
+  assert.equal(merged.addedLocally, 1);
+  assert.equal(merged.addedRemotely, 1);
+  assert.deepEqual(merged.bank.questions.map((entry) => entry.id), ["coach-q1", "coach-local", "coach-remote"]);
+  assert.match(merged.bank.version, /^1\.2\.3\./);
+
+  const changedRemote = {
+    ...remote,
+    questions: remote.questions.map((entry) => entry.id === "coach-q1"
+      ? { ...entry, question: "Changed after installation?" }
+      : entry),
+  };
+  assert.throws(
+    () => reconcileStudyCoachBanks({ localBank: local, remoteBank: changedRemote }),
+    /reused question id.*No copy was replaced/i,
+  );
 });

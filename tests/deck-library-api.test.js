@@ -96,10 +96,11 @@ function request(path = "/api/decks/sample-deck", options = {}) {
   });
 }
 
-function putRequest(data = packageData()) {
+function putRequest(data = packageData(), options = {}) {
   return request("/api/decks/sample-deck", {
     method: "PUT",
     body: JSON.stringify(data),
+    ...options,
   });
 }
 
@@ -210,6 +211,60 @@ test("treats an identical active revision upload as idempotent", async () => {
   const response = await handleDeckLibraryRequest(putRequest(), env, helpers());
   assert.equal(response.status, 200);
   assert.equal((await response.json()).unchanged, true);
+  assert.equal(batches, 0);
+});
+
+test("rejects a stale expected cloud head before changing the active revision", async () => {
+  let batches = 0;
+  const env = {
+    DB: fakeDb({
+      first: async (query) => query.includes("FROM deck_package_heads AS h")
+        ? revisionRow({ checksum: "current-head", version: "1.0.0" })
+        : null,
+      onBatch: async () => { batches += 1; },
+    }),
+  };
+  const response = await handleDeckLibraryRequest(
+    putRequest(packageData({ checksum: "new-checksum", version: "2.0.0" }), {
+      headers: {
+        "x-abpn-device-id": "device-test",
+        "x-abpn-expected-head-checksum": "stale-head",
+      },
+    }),
+    env,
+    helpers(),
+  );
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.match(body.error, /refresh, reconcile, and retry/i);
+  assert.equal(body.currentChecksum, "current-head");
+  assert.equal(batches, 0);
+});
+
+test("rejects an expected-empty create when another writer already created the head", async () => {
+  let batches = 0;
+  const env = {
+    DB: fakeDb({
+      first: async (query) => query.includes("FROM deck_package_heads AS h")
+        ? revisionRow({ checksum: "newly-created-head", version: "1.0.0" })
+        : null,
+      onBatch: async () => { batches += 1; },
+    }),
+  };
+  const response = await handleDeckLibraryRequest(
+    putRequest(packageData({ checksum: "competing-checksum", version: "1.1.0" }), {
+      headers: {
+        "x-abpn-device-id": "device-test",
+        "x-abpn-expect-no-head": "true",
+      },
+    }),
+    env,
+    helpers(),
+  );
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.match(body.error, /refresh, reconcile, and retry/i);
+  assert.equal(body.currentChecksum, "newly-created-head");
   assert.equal(batches, 0);
 });
 

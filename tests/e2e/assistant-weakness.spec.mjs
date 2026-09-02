@@ -210,7 +210,52 @@ test("Study Coach package export and local coach-output import remain usable", a
   await expect(page.locator("#studyCoachOutput")).toContainText("Psychopharmacology");
 });
 
-test("Study Coach output appends a numbered test to the normal Deck Library", async ({ page }) => {
+test("Study Coach output appends cumulatively, publishes to Cloudflare, and repairs a stale cloud head on reload", async ({ page }) => {
+  const cloudStore = new Map();
+  const consoleErrors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.route("**/api/decks**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const encodedId = url.pathname.startsWith("/api/decks/") ? url.pathname.slice("/api/decks/".length) : null;
+    const id = encodedId ? decodeURIComponent(encodedId) : null;
+    if (request.method() === "GET" && url.pathname === "/api/decks") {
+      const decks = [...cloudStore.values()].map((entry) => ({
+        id: entry.bank.id,
+        title: entry.bank.title,
+        shortTitle: entry.bank.shortTitle,
+        description: entry.bank.description,
+        version: entry.bank.version,
+        sourceType: entry.bank.sourceType,
+        contentClass: entry.bank.contentClass,
+        sourceLabel: entry.bank.sourceLabel,
+        checksum: entry.bank.checksum,
+        questionCount: entry.bank.questions.length,
+        updatedAt: "2026-09-01T18:00:00.000Z",
+      }));
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ decks }) });
+      return;
+    }
+    if (request.method() === "GET" && id && cloudStore.has(id)) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(cloudStore.get(id)) });
+      return;
+    }
+    if (request.method() === "PUT" && id) {
+      const incoming = JSON.parse(request.postData() || "{}");
+      const expected = request.headers()["x-abpn-expected-head-checksum"];
+      const current = cloudStore.get(id);
+      if (expected && current?.bank?.checksum !== expected) {
+        await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "stale head" }) });
+        return;
+      }
+      cloudStore.set(id, incoming);
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+      return;
+    }
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "Deck not found" }) });
+  });
   await page.route("**/api/assistant/study-coach/permission", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
@@ -318,6 +363,77 @@ test("Study Coach output appends a numbered test to the normal Deck Library", as
   await expect(page.locator(".stats .stat").nth(1)).toContainText("0");
   await expect(page.locator("#app")).toContainText("1 source test");
   await expect(page.getByLabel("Practice from")).not.toContainText("Coach decks");
+
+  const firstCloudPackage = structuredClone(cloudStore.get("study-coach-question-bank"));
+  expect(firstCloudPackage.bank.questions).toHaveLength(2);
+  await page.locator("#studyCoachOutputImportInput").setInputFiles({
+    name: "study-coach-output-second-cycle.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      format: "abpn-study-coach-output",
+      schemaVersion: 1,
+      generatedAt: "2026-08-21T19:35:00.000Z",
+      sourcePackageGeneratedAt: "2026-08-21T19:30:00.000Z",
+      summary: "Install a second targeted cycle.",
+      focusAreas: [],
+      recommendedSets: [],
+      progressMetrics: [],
+      studyActions: [],
+      notes: [],
+      generatedDecks: [{
+        title: "Second recovery cycle",
+        objective: "Verify cumulative Cloudflare publication.",
+        bankId: "coach-second-cycle-20260821",
+        questionCount: 1,
+        package: {
+          format: "abpn-question-bank",
+          schemaVersion: 1,
+          bank: {
+            id: "coach-second-cycle-20260821",
+            title: "Second recovery cycle",
+            shortTitle: "Second cycle",
+            description: "Synthetic cumulative test fixture.",
+            version: "20260821-2",
+            sourceType: "assistant-supplemental",
+            contentClass: "assistant-supplemental",
+            sourceLabel: "Study Coach",
+            questions: [{
+              id: "coach-second-cycle-20260821-q1",
+              chapterTitle: "Synthetic section",
+              subjectTitle: "Synthetic subject",
+              question: "Which synthetic option verifies a second additive cycle?",
+              choices: ["The additive option", "The destructive option"],
+              choiceLetters: ["A", "B"],
+              correctLetter: "A",
+              explanation: "The additive option preserves prior questions.",
+            }],
+          },
+        },
+      }],
+    }), "utf8"),
+  });
+  await expect.poll(() => cloudStore.get("study-coach-question-bank")?.bank?.questions?.length).toBe(3);
+  await expect(page.locator(".stats .stat").nth(0)).toContainText("3");
+
+  await page.evaluate(async () => {
+    const { putRecord, STORES } = await import("/client/storage.js");
+    await putRecord(STORES.PROGRESS, {
+      bankId: "study-coach-question-bank",
+      questionId: "coach-psychopharm-authored-20260821-q1",
+      timesUsed: 1,
+      isCorrect: true,
+      updatedAt: "2026-09-01T19:40:00.000Z",
+    });
+  });
+  cloudStore.set("study-coach-question-bank", firstCloudPackage);
+  await page.reload();
+  await expect.poll(() => cloudStore.get("study-coach-question-bank")?.bank?.questions?.length).toBe(3);
+  const preservedProgress = await page.evaluate(async () => {
+    const { getRecord, STORES } = await import("/client/storage.js");
+    return getRecord(STORES.PROGRESS, ["study-coach-question-bank", "coach-psychopharm-authored-20260821-q1"]);
+  });
+  expect(preservedProgress?.timesUsed).toBe(1);
+  expect(consoleErrors.filter((message) => message.includes("study-coach-question-bank"))).toEqual([]);
 });
 
 test("Study Coach package can share through Cloudflare, archive to Google Drive, and pull latest coach output", async ({ page }) => {
@@ -440,6 +556,26 @@ test("Study Coach package can share through Cloudflare, archive to Google Drive,
       }),
     });
   });
+  await page.route("**/api/assistant/study-coach/output/materialize", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        file: {
+          id: "output-1",
+          createdAt: "2026-08-18T18:01:00.000Z",
+          byteCount: 2048,
+          chunkCount: 1,
+          generatedAt: latestOutput.generatedAt,
+          sourcePackageGeneratedAt: latestOutput.sourcePackageGeneratedAt,
+          format: latestOutput.format,
+          schemaVersion: latestOutput.schemaVersion,
+        },
+        output: latestOutput,
+        deck: { id: "study-coach-question-bank", questionCount: 24, status: "published" },
+      }),
+    });
+  });
   await page.route("**/api/assistant/study-coach/package", async (route) => {
     latestPackage = JSON.parse(route.request().postData() || "{}");
     await route.fulfill({
@@ -506,10 +642,10 @@ test("Study Coach package can share through Cloudflare, archive to Google Drive,
   await publishOutputResponse;
   await expect(page.locator("#studyCoachPackageStatus")).toContainText("Study Coach output published to Cloudflare");
 
-  const pullResponse = page.waitForResponse("**/api/assistant/study-coach/output");
+  const pullResponse = page.waitForResponse("**/api/assistant/study-coach/output/materialize");
   await page.getByRole("button", { name: "Update Study Coach" }).click();
   await pullResponse;
-  await expect(page.locator("#studyCoachPackageStatus")).toContainText("Latest Study Coach output pulled from Cloudflare");
+  await expect(page.locator("#studyCoachPackageStatus")).toContainText("Latest Study Coach output materialized and pulled from Cloudflare");
   await expect(page.locator("#studyCoachOutput")).toContainText("Imported coaching plan");
   await expect(page.locator("#studyCoachOutput")).toContainText("15-question anxiety rebuild");
   await expect(page.locator("#studyCoachOutput")).toContainText("Anxiety Disorders");

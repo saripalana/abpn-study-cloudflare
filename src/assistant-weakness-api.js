@@ -5,6 +5,12 @@ import {
   protectedStudyCoachBanks,
   validateStudyCoachPackage,
 } from "./client/study-coach-package.js";
+import { prepareQuestionBankPackage } from "./client/question-bank-import.js";
+import {
+  buildStudyCoachDeckLibraryUpdate,
+  STUDY_COACH_BANK_ID,
+} from "./client/study-coach-deck-library.js";
+import { handleDeckLibraryRequest } from "./deck-library-api.js";
 
 const MAX_DECKS = 20;
 const MAX_DOMAINS = 100;
@@ -138,6 +144,71 @@ async function prepareOutputAgainstCurrentPackage(input, env, userId) {
   });
 }
 
+export async function materializeGeneratedDecksInCloud(output, request, env, helpers, {
+  retryOnConflict = true,
+  deckHandler = handleDeckLibraryRequest,
+} = {}) {
+  if (!Array.isArray(output?.generatedDecks) || !output.generatedDecks.length) {
+    return { status: "no-generated-decks", bank: null };
+  }
+  const origin = new URL(request.url).origin;
+  const deviceId = request.headers.get("x-abpn-device-id") || "study-coach-cloud-materializer";
+  const headers = { "x-abpn-device-id": deviceId };
+  const currentResponse = await deckHandler(
+    new Request(`${origin}/api/decks/${STUDY_COACH_BANK_ID}`, { method: "GET", headers }),
+    env,
+    helpers,
+  );
+  let existingBank = null;
+  if (currentResponse.status === 200) {
+    existingBank = (await currentResponse.json()).bank;
+  } else if (currentResponse.status !== 404) {
+    const failure = await currentResponse.json().catch(() => ({}));
+    throw new Error(failure.error || "Current Study Coach cloud bank could not be read");
+  }
+
+  const update = buildStudyCoachDeckLibraryUpdate({
+    existingBank,
+    generatedDecks: output.generatedDecks,
+    generatedAt: output.generatedAt,
+  });
+  if (!update.changed) {
+    return { status: "unchanged", bank: existingBank };
+  }
+  const prepared = await prepareQuestionBankPackage(update.package);
+  const publishHeaders = {
+    ...headers,
+    "content-type": "application/json",
+    ...(existingBank?.checksum ? { "x-abpn-expected-head-checksum": existingBank.checksum } : {}),
+    ...(!existingBank ? { "x-abpn-expect-no-head": "true" } : {}),
+  };
+  const publishResponse = await deckHandler(
+    new Request(`${origin}/api/decks/${STUDY_COACH_BANK_ID}`, {
+      method: "PUT",
+      headers: publishHeaders,
+      body: JSON.stringify(prepared),
+    }),
+    env,
+    helpers,
+  );
+  if (publishResponse.status === 409 && retryOnConflict) {
+    return materializeGeneratedDecksInCloud(output, request, env, helpers, {
+      retryOnConflict: false,
+      deckHandler,
+    });
+  }
+  if (!publishResponse.ok) {
+    const failure = await publishResponse.json().catch(() => ({}));
+    throw new Error(failure.error || "Study Coach cloud bank could not be updated");
+  }
+  return {
+    status: "published",
+    bank: prepared.bank,
+    addedQuestions: update.addedQuestions,
+    testTitle: update.testTitle,
+  };
+}
+
 async function replaceArtifact(env, userId, type, text, byteCount, primaryTimestamp, metadata) {
   const prior = await env.DB.prepare(`
     SELECT id FROM assistant_study_coach_artifacts
@@ -206,6 +277,7 @@ async function reserveStudyCoachUsage(reserveUsage, env, pathname, method, reque
     "GET /api/assistant/study-coach/package": { requests: 1, writeActions: 1, rowsRead: 125, rowsWritten: 2 },
     "PUT /api/assistant/study-coach/output": { requests: 1, writeActions: 1, rowsRead: 5, rowsWritten: declaredArtifactRows },
     "GET /api/assistant/study-coach/output": { requests: 1, writeActions: 1, rowsRead: 125, rowsWritten: 2 },
+    "POST /api/assistant/study-coach/output/materialize": { requests: 1, writeActions: 1, rowsRead: 125, rowsWritten: 2 },
   };
   await reserveUsage(env, budgets[key] || { requests: 1, rowsRead: 1 });
 }
@@ -549,8 +621,26 @@ export async function handleAssistantWeaknessRequest(request, env, helpers) {
       format: output.format,
       schemaVersion: output.schemaVersion,
     });
+    let deck;
+    try {
+      deck = await materializeGeneratedDecksInCloud(output, request, env, helpers);
+    } catch (error) {
+      return json({ error: error.message || "Study Coach cloud bank could not be updated" }, 409);
+    }
     await exchangeAudit(env, userId, "output-published", deviceId, { publish: true });
-    return json({ ok: true, file });
+    return json({
+      ok: true,
+      file,
+      deck: deck.bank ? {
+        id: deck.bank.id,
+        version: deck.bank.version,
+        checksum: deck.bank.checksum,
+        questionCount: deck.bank.questions.length,
+        status: deck.status,
+        addedQuestions: deck.addedQuestions || 0,
+        testTitle: deck.testTitle || null,
+      } : { status: deck.status },
+    });
   }
 
   if (url.pathname === "/api/assistant/study-coach/output" && request.method === "GET") {
@@ -578,6 +668,44 @@ export async function handleAssistantWeaknessRequest(request, env, helpers) {
         metadata_json: record.row.metadata_json,
       }),
       output: parsed,
+    });
+  }
+
+  if (url.pathname === "/api/assistant/study-coach/output/materialize" && request.method === "POST") {
+    const permission = await status(env, userId);
+    if (!permission.exchangeEnabled) return json({ error: "Fresh Study Coach exchange permission is required" }, 403);
+    let record;
+    let output;
+    try {
+      record = await latestArtifact(env, userId, "output");
+      if (!record) return json({ error: "No current Study Coach output" }, 404);
+      output = await prepareOutputAgainstCurrentPackage(JSON.parse(record.text), env, userId);
+    } catch (error) {
+      return json({ error: error.message || "Stored Study Coach output is invalid" }, 502);
+    }
+    let deck;
+    try {
+      deck = await materializeGeneratedDecksInCloud(output, request, env, helpers);
+    } catch (error) {
+      return json({ error: error.message || "Study Coach cloud bank could not be updated" }, 409);
+    }
+    await exchangeAudit(env, userId, "output-materialized", deviceId, { access: true });
+    return json({
+      ok: true,
+      file: summarizeArtifact("output", {
+        ...record.row,
+        metadata_json: record.row.metadata_json,
+      }),
+      output,
+      deck: deck.bank ? {
+        id: deck.bank.id,
+        version: deck.bank.version,
+        checksum: deck.bank.checksum,
+        questionCount: deck.bank.questions.length,
+        status: deck.status,
+        addedQuestions: deck.addedQuestions || 0,
+        testTitle: deck.testTitle || null,
+      } : { status: deck.status },
     });
   }
 
