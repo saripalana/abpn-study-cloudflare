@@ -71,17 +71,88 @@ test('discards an active set and restores its answers with Undo', async ({ page 
   await page.locator('.choice').first().click();
   await page.getByRole('button', { name: 'Save and exit' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Discard active set' })).toBeVisible();
-  await clickThroughDialogsAndReload(page, page.getByRole('button', { name: 'Discard active set' }));
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Discard test' })).toBeVisible();
+  await clickThroughDialogsAndReload(page, page.getByRole('button', { name: 'Discard test' }));
 
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toHaveCount(0);
   await clickThroughDialogsAndReload(page, page.getByRole('button', { name: 'Undo last deletion/reset' }));
 
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toBeVisible();
   await page.getByRole('button', { name: 'Resume set' }).click();
   await expect(page.locator('.question-map button.answered')).toHaveCount(1);
   await expect(page.locator('.question-map button.unanswered')).toHaveCount(1);
+});
+
+test('discards only the selected pending test and restores it without disturbing another', async ({ page }) => {
+  await useValidationBank(page);
+  await selectActiveBank(page, 'ks-psychiatry-core');
+  await page.evaluate(async () => {
+    const { QUESTION_BANKS } = await import('/banks/catalog.js');
+    const { STORES, putRecord } = await import('/client/storage.js');
+    const { createMultiDeckSetRecord } = await import('/client/multi-deck-set.js');
+    const { encodeQuestionRef } = await import('/client/multi-deck-practice.js');
+    const ks = QUESTION_BANKS.find((bank) => bank.id === 'ks-psychiatry-core');
+    const spiegel = QUESTION_BANKS.find((bank) => bank.id === 'spiegel-test-prep');
+    const now = new Date().toISOString();
+    const earlier = new Date(Date.now() - 60_000).toISOString();
+    const ksReference = encodeQuestionRef(ks.id, ks.questions[0].id);
+    const spiegelReference = encodeQuestionRef(spiegel.id, spiegel.questions[0].id);
+
+    await putRecord(STORES.SETS, {
+      id: 'pending-test-to-keep',
+      bankId: ks.id,
+      status: 'active',
+      mode: 'tutor',
+      timed: false,
+      questionIds: [ks.questions[1].id],
+      index: 0,
+      remainingSeconds: 0,
+      submitted: false,
+      startedAt: earlier,
+      completedAt: null,
+      updatedAt: earlier,
+    });
+    await putRecord(STORES.SETS, createMultiDeckSetRecord({
+      id: 'pending-test-to-discard',
+      selectedBankIds: [ks.id, spiegel.id],
+      references: [ksReference, spiegelReference],
+      status: 'active',
+      mode: 'test',
+      timed: false,
+      index: 1,
+      remainingSeconds: 0,
+      submitted: false,
+      startedAt: now,
+      completedAt: null,
+      updatedAt: now,
+    }));
+    await putRecord(STORES.ANSWERS, {
+      setId: 'pending-test-to-discard',
+      questionId: ksReference,
+      selectedAnswer: ks.questions[0].correctLetter,
+      isCorrect: true,
+      timeMs: 1200,
+      updatedAt: now,
+    });
+  });
+  await page.reload();
+
+  const pending = page.locator('.pending-set-item');
+  await expect(pending).toHaveCount(2);
+  const target = pending.filter({ hasText: '1/2' });
+  await clickThroughDialogsAndReload(page, target.getByRole('button', { name: 'Discard test' }));
+
+  await expect(pending).toHaveCount(1);
+  await expect(pending.filter({ hasText: '0/1' })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Resume set' }).click();
+  await expect(page.locator('.question-map button.unanswered')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+
+  await clickThroughDialogsAndReload(page, page.getByRole('button', { name: 'Undo last deletion/reset' }));
+  await expect(pending).toHaveCount(2);
+  await expect(pending.filter({ hasText: '1/2' })).toHaveCount(1);
+  await expect(pending.filter({ hasText: '0/1' })).toHaveCount(1);
 });
 
 test('resets only the selected deck and restores progress history and active sets', async ({ page }) => {
@@ -169,7 +240,7 @@ test('resets only the selected deck and restores progress history and active set
 
   await expect(page.locator('.stat').filter({ hasText: 'Used' }).locator('strong')).toHaveText('1');
   await expect(page.locator('.history-item')).toHaveCount(1);
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toBeVisible();
 
   const resetMessages = await clickThroughDialogsAndReload(
     page,
@@ -181,7 +252,7 @@ test('resets only the selected deck and restores progress history and active set
 
   await expect(page.locator('.stat').filter({ hasText: 'Used' }).locator('strong')).toHaveText('0');
   await expect(page.locator('.history-item')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toHaveCount(0);
 
   await selectActiveBank(page, 'ks-psychiatry-core');
   await expect(page.locator('.stat').filter({ hasText: 'Used' }).locator('strong')).toHaveText('1');
@@ -190,6 +261,6 @@ test('resets only the selected deck and restores progress history and active set
   await clickThroughDialogsAndReload(page, page.getByRole('button', { name: 'Undo last deletion/reset' }));
   await expect(page.locator('.stat').filter({ hasText: 'Used' }).locator('strong')).toHaveText('1');
   await expect(page.locator('.history-item')).toHaveCount(1);
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toBeVisible();
   await expect(page.locator('.stat').filter({ hasText: 'Flagged' }).locator('strong')).toHaveText('1');
 });

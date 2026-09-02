@@ -225,10 +225,10 @@ test('test-mode set restores question, answers, and results after reload', async
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.getByRole('heading', { name: 'Question 2 of 2' })).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toBeVisible();
   await page.getByRole('button', { name: 'Resume set' }).click();
   await expect(page.getByRole('heading', { name: 'Question 2 of 2' })).toBeVisible();
   await expect(page.locator('.question-map button').first()).toHaveClass(/answered/);
@@ -248,8 +248,48 @@ test('test-mode set restores question, answers, and results after reload', async
   await expect(page.getByRole('heading', { name: 'History / Previous tests' })).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toHaveCount(0);
   await expect(page.locator('.history-item')).toHaveCount(1);
+});
+
+test('multiple pending tests remain independently resumable', async ({ page }) => {
+  await useValidationBank(page);
+  await page.locator('#countInput').fill('2');
+  await page.locator('#modeSelect').selectOption('test');
+  await page.locator('#timingSelect').selectOption('untimed');
+  await page.getByRole('button', { name: 'Start set' }).click();
+  await page.locator('.choice').first().click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+
+  await page.locator('#countInput').fill('1');
+  await page.getByRole('button', { name: 'Start set' }).click();
+  await expect(page.getByRole('heading', { name: 'Question 1 of 1' })).toBeVisible();
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toBeVisible();
+  await expect(page.locator('.pending-set-item')).toHaveCount(2);
+  await expect(page.locator('.pending-set-item').filter({ hasText: '1/2' })).toHaveCount(1);
+  await expect(page.locator('.pending-set-item').filter({ hasText: '0/1' })).toHaveCount(1);
+
+  await page.reload();
+  await expect(page.locator('.pending-set-item')).toHaveCount(2);
+  const stored = await page.evaluate(async () => {
+    const { STORES, recordsByIndex } = await import('/client/storage.js');
+    const sets = await recordsByIndex(STORES.SETS, 'byStatus', 'active');
+    return sets.map(({ id, status, submitted, questionIds }) => ({ id, status, submitted, questionCount: questionIds.length }));
+  });
+  expect(stored).toHaveLength(2);
+  expect(new Set(stored.map(({ id }) => id)).size).toBe(2);
+  expect(stored.every(({ status, submitted }) => status === 'active' && submitted === false)).toBe(true);
+
+  await page.locator('.pending-set-item').filter({ hasText: '1/2' }).getByRole('button', { name: 'Resume set' }).click();
+  await expect(page.getByRole('heading', { name: 'Question 2 of 2' })).toBeVisible();
+  await expect(page.locator('.question-map button').first()).toHaveClass(/answered/);
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+
+  await page.locator('.pending-set-item').filter({ hasText: '0/1' }).getByRole('button', { name: 'Resume set' }).click();
+  await expect(page.getByRole('heading', { name: 'Question 1 of 1' })).toBeVisible();
 });
 
 test('tutor mode reveals feedback immediately and records analytics', async ({ page }) => {
@@ -289,14 +329,14 @@ test('bank switching does not expose another bank active set', async ({ page }) 
   await page.locator('#timingSelect').selectOption('untimed');
   await page.getByRole('button', { name: 'Start set' }).click();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toBeVisible();
 
   await selectActiveBank(page, 'ks-psychiatry-core');
   await expect(page.getByRole('heading', { name: 'K&S Psychiatry Question Bank' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toHaveCount(0);
 
   await selectActiveBank(page, 'validation-bank');
-  await expect(page.getByRole('heading', { name: 'Resume active set' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pending tests' })).toBeVisible();
 });
 
 test('iPhone Safari layout avoids overflow and iOS input zoom', async ({ page }, testInfo) => {
