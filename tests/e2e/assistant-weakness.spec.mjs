@@ -306,8 +306,16 @@ test("Study Coach output appends a numbered test to the normal Deck Library", as
   await expect(page.locator("#studyCoachOutput")).toContainText("Generated question sets");
   await expect(page.locator("#app")).toContainText("DECK LIBRARY · 3 INSTALLED");
   await expect(page.getByLabel("View study deck").locator("option")).toContainText(["K&S Psychiatry Question Bank", "Spiegel Test Prep Question Bank", "Study Coach Question Bank"]);
+  const excludeCoachMetrics = page.getByLabel("Exclude Study Coach from overall metrics");
+  await expect(excludeCoachMetrics).toBeChecked();
+  await expect(page.locator("#studyCoachMetricsScope")).toContainText("source decks only");
+  await excludeCoachMetrics.uncheck();
+  await expect(page.locator("#studyCoachMetricsScope")).toContainText("include every study deck");
   await page.getByLabel("View study deck").selectOption("study-coach-question-bank");
   await expect(page.locator("#app")).toContainText("Study Coach Question Bank");
+  await expect(page.getByLabel("Exclude Study Coach from overall metrics")).not.toBeChecked();
+  await expect(page.locator(".stats .stat").nth(0)).toContainText("2");
+  await expect(page.locator(".stats .stat").nth(1)).toContainText("0");
   await expect(page.locator("#app")).toContainText("1 source test");
   await expect(page.getByLabel("Practice from")).not.toContainText("Coach decks");
 });

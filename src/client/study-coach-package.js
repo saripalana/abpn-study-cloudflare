@@ -1,6 +1,7 @@
 import { getAllRecords, getRecord, putRecord, STORES } from "./storage.js";
 import { buildWeaknessSnapshot } from "./weakness-analytics.js";
 import { prepareQuestionBankPackage } from "./question-bank-import.js";
+import { studyRecordsForBanks } from "./study-coach-metrics-scope.js";
 
 export const STUDY_COACH_PACKAGE_FORMAT = "abpn-study-coach-package";
 export const STUDY_COACH_PACKAGE_SCHEMA_VERSION = 1;
@@ -485,8 +486,15 @@ export function createStudyCoachPackage({
   appVersion = "1.0.0",
   exportedAt = new Date().toISOString(),
 } = {}) {
+  const includedBanks = (banks || []).filter(Boolean);
+  const studyState = studyRecordsForBanks({
+    banks: includedBanks,
+    progress: progressRows || [],
+    sets: practiceSets || [],
+    answers: practiceSetAnswers || [],
+  });
   const progressByBank = new Map();
-  for (const row of progressRows || []) {
+  for (const row of studyState.progress) {
     const byQuestion = progressByBank.get(row.bankId) || new Map();
     byQuestion.set(row.questionId, clone(row));
     progressByBank.set(row.bankId, byQuestion);
@@ -498,7 +506,7 @@ export function createStudyCoachPackage({
     exportedAt,
     appVersion,
     purpose: "full-study-coach-analysis-and-output",
-    banks: (banks || []).map((bank) => {
+    banks: includedBanks.map((bank) => {
       const progress = progressByBank.get(bank.id) || new Map();
       return {
         id: String(bank.id || "unknown"),
@@ -528,9 +536,9 @@ export function createStudyCoachPackage({
       };
     }),
     studyState: {
-      progress: clone(progressRows || []),
-      practiceSets: clone(practiceSets || []),
-      practiceSetAnswers: clone(practiceSetAnswers || []),
+      progress: clone(studyState.progress),
+      practiceSets: clone(studyState.sets),
+      practiceSetAnswers: clone(studyState.answers),
     },
     outputContract: {
       format: STUDY_COACH_OUTPUT_FORMAT,
