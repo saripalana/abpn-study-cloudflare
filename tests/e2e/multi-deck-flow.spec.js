@@ -159,3 +159,39 @@ test("special retest criteria preserve multi-answer behavior and show a dated an
   await expect(page.locator(".history-item").first()).toContainText("question range 1–1");
   await expect(page.locator(".history-item").first()).toContainText("flagged questions included");
 });
+
+test("combined-deck Wrong filter uses progress-aware availability and starts only matching questions", async ({ page }) => {
+  test.setTimeout(90_000);
+  page.on("dialog", async (dialog) => dialog.accept());
+  await page.goto("/");
+  await expect(page.locator("#importBankBtn")).toBeEnabled();
+  await page.locator("#bankImportInput").setInputFiles({
+    name: "combined-flow-deck.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(combinedDeckPackage())),
+  });
+  await expectActiveBank(page, "combined-flow-deck");
+
+  await page.locator("#countInput").fill("1");
+  await page.locator("#modeSelect").selectOption("tutor");
+  await page.locator("#timingSelect").selectOption("untimed");
+  await page.getByRole("button", { name: "Start set" }).click();
+  await page.locator('.choice[data-answer="B"]').click();
+  await page.getByRole("button", { name: "Check answer" }).click();
+  await page.getByRole("button", { name: "Submit set" }).click();
+  await page.getByRole("button", { name: "Back to dashboard" }).click();
+
+  await page.locator("#deckScopeSelect").selectOption("custom");
+  await page.locator("#deckPicker summary").click();
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await page.locator('input[name="practiceDeckFilter"][value="ks-psychiatry-core"]').check();
+  await page.locator('input[name="practiceDeckFilter"][value="combined-flow-deck"]').check();
+  await page.locator('input[name="questionStatusFilter"][value="incorrect"]').check();
+
+  await expect(page.locator("#eligibleCount")).toHaveText("1 question available across the selected study decks.");
+  await expect(page.locator("#countInput")).toHaveValue("1");
+  await expect(page.getByRole("button", { name: "Start combined set" })).toBeEnabled();
+  await page.getByRole("button", { name: "Start combined set" }).click();
+  await expect(page.locator(".question-map button")).toHaveCount(1);
+  await expect(page.locator(".exam .eyebrow")).toContainText("Combined Flow");
+});

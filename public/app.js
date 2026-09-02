@@ -17,7 +17,8 @@ import {
 } from './client/study-engine.js';
 import { bindMultiDeckSelector, multiDeckSelectorMarkup, readMultiDeckSelector } from './client/multi-deck-builder-ui.js';
 import { DECK_SCOPE_CURRENT, normalizeDeckScopeSettings, selectedDeckQuestionCount } from './client/multi-deck-builder.js';
-import { createPracticeSession, persistenceRecordForSession, sessionQuestionContext } from './client/multi-deck-app-session.js';
+import { createPracticeSession, loadProgressForSelectedDecks, persistenceRecordForSession, sessionQuestionContext } from './client/multi-deck-app-session.js';
+import { multiDeckQuestionRefs } from './client/multi-deck-practice.js';
 import { normalizeStoredSet } from './client/multi-deck-set.js';
 import { setQuestionItems } from './client/multi-deck-runtime.js';
 import { calculateSessionResult, calculateSessionSectionResults, progressEntriesForSession, totalAnswerTimeMs } from './client/multi-deck-results.js';
@@ -952,6 +953,8 @@ async function renderDashboard() {
   const questionStatusSummary = document.getElementById('questionStatusSummary');
   const startButton = document.getElementById('startBtn');
   let preferredCount = builder.count;
+  let availabilityRevision = 0;
+  let lastEligibleCount = 0;
 
   const readSpecialCriteria = () => normalizeSpecialTestCriteria({
     rangeStart: rangeStartInput.value,
@@ -959,32 +962,33 @@ async function renderDashboard() {
     includeFlagged: includeFlaggedInput.checked,
   }, activeBank.questions.length);
 
-  const updateBuilderAvailability = ({ countChanged = false } = {}) => {
+  const persistBuilderSettings = () => {
+    const selectedCategories = selectedSubjectCategories();
+    const selectedSections = selectedSourceSections();
+    localStorage.setItem(`${BUILDER_SETTINGS_PREFIX}${activeBank.id}`, JSON.stringify({
+      schemaVersion: 2,
+      count: preferredCount,
+      mode: modeSelect.value,
+      timing: timingSelect.value,
+      pools: selectedQuestionStatuses(),
+      randomized: randomizeOrder.checked,
+      categories: selectedCategories.length === categories.length ? null : selectedCategories,
+      sourceSections: sourceSections.length && selectedSections.length !== sourceSections.length ? selectedSections : null,
+      specialCriteria: readSpecialCriteria(),
+    }));
+  };
+
+  const updateBuilderAvailability = async () => {
+    const revision = ++availabilityRevision;
     const selectedCategories = selectedSubjectCategories();
     const selectedSections = selectedSourceSections();
     const selectedStatuses = selectedQuestionStatuses();
     const specialCriteria = readSpecialCriteria();
+    const liveDeckSettings = readMultiDeckSelector(app, { decks: banks, activeBankId: activeBank.id });
+    const combinedScope = liveDeckSettings.scope !== DECK_SCOPE_CURRENT;
     const invalidRange = specialCriteria.rangeStart != null
       && specialCriteria.rangeEnd != null
       && specialCriteria.rangeStart > specialCriteria.rangeEnd;
-    const eligible = invalidRange
-      ? []
-      : eligibleQuestionIds(activeBank, progress, selectedStatuses, {
-        subjects: selectedCategories,
-        sections: sourceSections.length ? selectedSections : null,
-      }, specialCriteria);
-    if (countChanged) {
-      preferredCount = Math.min(
-        activeBank.questions.length,
-        Math.max(1, Math.trunc(Number(countInput.value)) || 1)
-      );
-    }
-    const displayedCount = eligible.length ? Math.min(preferredCount, eligible.length) : preferredCount;
-    const capped = eligible.length > 0 && displayedCount < preferredCount;
-
-    countInput.value = String(displayedCount);
-    countInput.max = String(Math.max(1, eligible.length));
-    startButton.disabled = eligible.length === 0 || invalidRange || selectedStatuses.length === 0;
 
     subjectSummary.textContent = selectedCategories.length === categories.length
       ? `All ${categories.length} selected`
@@ -1003,42 +1007,58 @@ async function renderDashboard() {
       ? selectedStatuses.map((status) => statusLabels[status]).join(' + ')
       : 'No status selected';
     specialCriteriaSummaryElement.textContent = specialCriteriaSummary(specialCriteria) || 'Optional';
+    persistBuilderSettings();
+
+    startButton.disabled = true;
+    let eligible = [];
+    if (!invalidRange && selectedStatuses.length) {
+      if (combinedScope) {
+        eligibleCount.textContent = 'Checking matching questions across the selected study decks…';
+        eligibleCount.dataset.empty = 'true';
+        const { settings: normalizedDeckSettings, progressByBank } = await loadProgressForSelectedDecks({
+          decks: banks,
+          activeBankId: activeBank.id,
+          settings: liveDeckSettings,
+          loadProgress: progressMap,
+        });
+        if (revision !== availabilityRevision) return;
+        const categoriesByBank = categoriesByDeckForSession(
+          banks,
+          activeBank.id,
+          selectedCategories,
+          sourceSections.length ? selectedSections : null,
+        );
+        eligible = multiDeckQuestionRefs({
+          decks: banks,
+          selectedBankIds: normalizedDeckSettings.selectedBankIds,
+          progressByBank,
+          pool: selectedStatuses,
+          categoriesByBank,
+          specialCriteria,
+        });
+      } else {
+        eligible = eligibleQuestionIds(activeBank, progress, selectedStatuses, {
+          subjects: selectedCategories,
+          sections: sourceSections.length ? selectedSections : null,
+        }, specialCriteria);
+      }
+    }
+
+    if (revision !== availabilityRevision) return;
+    const displayedCount = eligible.length ? Math.min(preferredCount, eligible.length) : preferredCount;
+    const capped = eligible.length > 0 && displayedCount < preferredCount;
+    countInput.value = String(displayedCount);
+    countInput.max = String(Math.max(1, eligible.length));
+    startButton.disabled = eligible.length === 0 || invalidRange || selectedStatuses.length === 0;
     eligibleCount.textContent = invalidRange
       ? 'The start of the question range must be before the end.'
       : !selectedStatuses.length
-      ? 'Select at least one question status.'
-      : eligible.length
-      ? `${eligible.length} question${eligible.length === 1 ? '' : 's'} available${capped ? '; requested set size adjusted to match.' : '.'}`
-      : 'No questions match the selected subjects, source sections, and question statuses.';
+        ? 'Select at least one question status.'
+        : eligible.length
+          ? `${eligible.length} question${eligible.length === 1 ? '' : 's'} available${combinedScope ? ' across the selected study decks' : ''}${capped ? '; requested set size adjusted to match.' : '.'}`
+          : 'No questions match the selected decks, subjects, source sections, and question statuses.';
     eligibleCount.dataset.empty = eligible.length ? 'false' : 'true';
-
-    localStorage.setItem(`${BUILDER_SETTINGS_PREFIX}${activeBank.id}`, JSON.stringify({
-      schemaVersion: 2,
-      count: preferredCount,
-      mode: modeSelect.value,
-      timing: timingSelect.value,
-      pools: selectedStatuses,
-      randomized: randomizeOrder.checked,
-      categories: selectedCategories.length === categories.length ? null : selectedCategories,
-      sourceSections: sourceSections.length && selectedSections.length !== sourceSections.length ? selectedSections : null,
-      specialCriteria,
-    }));
-
-    const liveDeckSettings = readMultiDeckSelector(app, { decks: banks, activeBankId: activeBank.id });
-    if (liveDeckSettings.scope !== DECK_SCOPE_CURRENT) {
-      const selectedDeckQuestions = selectedDeckQuestionCount({
-        decks: banks,
-        activeBankId: activeBank.id,
-        settings: liveDeckSettings,
-      });
-      startButton.disabled = selectedDeckQuestions === 0 || invalidRange || selectedStatuses.length === 0;
-      eligibleCount.textContent = invalidRange
-        ? 'The start of the question range must be before the end.'
-        : !selectedStatuses.length
-          ? 'Select at least one question status.'
-          : document.getElementById('deckScopeAvailability')?.textContent || 'Selected study decks ready.';
-      eligibleCount.dataset.empty = startButton.disabled ? 'true' : 'false';
-    }
+    lastEligibleCount = eligible.length;
   };
 
   bindMultiDeckSelector(app, {
@@ -1074,12 +1094,20 @@ async function renderDashboard() {
   countInput.addEventListener('input', () => {
     const nextCount = Number(countInput.value);
     if (Number.isFinite(nextCount) && nextCount >= 1) {
-      preferredCount = Math.min(activeBank.questions.length, Math.trunc(nextCount));
+      const liveDeckSettings = readMultiDeckSelector(app, { decks: banks, activeBankId: activeBank.id });
+      const requestableQuestionCount = liveDeckSettings.scope === DECK_SCOPE_CURRENT
+        ? activeBank.questions.length
+        : selectedDeckQuestionCount({ decks: banks, activeBankId: activeBank.id, settings: liveDeckSettings });
+      preferredCount = Math.min(Math.max(1, requestableQuestionCount), Math.trunc(nextCount));
     }
   });
-  countInput.addEventListener('change', () => updateBuilderAvailability({ countChanged: true }));
-  modeSelect.addEventListener('change', updateBuilderAvailability);
-  timingSelect.addEventListener('change', updateBuilderAvailability);
+  countInput.addEventListener('change', () => {
+    preferredCount = Math.max(1, Math.trunc(Number(countInput.value)) || 1);
+    countInput.value = String(lastEligibleCount ? Math.min(preferredCount, lastEligibleCount) : preferredCount);
+    persistBuilderSettings();
+  });
+  modeSelect.addEventListener('change', persistBuilderSettings);
+  timingSelect.addEventListener('change', persistBuilderSettings);
   questionStatusInputs.forEach((input) => input.addEventListener('change', () => {
     const allInput = questionStatusInputs.find((candidate) => candidate.value === 'all');
     if (input.value === 'all' && input.checked) {
@@ -1091,7 +1119,7 @@ async function renderDashboard() {
     }
     updateBuilderAvailability();
   }));
-  randomizeOrder.addEventListener('change', updateBuilderAvailability);
+  randomizeOrder.addEventListener('change', persistBuilderSettings);
   rangeStartInput.addEventListener('input', updateBuilderAvailability);
   rangeEndInput.addEventListener('input', updateBuilderAvailability);
   includeFlaggedInput.addEventListener('change', updateBuilderAvailability);
