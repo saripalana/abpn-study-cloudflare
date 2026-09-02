@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { handleAssistantWeaknessRequest, sanitizeStudyCoachDataset } from "../src/assistant-weakness-api.js";
+import {
+  handleAssistantWeaknessRequest,
+  materializeGeneratedDecksInCloud,
+  sanitizeStudyCoachDataset,
+} from "../src/assistant-weakness-api.js";
 import { createStudyCoachPackage } from "../src/client/study-coach-package.js";
 import { QUESTION_BANK_PACKAGE_FORMAT, QUESTION_BANK_PACKAGE_SCHEMA_VERSION } from "../src/client/question-bank-import.js";
 
@@ -235,4 +239,116 @@ test("Cloudflare output publishing rejects a generated deck copied from the curr
   );
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /cannot copy protected source question content/);
+});
+
+function generatedCoachOutput(generatedAt, bankId, questionId) {
+  return {
+    generatedAt,
+    generatedDecks: [{
+      bankId,
+      package: {
+        format: QUESTION_BANK_PACKAGE_FORMAT,
+        schemaVersion: QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
+        bank: {
+          questions: [{
+            id: questionId,
+            chapterTitle: "Synthetic source section",
+            subjectTitle: "Synthetic subject",
+            question: `Synthetic prompt for ${questionId}?`,
+            choices: ["One", "Two"],
+            choiceLetters: ["A", "B"],
+            correctLetter: "A",
+            explanation: "Synthetic explanation.",
+          }],
+        },
+      },
+    }],
+  };
+}
+
+test("Cloudflare materializes successive coach outputs into one cumulative cloud bank", async () => {
+  let cloudPackage = null;
+  const expectedHeads = [];
+  const expectedEmptyHeads = [];
+  const deckHandler = async (request) => {
+    if (request.method === "GET") {
+      return cloudPackage
+        ? new Response(JSON.stringify(cloudPackage), { status: 200 })
+        : new Response(JSON.stringify({ error: "Deck not found" }), { status: 404 });
+    }
+    expectedHeads.push(request.headers.get("x-abpn-expected-head-checksum"));
+    expectedEmptyHeads.push(request.headers.get("x-abpn-expect-no-head"));
+    cloudPackage = JSON.parse(await request.text());
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+  const request = new Request("https://study.example/api/assistant/study-coach/output", {
+    headers: { "x-abpn-device-id": "device-123" },
+  });
+
+  const first = await materializeGeneratedDecksInCloud(
+    generatedCoachOutput("2026-09-01T12:00:00.000Z", "cycle-1", "coach-q1"),
+    request,
+    {},
+    {},
+    { deckHandler },
+  );
+  assert.equal(first.status, "published");
+  assert.equal(first.bank.questions.length, 1);
+  assert.equal(expectedHeads[0], null);
+  assert.equal(expectedEmptyHeads[0], "true");
+
+  const firstChecksum = cloudPackage.bank.checksum;
+  const second = await materializeGeneratedDecksInCloud(
+    generatedCoachOutput("2026-09-01T13:00:00.000Z", "cycle-2", "coach-q2"),
+    request,
+    {},
+    {},
+    { deckHandler },
+  );
+  assert.equal(second.status, "published");
+  assert.equal(second.bank.questions.length, 2);
+  assert.equal(expectedHeads[1], firstChecksum);
+  assert.equal(expectedEmptyHeads[1], null);
+  assert.deepEqual(cloudPackage.bank.questions.map((question) => question.id), ["coach-q1", "coach-q2"]);
+
+  const repeated = await materializeGeneratedDecksInCloud(
+    generatedCoachOutput("2026-09-01T13:00:00.000Z", "cycle-2", "coach-q2"),
+    request,
+    {},
+    {},
+    { deckHandler },
+  );
+  assert.equal(repeated.status, "unchanged");
+  assert.equal(cloudPackage.bank.questions.length, 2);
+  assert.equal(expectedHeads.length, 2);
+});
+
+test("Cloudflare materialization retries one stale-head conflict and then settles", async () => {
+  let cloudPackage = null;
+  let putAttempts = 0;
+  const deckHandler = async (request) => {
+    if (request.method === "GET") {
+      return cloudPackage
+        ? new Response(JSON.stringify(cloudPackage), { status: 200 })
+        : new Response(JSON.stringify({ error: "Deck not found" }), { status: 404 });
+    }
+    putAttempts += 1;
+    if (putAttempts === 1) {
+      return new Response(JSON.stringify({ error: "Deck head changed" }), { status: 409 });
+    }
+    cloudPackage = JSON.parse(await request.text());
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+  const result = await materializeGeneratedDecksInCloud(
+    generatedCoachOutput("2026-09-01T14:00:00.000Z", "cycle-retry", "coach-retry-q1"),
+    new Request("https://study.example/api/assistant/study-coach/output", {
+      headers: { "x-abpn-device-id": "device-123" },
+    }),
+    {},
+    {},
+    { deckHandler },
+  );
+  assert.equal(result.status, "published");
+  assert.equal(putAttempts, 2);
+  assert.equal(cloudPackage.bank.questions.length, 1);
 });

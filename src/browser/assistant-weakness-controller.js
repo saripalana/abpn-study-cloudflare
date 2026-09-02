@@ -19,6 +19,7 @@ import {
   STUDY_COACH_BANK_ID,
 } from "./client/study-coach-deck-library.js";
 import { QUESTION_BANKS } from "./banks/catalog.js";
+import { reconcileStudyCoachCloudDeck } from "./client/deck-library.js";
 import {
   banksForOverallMetrics,
   includeStudyCoachInOverallMetrics,
@@ -194,12 +195,17 @@ async function installGeneratedDecks(output) {
   });
   if (!update.changed) return [];
   const [installed] = await installQuestionBankPackagesAtomically([update.package], { reservedIds });
+  const cloudReconciliation = await reconcileStudyCoachCloudDeck({
+    localBank: installed.bank,
+    reservedIds,
+  });
   return [{
     title: update.testTitle,
     bankId: installed.bank.id,
     questionCount: update.addedQuestions,
     totalQuestionCount: installed.bank.questions.length,
     status: installed.status,
+    cloudStatus: cloudReconciliation.status,
   }];
 }
 
@@ -290,7 +296,7 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
       await refreshCoachDeckView();
     }
     packageStatusNode.textContent = installedDecks.length
-      ? `${message} Added ${installedDecks.map((deck) => `${deck.title} (${deck.questionCount} new; ${deck.totalQuestionCount} total)`).join(", ")} to the Study Coach Question Bank in the Deck Library.`
+      ? `${message} Added ${installedDecks.map((deck) => `${deck.title} (${deck.questionCount} new; ${deck.totalQuestionCount} total)`).join(", ")} to the Study Coach Question Bank in the Deck Library and reconciled it with Cloudflare${installedDecks.some((deck) => deck.cloudStatus === "queued") ? " (cloud update queued until connectivity returns)" : ""}.`
       : message;
   };
 
@@ -350,7 +356,7 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
   pullOutput?.addEventListener("click", async () => {
     pullOutput.disabled = true;
     try {
-      const result = await request("/api/assistant/study-coach/output");
+      const result = await request("/api/assistant/study-coach/output/materialize", { method: "POST" });
       const protectedBanks = protectedStudyCoachBanks(currentBanks);
       const preparedOutput = await prepareStudyCoachOutput(result.output, {
         reservedIds: protectedBanks.map((bank) => bank.id),
@@ -358,7 +364,7 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
       });
       status = await request("/api/assistant/study-coach/permission");
       render();
-      await applyImportedOutput(preparedOutput, `Latest Study Coach output pulled from Cloudflare: ${formatTimestamp(result.file?.createdAt)}.`);
+      await applyImportedOutput(preparedOutput, `Latest Study Coach output materialized and pulled from Cloudflare: ${formatTimestamp(result.file?.createdAt)}.`);
     } catch (error) {
       packageStatusNode.textContent = `Cloudflare coach-output pull failed: ${error.message}`;
     } finally {

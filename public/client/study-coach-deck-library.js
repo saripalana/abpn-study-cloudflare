@@ -1,4 +1,4 @@
-import { stableStringify } from "./question-bank-import.js";
+import { questionFingerprint, stableStringify } from "./question-bank-import.js";
 
 export const STUDY_COACH_BANK_ID = "study-coach-question-bank";
 export const STUDY_COACH_BANK_TITLE = "Study Coach Question Bank";
@@ -25,6 +25,85 @@ function nextTestNumber(existingQuestions = []) {
     const match = String(question?.chapterTitle || "").match(/^Study Coach Test (\d+)/i);
     return match ? Math.max(highest, Number(match[1])) : highest;
   }, 0) + 1;
+}
+
+function stableQuestionSetToken(questions) {
+  const value = questions.map((question) => question.id).sort().join("|");
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function reconciliationVersion(questions) {
+  const highestTest = Math.max(0, nextTestNumber(questions) - 1);
+  return `1.${highestTest}.${questions.length}.${stableQuestionSetToken(questions)}`;
+}
+
+function assertCanonicalBank(bank, side) {
+  if (!bank) return;
+  if (!isCanonicalStudyCoachBank(bank)) throw new Error(`${side} bank is not the canonical Study Coach bank.`);
+  if (bank.sourceType !== "assistant-supplemental" || bank.contentClass !== "assistant-supplemental") {
+    throw new Error(`${side} Study Coach bank has an incompatible content classification.`);
+  }
+}
+
+export function reconcileStudyCoachBanks({ localBank = null, remoteBank = null } = {}) {
+  assertCanonicalBank(localBank, "Local");
+  assertCanonicalBank(remoteBank, "Cloud");
+  if (!localBank && !remoteBank) return { status: "absent", bank: null, addedLocally: 0, addedRemotely: 0 };
+  if (!localBank) {
+    return { status: "remote-ahead", bank: remoteBank, addedLocally: remoteBank.questions.length, addedRemotely: 0 };
+  }
+  if (!remoteBank) {
+    return { status: "local-ahead", bank: localBank, addedLocally: 0, addedRemotely: localBank.questions.length };
+  }
+  if (localBank.checksum && localBank.checksum === remoteBank.checksum) {
+    return { status: "current", bank: localBank, addedLocally: 0, addedRemotely: 0 };
+  }
+
+  const localById = new Map(localBank.questions.map((question) => [question.id, question]));
+  const remoteById = new Map(remoteBank.questions.map((question) => [question.id, question]));
+  const conflictingIds = [];
+  for (const [id, localQuestion] of localById) {
+    const remoteQuestion = remoteById.get(id);
+    if (remoteQuestion && questionFingerprint(localQuestion) !== questionFingerprint(remoteQuestion)) {
+      conflictingIds.push(id);
+    }
+  }
+  if (conflictingIds.length) {
+    throw new Error(
+      `Study Coach reconciliation found ${conflictingIds.length} reused question id(s) with changed content. No copy was replaced.`
+    );
+  }
+
+  const remoteOnly = remoteBank.questions.filter((question) => !localById.has(question.id));
+  const localOnly = localBank.questions.filter((question) => !remoteById.has(question.id));
+  if (!remoteOnly.length && !localOnly.length) {
+    return { status: "equivalent", bank: localBank, addedLocally: 0, addedRemotely: 0 };
+  }
+  if (!remoteOnly.length) {
+    return { status: "local-ahead", bank: localBank, addedLocally: 0, addedRemotely: localOnly.length };
+  }
+  if (!localOnly.length) {
+    return { status: "remote-ahead", bank: remoteBank, addedLocally: remoteOnly.length, addedRemotely: 0 };
+  }
+
+  const questions = [...localBank.questions, ...remoteOnly];
+  return {
+    status: "merged",
+    addedLocally: remoteOnly.length,
+    addedRemotely: localOnly.length,
+    bank: {
+      ...localBank,
+      description: `Original adaptive ABPN-style questions generated from Study Coach learning cycles. ${questions.length} cumulative questions.`,
+      version: reconciliationVersion(questions),
+      questions,
+      checksum: "",
+    },
+  };
 }
 
 function organizedQuestion(question, { testNumber, groupKey, vignetteNumber }) {
