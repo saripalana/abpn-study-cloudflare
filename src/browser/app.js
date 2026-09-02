@@ -266,11 +266,29 @@ async function hydrateStoredSet(saved) {
   };
 }
 
-async function loadActiveSet(bankId) {
+function activeSetBelongsToBank(record, bankId) {
+  return Boolean(record)
+    && record.status === 'active'
+    && !record.submitted
+    && (record.bankId === bankId || record.selectedBankIds?.includes?.(bankId));
+}
+
+async function loadActiveSets(bankId) {
   const candidates = (await recordsByIndex(STORES.SETS, 'byStatus', 'active'))
-    .filter((record) => record.bankId === bankId || record.selectedBankIds?.includes?.(bankId))
+    .filter((record) => activeSetBelongsToBank(record, bankId))
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-  return hydrateStoredSet(candidates[0]);
+  const hydrated = await Promise.all(candidates.map(hydrateStoredSet));
+  return hydrated.filter(Boolean);
+}
+
+async function loadActiveSet(bankId) {
+  return (await loadActiveSets(bankId))[0] ?? null;
+}
+
+async function loadActiveSetById(setId, bankId) {
+  const saved = await getRecord(STORES.SETS, setId);
+  if (!activeSetBelongsToBank(saved, bankId)) return null;
+  return hydrateStoredSet(saved);
 }
 
 async function completedSetHistory(bankId) {
@@ -476,7 +494,7 @@ async function renderDashboard() {
     .filter((row) => row.total > 0)
     .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt))
       || naturalTitleCollator.compare(a.title, b.title));
-  const resumable = activeSet && !activeSet.submitted && (activeSet.bankId === activeBank.id || activeSet.selectedBankIds?.includes?.(activeBank.id));
+  const pendingSets = await loadActiveSets(activeBank.id);
   const categories = categoryEntries(activeBank);
   const sourceSections = activeBank.id === 'spiegel-test-prep' || activeBank.contentClass === 'assistant-supplemental'
     ? sourceSectionEntries(activeBank)
@@ -530,11 +548,28 @@ async function renderDashboard() {
       <div class="stat"><strong>${attempts ? formatSeconds(averageTimeMs) : '—'}</strong><span>Average time/question</span></div>
     </section>
 
-    ${resumable ? `
+    ${pendingSets.length ? `
       <section class="card">
-        <h3>Resume active set</h3>
-        <p class="muted">${activeSet.questionIds.length} questions · ${esc(activeSet.mode)} mode${activeSet.timed ? ` · ${formatTime(activeSet.remainingSeconds)} remaining` : ''}</p>
-        <div class="actions"><button id="resumeBtn" class="primary" type="button">Resume set</button></div>
+        <h3>Pending tests</h3>
+        <p class="muted">Each saved test keeps its own questions, answers, timing, and resume position.</p>
+        <div class="history-list pending-set-list">${pendingSets.map((set) => {
+          const answeredCount = [...set.answers.values()].filter(hasQuestionAnswer).length;
+          const remaining = Math.max(0, set.questionIds.length - answeredCount);
+          return `
+            <article class="pending-set-item" data-set-id="${esc(set.id)}">
+              <div class="history-score" aria-label="${answeredCount} of ${set.questionIds.length} answered">
+                <strong>${answeredCount}/${set.questionIds.length}</strong>
+                <span>answered</span>
+              </div>
+              <div class="history-details">
+                <div class="history-title"><strong>${set.mode === 'tutor' ? 'Tutor' : 'Test'} set · ${set.questionIds.length} questions</strong><span class="pill">Pending</span></div>
+                <small><strong>Decks:</strong> ${esc(practiceSetDeckLabel(banks, set))}</small>
+                ${specialCriteriaSummary(set.specialCriteria) ? `<small><strong>Special criteria:</strong> ${esc(specialCriteriaSummary(set.specialCriteria))}</small>` : ''}
+                <small>${set.timed ? `${formatTime(set.remainingSeconds)} remaining` : 'Untimed'} · ${remaining} unanswered · saved ${esc(formatDateTime(set.updatedAt || set.startedAt))}</small>
+              </div>
+              <div class="actions pending-set-actions"><button class="primary resume-set-btn" type="button" data-set-id="${esc(set.id)}">Resume set</button></div>
+            </article>`;
+        }).join('')}</div>
       </section>
     ` : ''}
 
@@ -866,7 +901,18 @@ async function renderDashboard() {
     });
     document.getElementById('questionBrowserEmpty').hidden = visible > 0;
   };
-  document.getElementById('resumeBtn')?.addEventListener('click', renderQuestion);
+  document.querySelectorAll('.resume-set-btn').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const selected = await loadActiveSetById(button.dataset.setId, activeBank.id);
+      if (!selected) return alert('That pending test could not be found for the selected question bank.');
+      activeSet = selected;
+      if (activeSet.timed && activeSet.remainingSeconds <= 0) {
+        await submitSet({ auto: true, showResults: true });
+      } else {
+        await renderQuestion();
+      }
+    });
+  });
   document.getElementById('activeBankSelect')?.addEventListener('change', (event) => {
     const selectedBank = banks.find((bank) => isUserSelectableDeck(bank) && bank.id === event.target.value);
     if (!selectedBank || selectedBank.id === activeBank.id) return;
@@ -1054,12 +1100,6 @@ async function renderDashboard() {
 }
 
 async function startSet() {
-  if (activeSet && !activeSet.submitted && !confirm(
-    'Replace the current active set?\n\nIts saved answers will remain in local history, but it will no longer be resumable.'
-  )) return;
-
-  if (activeSet && !activeSet.submitted) await saveActiveSet('abandoned');
-
   const categories = selectedSubjectCategories();
   const sourceSections = selectedSourceSections();
   if (!categories.length) return alert('Select at least one subject before starting a practice set.');
@@ -1140,11 +1180,6 @@ async function startSet() {
 }
 
 async function openSpecificQuestion(questionId) {
-  if (activeSet && !activeSet.submitted && !confirm(
-    'Replace the current active set?\n\nIts saved answers will remain in local history, but it will no longer be resumable.'
-  )) return;
-  if (activeSet && !activeSet.submitted) await saveActiveSet('abandoned');
-
   const selected = activeBank.questions.find((question) => question.id === questionId);
   if (!selected) return alert('That question is no longer available in the selected deck.');
   // Preserve an ordered linked-question group as one indivisible study set.

@@ -1,7 +1,6 @@
 import {
   deleteSavedSet,
   getLastDestructiveAction,
-  latestActiveSet,
   resetQuestionBankData,
   undoLastDestructiveAction,
 } from "./client/data-management.js";
@@ -44,30 +43,30 @@ function describeAction(action) {
   return `deleted completed test in ${label}`;
 }
 
-async function discardActiveSet(bank) {
-  const set = await latestActiveSet(bank.id);
-  if (!set) {
-    alert("No active set was found for this deck.");
-    location.reload();
-    return;
-  }
+async function discardPendingSet(button, bank) {
+  const setId = button.dataset.setId;
+  if (!setId) return alert("That pending test could not be identified.");
+  const description = button.closest(".pending-set-item")?.querySelector(".history-details")?.innerText?.trim()
+    || "this pending test";
 
   const confirmed = confirm([
-    `Discard the active set for ${bank.label}?`,
+    `Discard this pending test from ${bank.label}?`,
     "",
-    "The saved set and its answers will be removed from Resume active set.",
+    description,
+    "",
+    "The saved test and its answers will be removed from Pending tests.",
     "Question progress already recorded in Tutor mode will remain in cumulative analytics.",
     "A recovery snapshot will be created first, and this action can be undone from Data protection.",
   ].join("\n"));
   if (!confirmed) return;
 
   await deleteSavedSet({
-    setId: set.id,
+    setId,
     bankId: bank.id,
     label: bank.label,
     type: "discard-active-set",
   });
-  alert("The active set was discarded safely. Use Undo last deletion/reset in Data protection to restore it.");
+  alert("The pending test was discarded safely. Use Undo last deletion/reset in Data protection to restore it.");
   reloadAfterDestructiveAction();
 }
 
@@ -155,16 +154,16 @@ async function attachControls() {
     const bank = selectedBank();
     if (!bank) return;
 
-    const resumeSection = sectionByHeading("Resume active set");
-    const resumeActions = resumeSection?.querySelector(".actions");
-    if (resumeActions && !resumeActions.querySelector("#discardActiveSetBtn")) {
+    for (const article of app.querySelectorAll(".pending-set-item")) {
+      const actions = article.querySelector(".pending-set-actions");
+      if (!actions || actions.querySelector(".discard-pending-set-btn")) continue;
       const button = document.createElement("button");
-      button.id = "discardActiveSetBtn";
-      button.className = "danger";
+      button.className = "danger discard-pending-set-btn";
       button.type = "button";
-      button.textContent = "Discard active set";
-      button.addEventListener("click", () => discardActiveSet(bank).catch(showError));
-      resumeActions.append(button);
+      button.dataset.setId = article.dataset.setId;
+      button.textContent = "Discard test";
+      button.addEventListener("click", () => discardPendingSet(button, bank).catch(showError));
+      actions.append(button);
     }
 
     for (const article of app.querySelectorAll(".history-item")) {

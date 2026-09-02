@@ -96,7 +96,8 @@ async function deleteSetAndAnswers(setId) {
 export async function deleteSavedSet({ setId, bankId, label, type = "delete-completed-set" }) {
   if (!setId || !bankId) throw new Error("A saved set and question bank are required.");
   const set = await getRecord(STORES.SETS, setId);
-  if (!set || set.bankId !== bankId) throw new Error("The selected saved set could not be found.");
+  const belongsToBank = set?.bankId === bankId || set?.selectedBankIds?.includes?.(bankId);
+  if (!set || !belongsToBank) throw new Error("The selected saved set could not be found.");
 
   const context = { type, setId, bankId, label: label || "saved set" };
   const snapshot = await snapshotForAction(`before-${type}`, context);

@@ -868,7 +868,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 
 .history-list { display: grid; gap: 10px; }
 
-.history-item {
+:is(.history-item, .pending-set-item) {
   display: grid;
   grid-template-columns: 78px minmax(0, 1fr) auto;
   gap: 14px;
@@ -1016,7 +1016,7 @@ footer {
   .recovery-destinations { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 1fr; }
   .hero { flex-direction: column; }
-  .history-item { grid-template-columns: 68px minmax(0, 1fr); }
+  :is(.history-item, .pending-set-item) { grid-template-columns: 68px minmax(0, 1fr); }
   .review-history-btn { grid-column: 1 / -1; width: 100%; }
 }
 
@@ -1062,7 +1062,7 @@ footer {
   .choice { min-height: 48px; }
   .question-actions { align-items: stretch; }
   .question-actions button { flex: 1 1 140px; }
-  .history-item { grid-template-columns: 1fr; }
+  :is(.history-item, .pending-set-item) { grid-template-columns: 1fr; }
   .history-score { min-height: 56px; grid-template-columns: auto auto; gap: 7px; }
   .result-stats { grid-template-columns: 1fr; }
   .section-heading { align-items: center; }

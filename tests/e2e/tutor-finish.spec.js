@@ -172,7 +172,7 @@ test('Tutor mode supports confirmed submission at any point, answer states, and 
   expect(stored.answerCount).toBe(1);
 
   await page.locator('#finishBtn').click();
-  await expect(page.getByText('Resume active set')).toHaveCount(0);
+  await expect(page.getByText('Pending tests')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'History / Previous tests' })).toBeVisible();
   await expect(page.locator('.history-item')).toHaveCount(1);
   await expect(page.locator('.history-item')).toContainText('1 answered');
