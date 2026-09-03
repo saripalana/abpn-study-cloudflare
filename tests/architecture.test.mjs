@@ -260,6 +260,19 @@ test("startup import remains disabled until its file handler is attached", async
   assert.match(controller, /await deckCatalogReady/);
 });
 
+test("primary local deck catalog startup is not treated as optional cloud work", async () => {
+  const bootstrap = await read("src/browser/bootstrap.js");
+  assert.doesNotMatch(bootstrap, /LOCAL_STARTUP_TIMEOUT_MS/);
+  assert.doesNotMatch(bootstrap, /Local deck startup timed out/);
+  assert.match(bootstrap, /const CLOUD_STARTUP_TIMEOUT_MS = 5_000/);
+  assert.match(bootstrap, /await withStartupTimeout\(\(async \(\) => \{/);
+  assert.ok(
+    bootstrap.indexOf("const definitions = await loadAvailableDecks()")
+      < bootstrap.indexOf("await withStartupTimeout((async () => {"),
+    "the authoritative local catalog must load before optional cloud catalog work is timeout-bounded",
+  );
+});
+
 test("Cloudflare Access JWT validation is the outer request gateway", async () => {
   const [accessWorker, wrangler, packageJson] = await Promise.all([
     read("src/access-worker.js"),
