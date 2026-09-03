@@ -26,6 +26,13 @@ import {
   INCLUDE_STUDY_COACH_METRICS_KEY,
   includeStudyCoachInOverallMetrics,
 } from './client/study-coach-metrics-scope.js';
+import {
+  DEFAULT_SECONDS_PER_QUESTION,
+  MIN_SECONDS_PER_QUESTION,
+  MAX_SECONDS_PER_QUESTION,
+  normalizeSecondsPerQuestion,
+  secondsPerQuestionLabel,
+} from './client/timing-settings.js';
 
 // ABPN_MULTI_DECK_RUNTIME_APP_PATCH_V1
 // ABPN_MULTI_DECK_RESULTS_CORRECTNESS_PATCH_V1
@@ -201,6 +208,7 @@ function loadBuilderSettings(bank, categories, sourceSections = []) {
     count: Math.min(requestedCount, bank.questions.length),
     mode: ['test', 'tutor'].includes(saved.mode) ? saved.mode : 'test',
     timing: ['timed', 'untimed'].includes(saved.timing) ? saved.timing : 'timed',
+    secondsPerQuestion: normalizeSecondsPerQuestion(saved.secondsPerQuestion ?? saved.timedSecondsPerQuestion),
     pools: pools.length ? pools : ['all'],
     randomized: typeof saved.randomized === 'boolean' ? saved.randomized : pools.includes('all'),
     categories: selectedCategories,
@@ -590,7 +598,12 @@ async function renderDashboard() {
             </div>
             <div class="field">
               <label for="timingSelect">Timing</label>
-              <select id="timingSelect"><option value="timed" ${builder.timing === 'timed' ? 'selected' : ''}>Timed at 70.6 sec/question</option><option value="untimed" ${builder.timing === 'untimed' ? 'selected' : ''}>Untimed</option></select>
+              <select id="timingSelect"><option value="timed" ${builder.timing === 'timed' ? 'selected' : ''}>Timed</option><option value="untimed" ${builder.timing === 'untimed' ? 'selected' : ''}>Untimed</option></select>
+            </div>
+            <div id="timedSecondsPerQuestionField" class="field timed-seconds-field" data-hidden="${builder.timing === 'timed' ? 'false' : 'true'}">
+              <label for="timedSecondsPerQuestionInput">Seconds/question</label>
+              <input id="timedSecondsPerQuestionInput" type="number" min="${MIN_SECONDS_PER_QUESTION}" max="${MAX_SECONDS_PER_QUESTION}" step="0.1" value="${builder.secondsPerQuestion}">
+              <small class="muted">Default ${secondsPerQuestionLabel(DEFAULT_SECONDS_PER_QUESTION)}. Applies to new timed tests.</small>
             </div>
             <div class="field question-status-field">
               <span class="field-label">Question status</span>
@@ -942,6 +955,8 @@ async function renderDashboard() {
   const countInput = document.getElementById('countInput');
   const modeSelect = document.getElementById('modeSelect');
   const timingSelect = document.getElementById('timingSelect');
+  const timedSecondsPerQuestionField = document.getElementById('timedSecondsPerQuestionField');
+  const timedSecondsPerQuestionInput = document.getElementById('timedSecondsPerQuestionInput');
   const randomizeOrder = document.getElementById('randomizeOrder');
   const rangeStartInput = document.getElementById('rangeStartInput');
   const rangeEndInput = document.getElementById('rangeEndInput');
@@ -955,6 +970,10 @@ async function renderDashboard() {
   let preferredCount = builder.count;
   let availabilityRevision = 0;
   let lastEligibleCount = 0;
+
+  const updateTimedSecondsPerQuestionVisibility = () => {
+    timedSecondsPerQuestionField.dataset.hidden = timingSelect.value === 'timed' ? 'false' : 'true';
+  };
 
   const readSpecialCriteria = () => normalizeSpecialTestCriteria({
     rangeStart: rangeStartInput.value,
@@ -970,6 +989,7 @@ async function renderDashboard() {
       count: preferredCount,
       mode: modeSelect.value,
       timing: timingSelect.value,
+      secondsPerQuestion: normalizeSecondsPerQuestion(timedSecondsPerQuestionInput.value),
       pools: selectedQuestionStatuses(),
       randomized: randomizeOrder.checked,
       categories: selectedCategories.length === categories.length ? null : selectedCategories,
@@ -1107,7 +1127,15 @@ async function renderDashboard() {
     persistBuilderSettings();
   });
   modeSelect.addEventListener('change', persistBuilderSettings);
-  timingSelect.addEventListener('change', persistBuilderSettings);
+  timingSelect.addEventListener('change', () => {
+    updateTimedSecondsPerQuestionVisibility();
+    persistBuilderSettings();
+  });
+  timedSecondsPerQuestionInput.addEventListener('input', persistBuilderSettings);
+  timedSecondsPerQuestionInput.addEventListener('change', () => {
+    timedSecondsPerQuestionInput.value = String(normalizeSecondsPerQuestion(timedSecondsPerQuestionInput.value));
+    persistBuilderSettings();
+  });
   questionStatusInputs.forEach((input) => input.addEventListener('change', () => {
     const allInput = questionStatusInputs.find((candidate) => candidate.value === 'all');
     if (input.value === 'all' && input.checked) {
@@ -1146,6 +1174,7 @@ async function startSet() {
   const count = document.getElementById('countInput').value;
   const mode = document.getElementById('modeSelect').value;
   const timed = document.getElementById('timingSelect').value === 'timed';
+  const secondsPerQuestion = normalizeSecondsPerQuestion(document.getElementById('timedSecondsPerQuestionInput').value);
   const randomized = document.getElementById('randomizeOrder').checked;
   const specialCriteria = normalizeSpecialTestCriteria({
     rangeStart: document.getElementById('rangeStartInput').value,
@@ -1169,15 +1198,17 @@ async function startSet() {
     count,
     mode,
     timed,
+    secondsPerQuestion,
     now,
     id,
     random: Math.random,
     randomized,
     specialCriteria,
-    createSingleDeckSet: async ({ activeBank: selectedBank, pool: selectedPool, count: requestedCount, mode: selectedMode, timed: isTimed, now: startedAt, id: setId, random, randomized: randomizeQuestions, categories: selectedCategories, specialCriteria: selectedSpecialCriteria }) => {
+    createSingleDeckSet: async ({ activeBank: selectedBank, pool: selectedPool, count: requestedCount, mode: selectedMode, timed: isTimed, secondsPerQuestion: selectedSecondsPerQuestion, now: startedAt, id: setId, random, randomized: randomizeQuestions, categories: selectedCategories, specialCriteria: selectedSpecialCriteria }) => {
       const progress = await progressMap(selectedBank.id);
       const ids = chooseQuestionIds(selectedBank, progress, selectedPool, requestedCount, random, selectedCategories, randomizeQuestions, selectedSpecialCriteria);
       if (!ids.length) return null;
+      const normalizedSecondsPerQuestion = normalizeSecondsPerQuestion(selectedSecondsPerQuestion);
       return {
         id: setId,
         bankId: selectedBank.id,
@@ -1185,7 +1216,7 @@ async function startSet() {
         index: 0,
         mode: selectedMode,
         timed: isTimed,
-        remainingSeconds: isTimed ? Math.ceil(ids.length * 70.6) : 0,
+        remainingSeconds: isTimed ? Math.ceil(ids.length * normalizedSecondsPerQuestion) : 0,
         submitted: false,
         startedAt,
         completedAt: null,

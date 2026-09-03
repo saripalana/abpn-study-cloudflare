@@ -1,6 +1,7 @@
 import { chooseMultiDeckQuestionRefs, decodeQuestionRef } from "./multi-deck-practice.js";
 import { createMultiDeckSetRecord } from "./multi-deck-set.js";
 import { selectedDecksForScope } from "./multi-deck-builder.js";
+import { normalizeSecondsPerQuestion } from "./timing-settings.js";
 
 export function selectedProgressByBank(selectedDecks, progressByBank = new Map()) {
   return new Map(selectedDecks.map((deck) => [deck.id, progressByBank.get(deck.id) || new Map()]));
@@ -16,6 +17,7 @@ export function createCombinedPracticeSet({
   count,
   mode,
   timed,
+  secondsPerQuestion,
   now = new Date().toISOString(),
   id = crypto.randomUUID(),
   random = Math.random,
@@ -43,7 +45,7 @@ export function createCombinedPracticeSet({
     selectedBankIds,
     mode,
     timed,
-    remainingSeconds: timed ? Math.ceil(references.length * 70.6) : 0,
+    remainingSeconds: timed ? Math.ceil(references.length * normalizeSecondsPerQuestion(secondsPerQuestion)) : 0,
     startedAt: now,
     updatedAt: now,
     specialCriteria,
