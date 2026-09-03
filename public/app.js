@@ -251,11 +251,11 @@ async function hydrateStoredSet(saved) {
 
   const savedAnswers = await recordsByIndex(STORES.ANSWERS, 'bySet', saved.id);
   const answers = new Map(savedAnswers.map((answer) => [answer.questionId, answer]));
-  let remainingSeconds = Number(saved.remainingSeconds ?? 0);
-  if (saved.status === 'active' && saved.timed && !saved.submitted && saved.updatedAt) {
-    const elapsed = Math.max(0, Math.floor((Date.now() - new Date(saved.updatedAt).getTime()) / 1000));
-    remainingSeconds = Math.max(0, remainingSeconds - elapsed);
-  }
+  // Timed practice sets are intentionally paused whenever the question screen is
+  // not open. The running interval is the only timer writer; hydration must
+  // trust the last persisted remainingSeconds so Save and exit, reload, sync, or
+  // restore cannot silently spend time while the set is parked on the dashboard.
+  const remainingSeconds = Math.max(0, Number(saved.remainingSeconds ?? 0));
 
   return {
     ...normalized,
