@@ -1,4 +1,5 @@
 import { isQuestionAnswerCorrect, normalizeBank, selectedAnswerLetters } from "./study-engine.js";
+import { decodeQuestionRef } from "./multi-deck-practice.js";
 import {
   STORES,
   getAllRecords,
@@ -248,6 +249,21 @@ export function analyzeQuestionBankUpdate(existing, incoming, {
   };
 }
 
+function correctionMarkerKey(bankId, checksum) {
+  return `catalogReconciliation:${bankId}:${checksum}`;
+}
+
+function resolvedAnswerQuestionId(answer, parentSet, bankId) {
+  if (!answer?.questionId || !parentSet) return null;
+  if (parentSet.bankId === bankId) return String(answer.questionId);
+  try {
+    const decoded = decodeQuestionRef(answer.questionId);
+    return decoded.bankId === bankId ? decoded.questionId : null;
+  } catch {
+    return null;
+  }
+}
+
 function installationRecords(incoming, existing, now) {
   const installed = { ...incoming, importedAt: existing?.importedAt || incoming.importedAt || now, updatedAt: now };
   return {
@@ -299,22 +315,24 @@ export async function installQuestionBankPackagesAtomically(packages, {
 
   const states = await Promise.all(preparedPackages.map(async (packageRecord) => {
     const incoming = packageRecord.bank;
-    const [existing, progress, sets] = await Promise.all([
+    const [existing, progress, sets, allSets, answers] = await Promise.all([
       getRecord(STORES.BANK_CONTENT, incoming.id),
       recordsByIndex(STORES.PROGRESS, "byBank", incoming.id),
       recordsByIndex(STORES.SETS, "byBank", incoming.id),
+      getAllRecords(STORES.SETS),
+      getAllRecords(STORES.ANSWERS),
     ]);
     const analysis = analyzeQuestionBankUpdate(existing, incoming, {
       hasStudyData: progress.length > 0 || sets.length > 0,
       allowVerifiedCatalogSeedUpdate,
     });
-    return { incoming, existing, progress, analysis };
+    return { incoming, existing, progress, sets, allSets, answers, analysis };
   }));
 
   const now = new Date().toISOString();
   const operations = states.map((state) => state.analysis.status === "unchanged"
     ? { ...state, records: null }
-    : { ...state, records: installationRecords(state.incoming, state.existing, now) });
+    : { ...state, records: installationRecords(state.incoming, state.existing, now), repairedProgress: 0, repairedAnswers: 0 });
   if (operations.every((entry) => !entry.records)) {
     return operations.map((entry) => ({ ...entry.analysis, bank: entry.existing }));
   }
@@ -326,7 +344,9 @@ export async function installQuestionBankPackagesAtomically(packages, {
       STORES.BANK_REVISIONS,
       STORES.BANKS,
       STORES.PROGRESS,
+      STORES.ANSWERS,
       STORES.OUTBOX,
+      STORES.META,
     ], "readwrite");
     for (const operation of operations) {
       if (!operation.records) continue;
@@ -348,6 +368,9 @@ export async function installQuestionBankPackagesAtomically(packages, {
       transaction.objectStore(STORES.BANKS).put(operation.records.metadata);
       if (operation.analysis.verifiedCatalogSeedUpdate) {
         const questionById = new Map(operation.records.installed.questions.map((question) => [question.id, question]));
+        const setsById = new Map(operation.allSets.map((set) => [set.id, set]));
+        let repairedProgress = 0;
+        let repairedAnswers = 0;
         for (const progress of operation.progress) {
           const question = questionById.get(progress.questionId);
           if (!question || !selectedAnswerLetters(progress.selectedAnswer).length) continue;
@@ -368,7 +391,44 @@ export async function installQuestionBankPackagesAtomically(packages, {
             payload: updated,
             createdAt: now,
           });
+          repairedProgress += 1;
         }
+        for (const answer of operation.answers) {
+          const parentSet = setsById.get(answer.setId);
+          const questionId = resolvedAnswerQuestionId(answer, parentSet, operation.records.installed.id);
+          if (!questionId || !selectedAnswerLetters(answer.selectedAnswer).length) continue;
+          const question = questionById.get(questionId);
+          if (!question) continue;
+          const isCorrect = isQuestionAnswerCorrect(question, answer.selectedAnswer);
+          if (answer.isCorrect === isCorrect) continue;
+          const updated = {
+            ...answer,
+            isCorrect,
+            revision: Number(answer.revision ?? 0) + 1,
+            updatedAt: now,
+          };
+          transaction.objectStore(STORES.ANSWERS).put(updated);
+          transaction.objectStore(STORES.OUTBOX).put({
+            id: `practiceSetAnswer:${updated.setId}:${updated.questionId}`,
+            entityType: "practiceSetAnswer",
+            entityKey: `${updated.setId}:${updated.questionId}`,
+            operation: "upsert",
+            payload: updated,
+            createdAt: now,
+          });
+          repairedAnswers += 1;
+        }
+        operation.repairedProgress = repairedProgress;
+        operation.repairedAnswers = repairedAnswers;
+        transaction.objectStore(STORES.META).put({
+          key: correctionMarkerKey(operation.records.installed.id, operation.records.installed.checksum),
+          bankId: operation.records.installed.id,
+          checksum: operation.records.installed.checksum,
+          version: operation.records.installed.version,
+          repairedProgress,
+          repairedAnswers,
+          updatedAt: now,
+        });
       }
     }
     await transactionDone(transaction);
@@ -379,6 +439,8 @@ export async function installQuestionBankPackagesAtomically(packages, {
   return operations.map((operation) => ({
     ...operation.analysis,
     bank: operation.records?.installed || operation.existing,
+    repairedProgress: operation.repairedProgress || 0,
+    repairedAnswers: operation.repairedAnswers || 0,
   }));
 }
 

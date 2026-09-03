@@ -19,6 +19,23 @@ const ksChoiceNormalization = Object.freeze({
   expectedQuestionIds: Object.freeze(['k-33.18', 'k-34.28']),
 });
 
+const ksAnswerKeyCorrections = Object.freeze({
+  // The pinned K&S source has a small set of reviewed answer-key letters that
+  // disagree with the source rationale. Keep this as a narrow, auditable overlay
+  // instead of editing generated output or changing stable question IDs.
+  id: 'reviewed-answer-key-overlay-v1',
+  corrections: Object.freeze({
+    'k-10.4': Object.freeze(['D']),
+    'k-19.12': Object.freeze(['E']),
+    'k-19.15': Object.freeze(['C']),
+    'k-23.9': Object.freeze(['D']),
+    'k-28.1': Object.freeze(['C']),
+    'k-28.8': Object.freeze(['D']),
+    'k-31.2': Object.freeze(['C']),
+    'k-32.10': Object.freeze(['D']),
+  }),
+});
+
 const spiegelSource = Object.freeze({
   repository: 'dancingremote/spiegel-test-prep',
   commit: '67922b76a181f7aaa15e9b74e18850019add360b',
@@ -118,7 +135,32 @@ const normalizedQuestionIds = choiceNormalizationResults
 if (JSON.stringify(normalizedQuestionIds) !== JSON.stringify([...ksChoiceNormalization.expectedQuestionIds].sort())) {
   throw new Error(`K&S duplicate-choice scope changed: expected ${ksChoiceNormalization.expectedQuestionIds.length} reviewed records, received ${normalizedQuestionIds.length}`);
 }
-const questions = choiceNormalizationResults.map((result) => result.question);
+function applyReviewedAnswerKeyCorrections(question) {
+  const correction = ksAnswerKeyCorrections.corrections[question.id];
+  if (!correction) return question;
+  const choiceLetters = Array.isArray(question.choiceLetters)
+    ? question.choiceLetters.map(String)
+    : question.choices.map((_, index) => String.fromCharCode(65 + index));
+  if (correction.some((letter) => !choiceLetters.includes(letter))) {
+    throw new Error(`K&S answer-key correction references a missing choice letter for ${question.id}`);
+  }
+  return {
+    ...question,
+    correctLetter: correction[0],
+    correctLetters: [...correction],
+    isMultiSelect: correction.length > 1,
+  };
+}
+
+const questions = choiceNormalizationResults.map((result) => applyReviewedAnswerKeyCorrections(result.question));
+
+const appliedAnswerKeyCorrectionIds = questions
+  .filter((question) => Object.hasOwn(ksAnswerKeyCorrections.corrections, question.id))
+  .map((question) => question.id)
+  .sort();
+if (JSON.stringify(appliedAnswerKeyCorrectionIds) !== JSON.stringify(Object.keys(ksAnswerKeyCorrections.corrections).sort())) {
+  throw new Error(`K&S answer-key correction scope changed: expected ${Object.keys(ksAnswerKeyCorrections.corrections).length} records, applied ${appliedAnswerKeyCorrectionIds.length}`);
+}
 
 const ids = new Set();
 for (const [index, question] of questions.entries()) {
@@ -164,11 +206,11 @@ const bank = {
   title: 'K&S Psychiatry Question Bank',
   shortTitle: 'K&S Psychiatry',
   description: 'Kaplan & Sadock psychiatry review questions for personal board preparation.',
-  version: `${ksSource.commit}-dedupe-v1`,
+  version: `${ksSource.commit}-ak1`,
   source: {
     ...ksSource,
     verifiedGitBlobSha: gitBlobSha,
-    transformations: [ksChoiceNormalization.id],
+    transformations: [ksChoiceNormalization.id, ksAnswerKeyCorrections.id],
   },
   questions,
 };
