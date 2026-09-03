@@ -305,7 +305,7 @@ test('tutor mode reveals feedback immediately and records analytics', async ({ p
   await expect(page.getByRole('columnheader', { name: 'Test section' })).toBeVisible();
 });
 
-test('timed set continues counting down across reload', async ({ page }) => {
+test('timed set pauses while saved and exited', async ({ page }) => {
   await useValidationBank(page);
   await page.locator('#countInput').fill('1');
   await page.locator('#modeSelect').selectOption('test');
@@ -315,12 +315,16 @@ test('timed set continues counting down across reload', async ({ page }) => {
   const before = await page.locator('#timer').textContent();
   await page.waitForTimeout(2200);
   await page.getByRole('button', { name: 'Save and exit' }).click();
+  const saved = await page.locator('.pending-set-item small').filter({ hasText: 'remaining' }).textContent();
   await page.reload();
+  await page.waitForTimeout(2200);
   await page.getByRole('button', { name: 'Resume set' }).click();
   const after = await page.locator('#timer').textContent();
 
   const toSeconds = (value) => value.split(':').reduce((total, part) => total * 60 + Number(part), 0);
+  const savedSeconds = toSeconds(saved.match(/\d+(?::\d+)+/)[0]);
   expect(toSeconds(after)).toBeLessThan(toSeconds(before));
+  expect(toSeconds(after)).toBe(savedSeconds);
 });
 
 test('bank switching does not expose another bank active set', async ({ page }) => {
