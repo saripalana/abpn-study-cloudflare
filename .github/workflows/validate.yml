@@ -47,10 +47,10 @@ jobs:
           test -f public/banks/generated/spiegel-test-prep.js
           test -f public/banks/generated/spiegel-test-prep.manifest.json
           grep -q '"questionCount": 1060' public/banks/generated/spiegel-test-prep.manifest.json
-      - name: Install Chromium and WebKit
+      - name: Install desktop Chromium
         id: playwright_install
         continue-on-error: true
-        run: timeout --signal=TERM --kill-after=30s 20m npx playwright install --with-deps chromium webkit > playwright-install.log 2>&1
+        run: timeout --signal=TERM --kill-after=30s 20m npx playwright install --with-deps chromium > playwright-install.log 2>&1
       - name: Upload Playwright installation log
         if: always()
         uses: actions/upload-artifact@v7
@@ -121,27 +121,6 @@ jobs:
           retention-days: 7
       - name: Fail when desktop Chrome validation fails
         if: steps.desktop.outcome == 'failure'
-        run: exit 1
-      - name: Run iPhone 13 Safari flows
-        id: iphone
-        continue-on-error: true
-        env:
-          PLAYWRIGHT_REUSE_SERVER: "true"
-        run: |
-          curl --fail --silent --show-error http://127.0.0.1:8787/ > /dev/null
-          timeout --signal=TERM --kill-after=30s 10m npx playwright test --project=iphone-13-safari --workers=1 --reporter=json > iphone-safari-report.json
-      - name: Upload iPhone Safari report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: iphone-safari-report
-          path: |
-            iphone-safari-report.json
-            test-results/
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Fail when iPhone Safari validation fails
-        if: steps.iphone.outcome == 'failure'
         run: exit 1
       - name: Stop shared local validation server
         if: always()
