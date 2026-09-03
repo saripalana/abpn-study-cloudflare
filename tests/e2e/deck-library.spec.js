@@ -436,7 +436,7 @@ test("a same-version local seed mismatch is repaired before cloud promotion", as
     }
   });
   expect(repairedCount).toBe(602);
-  expect(warnings.join("\n")).not.toContain("Local deck cache is unavailable");
+  expect(warnings.join("\n")).not.toContain("Local deck cache could not be loaded");
   expect(warnings.join("\n")).not.toContain("Updated deck catalog could not be loaded");
 });
 

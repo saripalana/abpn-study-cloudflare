@@ -18,7 +18,6 @@ const app = document.getElementById("app");
 const BUILT_IN_QUESTION_BANKS = [...QUESTION_BANKS];
 const SEED_QUESTION_BANKS = BUILT_IN_QUESTION_BANKS.filter((bank) => bank.contentClass !== "system-validation");
 const SYSTEM_VALIDATION_FIXTURES = BUILT_IN_QUESTION_BANKS.filter((bank) => bank.contentClass === "system-validation");
-const LOCAL_STARTUP_TIMEOUT_MS = 2_000;
 const CLOUD_STARTUP_TIMEOUT_MS = 5_000;
 let installedSeedIds = [];
 
@@ -36,18 +35,12 @@ function withStartupTimeout(operation, timeoutMs, message) {
   return Promise.race([operation, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
-async function loadAvailableDecks(timeoutMs = LOCAL_STARTUP_TIMEOUT_MS) {
-  return withStartupTimeout(
-    (async () => {
-      const seedResults = await installSeedQuestionBanks(SEED_QUESTION_BANKS);
-      installedSeedIds = seedResults
-        .filter((result) => result.bank && result.status !== "skipped")
-        .map((result) => result.id);
-      return loadInstalledQuestionBanks(SYSTEM_VALIDATION_FIXTURES);
-    })(),
-    timeoutMs,
-    "Local deck startup timed out.",
-  );
+async function loadAvailableDecks() {
+  const seedResults = await installSeedQuestionBanks(SEED_QUESTION_BANKS);
+  installedSeedIds = seedResults
+    .filter((result) => result.bank && result.status !== "skipped")
+    .map((result) => result.id);
+  return loadInstalledQuestionBanks(SYSTEM_VALIDATION_FIXTURES);
 }
 
 function catalogSignature(definitions) {
@@ -61,7 +54,7 @@ try {
     const definitions = await loadAvailableDecks();
     QUESTION_BANKS.splice(0, QUESTION_BANKS.length, ...definitions);
   } catch (error) {
-    console.warn("Local deck cache is unavailable; continuing with bundled decks.", error);
+    console.warn("Local deck cache could not be loaded; continuing with bundled decks.", error);
   }
 
   const startupCatalog = catalogSignature(QUESTION_BANKS);
