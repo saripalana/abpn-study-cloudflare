@@ -1,10 +1,12 @@
 # ABPN Study Web current state
 
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 ## Current local gate
 
-K&S answer-key correction architecture is implemented locally in the authorized checkout on `main`, with uncommitted changes only. No commit, push, pull request, deployment, migration, production sync, production data mutation, or browser acceptance has been performed in this gate.
+K&S answer-key correction architecture was merged to protected `main` through PR #56 at commit `4c695247b3b4b30d878c4f3562d32f7036a4e209` and deployed to production Worker version `71f61775-3431-4ac3-ac6c-0ce47b6b094c`.
+
+The current follow-up branch `fix/web-only-ci-scope` narrows the required GitHub `test` job to hosted desktop-web validation. Physical iPhone validation remains deliberately excluded from the active checklist until it is explicitly reactivated.
 
 ## What changed
 
@@ -20,14 +22,18 @@ K&S answer-key correction architecture is implemented locally in the authorized 
 - `node --test --test-reporter=dot`
 - `PLAYWRIGHT_REUSE_SERVER=false npx playwright test tests/e2e/deck-library.spec.js --project=chromium-desktop`
 - K&S generated-content check: 602 questions, 8 reviewed answer-key corrections present, 0 rationale/key mismatches under the content-safe validator.
+- PR #56 required checks passed on GitHub before merge: `test` and `enforce-free-only-cloudflare-policy`.
+- Production deploy dry-run passed against `wrangler.toml`.
+- Production deploy completed with Cloudflare Access still required and production D1 binding intact.
+- Unauthenticated production smoke check returned Cloudflare Access redirect, confirming public access remains protected.
 
 ## Not done
 
-- No GitHub branch/PR/CI gate yet.
-- No staging deployment or authenticated staging acceptance yet.
-- No production deployment, migration, or production data/sync mutation yet.
+- No production D1 migration was needed or run for the K&S answer-key reconciliation release.
+- No protected question text, answers, explanations, notes, production study records, recovery bundles, D1 exports, or credentials were inspected or placed in chat.
+- Authenticated production browser acceptance remains a separate same-lane check if required; the current command-line smoke only verifies Access protection.
 - Physical iPhone verification remains excluded from current scope.
 
 ## Next safest action
 
-Create a non-main work branch or otherwise move these uncommitted local changes into the protected PR path, then run GitHub/CI and staging gates separately.
+Finish the `fix/web-only-ci-scope` CI follow-up through the protected PR path so the required web validation no longer spends time on deferred iPhone Safari flows.
