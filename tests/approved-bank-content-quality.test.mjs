@@ -39,3 +39,33 @@ for (const definition of approvedBanks) {
     }
   });
 }
+
+test("K&S answer keys agree with rationale-led answer text", () => {
+  const bank = normalizeBank(KS_PSYCHIATRY_BANK);
+  const mismatches = [];
+  const compact = (value) => String(value || "")
+    .normalize("NFC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  for (const question of bank.questions) {
+    const rationale = compact(question.explanation);
+    const rationaleChoiceLetters = question.choices
+      .map((choice, index) => ({ letter: question.choiceLetters[index], choice: compact(choice) }))
+      .filter(({ choice }) => choice && rationale.startsWith(choice))
+      .map(({ letter }) => letter);
+    if (
+      rationaleChoiceLetters.length
+      && !rationaleChoiceLetters.some((letter) => question.correctLetters.includes(letter))
+    ) {
+      mismatches.push({
+        id: question.id,
+        storedCorrect: question.correctLetters.join(","),
+        rationaleChoice: rationaleChoiceLetters.join(","),
+      });
+    }
+  }
+
+  assert.deepEqual(mismatches, []);
+});

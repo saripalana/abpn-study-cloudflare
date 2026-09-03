@@ -123,6 +123,7 @@ This section supersedes any earlier implication that runtime normalization alone
 - Study: `StudySession`, ordered revision-pinned `SessionQuestion`, append-safe `Attempt`, selection/correctness/timing, flag/note, and cumulative progress/history.
 - Source adapters may differ only at ingestion and provenance. They must emit the same validated content contract. Ambiguous linked questions are quarantined rather than guessed.
 - D1 is canonical cloud persistence. IndexedDB mirrors the versioned contract and retains a bounded offline outbox. Frontend and administrative tools use the same authenticated repository/API layer rather than querying D1 directly.
+- Reviewed source corrections for approved application seeds are modeled as named generation overlays on top of immutable pinned upstream input. The overlay updates generated content and provenance, while the runtime reconciliation layer updates only derived correctness metadata for historical progress and answer logs. It does not mutate completed-test identity, selected answers, timing, notes, or the original upstream source.
 
 ### Repeatable modification pathway
 

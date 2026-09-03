@@ -179,7 +179,7 @@ test("all user-facing banks use one protected persistent Deck Library", async ()
   assert.equal(ksManifest.commit, "020aae0f5c55ad3bb0c122760c7b7d3fe26f1b46");
   assert.equal(ksManifest.expectedGitBlobSha, "da048a097ee9d2bca4142a0e2e7444fe21b5da2e");
   assert.equal(ksManifest.questionCount, 602);
-  assert.deepEqual(ksManifest.transformations, ["exact-duplicate-choice-dedup-v1"]);
+  assert.deepEqual(ksManifest.transformations, ["exact-duplicate-choice-dedup-v1", "reviewed-answer-key-overlay-v1"]);
   assert.match(importer, /repository: 'dancingremote\/spiegel-test-prep'/);
   assert.match(importer, /expectedQuestionCount: 1060/);
   const spiegelManifest = JSON.parse(spiegelGeneratedManifest);

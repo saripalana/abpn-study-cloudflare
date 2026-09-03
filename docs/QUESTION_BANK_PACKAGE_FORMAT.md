@@ -89,6 +89,8 @@ Use this for assistant-created or assistant-expanded cards. It cannot be relabel
 - A breaking content revision must use a new bank id, which prevents old progress from attaching to different question text.
 - Protected ids such as `ks-psychiatry-core` and `validation-bank` cannot be imported or overwritten.
 - Linked-group identity and order are immutable within a revision. Correcting group membership requires a new validated revision.
+- Application-supplied seeds may carry narrow, named, source-reviewed transformation overlays when the pinned upstream source is internally inconsistent. Those overlays are part of the generated bank version and manifest, are validated during generation, and must not edit the upstream repository or stable question IDs.
+- Installing a verified seed revision may recalculate derived correctness fields in progress and completed-test answer logs when the selected answer is unchanged but the reviewed key changes. This is a metadata reconciliation: it must preserve answer selections, timestamps, timing, flags, notes, set identity, and completed-test history, then enqueue only the corrected metadata through the normal sync outbox.
 
 ## Separate backup responsibilities
 

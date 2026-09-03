@@ -1,4 +1,6 @@
 import { SYNC_CLIENT_LIMITS, SyncClient, clearSyncSuspension, getSyncState } from "./client/sync.js";
+import { QUESTION_BANKS } from "./banks/catalog.js";
+import { installSeedQuestionBanks } from "./client/question-bank-import.js";
 import { ensureStagingSession, STAGING_SESSION_KEY } from "./client/staging-lifecycle.js";
 
 // Module scripts may load concurrently when bootstrap uses top-level await.
@@ -35,6 +37,19 @@ function describeSuspension(reason) {
   return descriptions[reason] || reason || "safety shutdown";
 }
 
+async function reconcileVerifiedCatalogSeeds() {
+  const seedDefinitions = QUESTION_BANKS.filter((bank) => bank.sourceType === "application-seed");
+  if (!seedDefinitions.length) return { updated: 0, repairedProgress: 0, repairedAnswers: 0 };
+  const results = await installSeedQuestionBanks(seedDefinitions);
+  return results.reduce((summary, result) => {
+    const analysis = result?.analysis || result;
+    if (analysis?.status === "update") summary.updated += 1;
+    summary.repairedProgress += Number(analysis?.repairedProgress || 0);
+    summary.repairedAnswers += Number(analysis?.repairedAnswers || 0);
+    return summary;
+  }, { updated: 0, repairedProgress: 0, repairedAnswers: 0 });
+}
+
 function showStaleStagingState(reason) {
   staleStagingSession = true;
   syncButton.textContent = "Restart staging sync";
@@ -68,18 +83,37 @@ async function runSync({ background = false } = {}) {
   if (!background) showStatus("Syncing…", "Checking the protected Cloudflare synchronization service.");
   try {
     if (!background) await clearSyncSuspension();
+    const preReconcile = await reconcileVerifiedCatalogSeeds();
     const result = await client.synchronize({ background, force: !background });
+    const postReconcile = await reconcileVerifiedCatalogSeeds();
+    let repairPush = { pushed: 0, pending: 0, conflicts: [] };
+    if (postReconcile.updated || postReconcile.repairedProgress || postReconcile.repairedAnswers) {
+      repairPush = await client.pushPending();
+    }
+    const catalogRepairs = {
+      updated: preReconcile.updated + postReconcile.updated,
+      repairedProgress: preReconcile.repairedProgress + postReconcile.repairedProgress,
+      repairedAnswers: preReconcile.repairedAnswers + postReconcile.repairedAnswers,
+      pushed: repairPush.pushed || 0,
+    };
     if (result.status === "suspended") {
       showStatus("Local only · sync paused", `Cloud synchronization is paused: ${describeSuspension(result.reason)}. Local study data remains available.`);
     } else if (result.status === "skipped") {
-      showStatus("Local only", "No cloud operation was needed. Local study data remains available.");
+      if (catalogRepairs.updated || catalogRepairs.repairedProgress || catalogRepairs.repairedAnswers) {
+        showStatus(
+          "Synced · corrections applied",
+          `Updated ${catalogRepairs.updated} verified catalog deck(s), repaired ${catalogRepairs.repairedProgress} progress record(s) and ${catalogRepairs.repairedAnswers} answer-log record(s), and uploaded ${catalogRepairs.pushed} repair change(s).`,
+        );
+      } else {
+        showStatus("Local only", "No cloud operation was needed. Local study data remains available.");
+      }
     } else {
       staleStagingSession = false;
       syncButton.textContent = "Sync";
       const conflicts = result.conflicts?.length || 0;
       showStatus(
-        conflicts ? "Synced · review needed" : "Cloud ready",
-        `${result.pushed || 0} local change(s) uploaded, ${result.pulled || 0} remote change(s) received, ${result.pending || 0} still waiting, ${conflicts} conflict(s).`
+        conflicts ? "Synced · review needed" : catalogRepairs.updated || catalogRepairs.repairedProgress || catalogRepairs.repairedAnswers ? "Synced · corrections applied" : "Cloud ready",
+        `${(result.pushed || 0) + catalogRepairs.pushed} local change(s) uploaded, ${result.pulled || 0} remote change(s) received, ${result.pending || repairPush.pending || 0} still waiting, ${conflicts + (repairPush.conflicts?.length || 0)} conflict(s).${catalogRepairs.updated || catalogRepairs.repairedProgress || catalogRepairs.repairedAnswers ? ` Verified catalog updates: ${catalogRepairs.updated}; repaired progress records: ${catalogRepairs.repairedProgress}; repaired answer-log records: ${catalogRepairs.repairedAnswers}.` : ""}`
       );
     }
   } catch (error) {
