@@ -167,6 +167,10 @@ select {
   grid-column: 1 / -1;
 }
 
+.timed-seconds-field[data-hidden="true"] {
+  display: none;
+}
+
 .question-status-picker {
   margin-top: 0;
 }

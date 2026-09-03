@@ -310,9 +310,12 @@ test('timed set pauses while saved and exited', async ({ page }) => {
   await page.locator('#countInput').fill('1');
   await page.locator('#modeSelect').selectOption('test');
   await page.locator('#timingSelect').selectOption('timed');
+  await expect(page.locator('#timedSecondsPerQuestionInput')).toBeVisible();
+  await page.locator('#timedSecondsPerQuestionInput').fill('30');
   await page.getByRole('button', { name: 'Start set' }).click();
 
   const before = await page.locator('#timer').textContent();
+  expect(before).toBe('00:00:30');
   await page.waitForTimeout(2200);
   await page.getByRole('button', { name: 'Save and exit' }).click();
   const saved = await page.locator('.pending-set-item small').filter({ hasText: 'remaining' }).textContent();

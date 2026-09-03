@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildBankCatalog } from "../public/client/study-engine.js";
 import { createCombinedPracticeSet } from "../public/client/multi-deck-session.js";
+import { DEFAULT_SECONDS_PER_QUESTION } from "../public/client/timing-settings.js";
 
 const decks = buildBankCatalog([
   {
@@ -55,7 +56,7 @@ test("creates a collision-safe combined set from all study decks", () => {
   assert.equal(new Set(set.questionIds).size, 4);
   assert.ok(set.questionIds.some((ref) => ref.includes("deck-a::shared")));
   assert.ok(set.questionIds.some((ref) => ref.includes("deck-b::shared")));
-  assert.equal(set.remainingSeconds, Math.ceil(4 * 70.6));
+  assert.equal(set.remainingSeconds, Math.ceil(4 * DEFAULT_SECONDS_PER_QUESTION));
 });
 
 test("does not create a combined record for current-deck scope", () => {
@@ -120,5 +121,21 @@ test("timed combined sets expand time for a complete linked group", () => {
     random: () => 0,
   });
   assert.equal(set.questionIds.length, 2);
-  assert.equal(set.remainingSeconds, Math.ceil(2 * 70.6));
+  assert.equal(set.remainingSeconds, Math.ceil(2 * DEFAULT_SECONDS_PER_QUESTION));
+});
+
+test("timed combined sets respect adjustable seconds per question", () => {
+  const set = createCombinedPracticeSet({
+    decks,
+    activeBankId: "deck-a",
+    settings: { scope: "all" },
+    count: 3,
+    mode: "test",
+    timed: true,
+    secondsPerQuestion: 30,
+    id: "set-custom-timing",
+    random: () => 0,
+  });
+  assert.equal(set.questionIds.length, 3);
+  assert.equal(set.remainingSeconds, 90);
 });
