@@ -146,6 +146,19 @@ test("additive version updates remain safe after progress exists", async () => {
   assert.equal(result.addedQuestions, 1);
 });
 
+test("subject-only revisions preserve question identity with existing study history", async () => {
+  const existing = (await prepareQuestionBankPackage(packageDefinition())).bank;
+  const incoming = (await prepareQuestionBankPackage(packageDefinition({
+    version: "2.0.0",
+    questions: existing.questions.map((q) => ({ ...q, subjectTitle: "Reviewed subject" })),
+  }))).bank;
+  const result = analyzeQuestionBankUpdate(existing, incoming, { hasStudyData: true });
+  assert.equal(result.status, "update");
+  assert.equal(result.additive, true);
+  assert.deepEqual(result.changedOrRemovedQuestions, []);
+  assert.equal(result.addedQuestions, 0);
+});
+
 test("changing an existing question is rejected after progress exists", async () => {
   const existing = (await prepareQuestionBankPackage(packageDefinition())).bank;
   const changedQuestion = {

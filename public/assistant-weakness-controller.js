@@ -21,8 +21,7 @@ import {
 import { QUESTION_BANKS } from "./banks/catalog.js";
 import { reconcileStudyCoachCloudDeck } from "./client/deck-library.js";
 import {
-  banksForOverallMetrics,
-  includeStudyCoachInOverallMetrics,
+  banksForStudyCoach,
   studyRecordsForBanks,
 } from "./client/study-coach-metrics-scope.js";
 
@@ -65,7 +64,7 @@ async function buildCurrentDataset() {
     getAllRecords(STORES.SETS),
     getAllRecords(STORES.ANSWERS),
   ]);
-  const metricBanks = banksForOverallMetrics(currentBanks, includeStudyCoachInOverallMetrics());
+  const metricBanks = banksForStudyCoach(currentBanks);
   const metricState = studyRecordsForBanks({ banks: metricBanks, progress, sets, answers });
   return buildStudyCoachDataset(metricBanks, metricState.progress, {}, {
     sets: metricState.sets,
@@ -74,7 +73,7 @@ async function buildCurrentDataset() {
 }
 
 function currentPackageBanks() {
-  return banksForOverallMetrics(currentBanks, includeStudyCoachInOverallMetrics());
+  return banksForStudyCoach(currentBanks);
 }
 
 async function publishCurrentDataset() {

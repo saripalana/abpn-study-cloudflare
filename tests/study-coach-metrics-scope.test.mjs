@@ -4,12 +4,29 @@ import test from "node:test";
 import {
   INCLUDE_STUDY_COACH_METRICS_KEY,
   banksForOverallMetrics,
+  banksForStudyCoach,
   includeStudyCoachInOverallMetrics,
   studyRecordsForBanks,
 } from "../public/client/study-coach-metrics-scope.js";
 
 const sourceBank = { id: "ks", contentClass: "source-material" };
 const coachBank = { id: "coach", contentClass: "assistant-supplemental" };
+
+test("coaching retains supplemental and mixed history independently of dashboard scope", () => {
+  const allBanks = [sourceBank, coachBank, { id: "validation-bank" },
+    { id: "fixture", contentClass: "system-validation" }, null];
+  assert.deepEqual(banksForStudyCoach(allBanks), [sourceBank, coachBank]);
+  assert.deepEqual(banksForOverallMetrics([sourceBank, coachBank], false), [sourceBank]);
+  const state = studyRecordsForBanks({
+    banks: banksForStudyCoach(allBanks),
+    progress: [{ bankId: "coach", questionId: "q1" }, { bankId: "validation-bank" }],
+    sets: [{ id: "mixed", selectedBankIds: ["ks", "coach"] }, { id: "fixture", bankId: "validation-bank" }],
+    answers: [{ setId: "mixed" }, { setId: "fixture" }],
+  });
+  assert.equal(state.progress.length, 1);
+  assert.deepEqual(state.sets.map((s) => s.id), ["mixed"]);
+  assert.deepEqual(state.answers, [{ setId: "mixed" }]);
+});
 
 test("Study Coach is excluded from overall metrics until the user includes it", () => {
   const storage = new Map();

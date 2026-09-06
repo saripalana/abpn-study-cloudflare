@@ -95,6 +95,17 @@ test("full Study Coach package includes complete question content plus restored 
   });
 });
 
+test("package includes coaching progress but excludes validation fixtures at the export boundary", () => {
+  const coach = { ...bank, id: "coach", contentClass: "assistant-supplemental" };
+  const pkg = createStudyCoachPackage({
+    banks: [bank, coach, { ...bank, id: "validation-bank", contentClass: "system-validation" }],
+    progressRows: [{ bankId: "coach", questionId: "q1", selectedAnswer: "A", isCorrect: false, timesUsed: 1 }],
+    practiceSets: [], practiceSetAnswers: [],
+  });
+  assert.deepEqual(pkg.banks.map((b) => b.id), ["ks", "coach"]);
+  assert.equal(pkg.studyState.progress[0].bankId, "coach");
+});
+
 test("Study Coach output validation accepts constrained coaching outputs", () => {
   const output = validateStudyCoachOutput({
     format: STUDY_COACH_OUTPUT_FORMAT,

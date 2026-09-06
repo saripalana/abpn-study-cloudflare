@@ -186,7 +186,7 @@ test("all user-facing banks use one protected persistent Deck Library", async ()
   assert.equal(spiegelManifest.repository, "dancingremote/spiegel-test-prep");
   assert.equal(spiegelManifest.commit, "67922b76a181f7aaa15e9b74e18850019add360b");
   assert.equal(spiegelManifest.expectedGitBlobSha, "2a39e53c784d9067892197018186375500116abd");
-  assert.equal(spiegelManifest.version, "legacy-ks-subjects-v2-f5c34b4ef2ad");
+  assert.equal(spiegelManifest.version, "legacy-ks-subjects-v3-f5c34b4ef2ad");
   assert.equal(spiegelManifest.questionCount, 1060);
   assert.equal((importer.match(/'images\/test[1-5]-q\d+\.png'/g) || []).length, 10);
   assert.match(browserClient, /publishCloudDeckPackage/);

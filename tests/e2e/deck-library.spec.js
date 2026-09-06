@@ -440,6 +440,44 @@ test("a same-version local seed mismatch is repaired before cloud promotion", as
   expect(warnings.join("\n")).not.toContain("Updated deck catalog could not be loaded");
 });
 
+test("Spiegel label refresh preserves completed answers, progress, and test history byte-for-byte", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
+  const before = await page.evaluate(async () => {
+    const { getRecord, putRecord, STORES } = await import("/client/storage.js");
+    const bank = await getRecord(STORES.BANK_CONTENT, "spiegel-test-prep");
+    const q = bank.questions.find((q) => q.id === "test1-q57");
+    const timestamp = "2026-09-01T12:00:00.000Z";
+    const progress = { bankId: bank.id, questionId: q.id, selectedAnswer: q.correctLetter,
+      isCorrect: true, timesUsed: 2, totalTimeMs: 4000, lastUsedAt: timestamp, revision: 3 };
+    const set = { id: "label-review-history", bankId: bank.id, questionIds: [q.id],
+      status: "completed", mode: "test", completedAt: timestamp, timed: false, elapsedMs: 2000, revision: 2 };
+    const answer = { setId: set.id, questionId: q.id, selectedAnswer: q.correctLetter,
+      isCorrect: true, answeredAt: timestamp, timeMs: 2000, revision: 2 };
+    await putRecord(STORES.BANK_CONTENT, { ...bank, checksum: "old-label-fixture", version: "old-label",
+      questions: bank.questions.map((q) => q.id === "test1-q57"
+        ? { ...q, subjectTitle: "Substance Use and Addictive Disorders" } : q) });
+    await putRecord(STORES.PROGRESS, progress);
+    await putRecord(STORES.SETS, set);
+    await putRecord(STORES.ANSWERS, answer);
+    return { progress, set, answer };
+  });
+  await page.reload();
+  await expect(page.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
+  const after = await page.evaluate(async () => {
+    const { getRecord, STORES } = await import("/client/storage.js");
+    const bank = await getRecord(STORES.BANK_CONTENT, "spiegel-test-prep");
+    return {
+      subject: bank.questions.find((q) => q.id === "test1-q57").subjectTitle,
+      progress: await getRecord(STORES.PROGRESS, [bank.id, "test1-q57"]),
+      set: await getRecord(STORES.SETS, "label-review-history"),
+      answer: await getRecord(STORES.ANSWERS, ["label-review-history", "test1-q57"]),
+    };
+  });
+  expect(after.subject).toBe("Contributions from the Neurosciences");
+  expect({ progress: after.progress, set: after.set, answer: after.answer }).toEqual(before);
+});
+
 test("a verified K&S seed revision repairs derived correctness without changing answer history", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();

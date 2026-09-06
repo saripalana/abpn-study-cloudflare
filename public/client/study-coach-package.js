@@ -1,7 +1,7 @@
 import { getAllRecords, getRecord, putRecord, STORES } from "./storage.js";
 import { buildWeaknessSnapshot } from "./weakness-analytics.js";
 import { prepareQuestionBankPackage } from "./question-bank-import.js";
-import { studyRecordsForBanks } from "./study-coach-metrics-scope.js";
+import { banksForStudyCoach, studyRecordsForBanks } from "./study-coach-metrics-scope.js";
 
 export const STUDY_COACH_PACKAGE_FORMAT = "abpn-study-coach-package";
 export const STUDY_COACH_PACKAGE_SCHEMA_VERSION = 1;
@@ -486,7 +486,7 @@ export function createStudyCoachPackage({
   appVersion = "1.0.0",
   exportedAt = new Date().toISOString(),
 } = {}) {
-  const includedBanks = (banks || []).filter(Boolean);
+  const includedBanks = banksForStudyCoach(banks);
   const studyState = studyRecordsForBanks({
     banks: includedBanks,
     progress: progressRows || [],
