@@ -54,7 +54,7 @@ test("converts Spiegel questions into an isolated, versioned ABPN bank", async (
   assert.equal(converted.format, "abpn-question-bank");
   assert.equal(converted.bank.id, "spiegel-test-prep");
   assert.equal(converted.bank.questions.length, 2);
-  assert.match(converted.bank.version, /^legacy-ks-subjects-v2-[a-f0-9]{12}$/);
+  assert.match(converted.bank.version, /^legacy-ks-subjects-v3-[a-f0-9]{12}$/);
   assert.equal(converted.bank.questions[1].isMultiSelect, true);
   assert.deepEqual(converted.bank.questions[1].correctLetters, ["A", "C"]);
   assert.equal(converted.bank.questions[1].vignetteStem, sourceQuestions[1].vignetteStem);

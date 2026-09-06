@@ -4,6 +4,15 @@ export function isStudyCoachDeck(deck) {
   return deck?.contentClass === "assistant-supplemental";
 }
 
+// Coaching needs source and supplemental learning history irrespective of the
+// user's dashboard display preference. System test fixtures are never evidence.
+export function banksForStudyCoach(banks = []) {
+  return (Array.isArray(banks) ? banks : []).filter((bank) => bank
+    && bank.id !== "validation-bank"
+    && bank.contentClass !== "system-validation"
+    && bank.sourceType !== "system-validation");
+}
+
 export function includeStudyCoachInOverallMetrics(storage = globalThis.localStorage) {
   return storage?.getItem?.(INCLUDE_STUDY_COACH_METRICS_KEY) === "true";
 }

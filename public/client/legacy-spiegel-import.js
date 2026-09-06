@@ -3,6 +3,7 @@ import {
   QUESTION_BANK_PACKAGE_SCHEMA_VERSION,
   sha256Hex,
 } from "./question-bank-import.js";
+import { reviewedSpiegelSubject, SPIEGEL_SUBJECT_REVISION } from "./spiegel-reviewed-subjects.js";
 
 if (typeof document !== "undefined" && !document.querySelector('link[data-spiegel-question-styles]')) {
   const link = document.createElement("link");
@@ -157,7 +158,7 @@ export function inferClinicalSubject(question) {
   return best.title;
 }
 
-function convertQuestion(question, index, resolveImagePath) {
+function convertQuestion(question, index, resolveImagePath, sourceChecksum) {
   const choices = Array.isArray(question?.choices) ? question.choices.map(String) : [];
   const choiceLetters = Array.isArray(question?.choiceLetters) && question.choiceLetters.length === choices.length
     ? question.choiceLetters.map(String)
@@ -177,7 +178,7 @@ function convertQuestion(question, index, resolveImagePath) {
     id: sourceQuestionId(question, index),
     chapter: String(question?.sectionType || ""),
     chapterTitle: section || "Test 1",
-    subjectTitle: inferClinicalSubject(question),
+    subjectTitle: reviewedSpiegelSubject(sourceQuestionId(question, index), sourceChecksum) || inferClinicalSubject(question),
     question: String(question?.question || ""),
     vignetteStem: String(question?.vignetteStem || ""),
     image: resolveImagePath(String(question?.image || "")),
@@ -192,9 +193,9 @@ function convertQuestion(question, index, resolveImagePath) {
 }
 
 export async function convertLegacySpiegelScript(source, sourceUrl, { resolveImagePath = () => "" } = {}) {
-  const questions = parseLegacySpiegelQuestions(source)
-    .map((question, index) => convertQuestion(question, index, resolveImagePath));
   const sourceChecksum = await sha256Hex(String(source || ""));
+  const questions = parseLegacySpiegelQuestions(source)
+    .map((question, index) => convertQuestion(question, index, resolveImagePath, sourceChecksum));
   const multiSelectCount = questions.filter((question) => question.isMultiSelect).length;
   return {
     format: QUESTION_BANK_PACKAGE_FORMAT,
@@ -206,7 +207,7 @@ export async function convertLegacySpiegelScript(source, sourceUrl, { resolveIma
       title: "Spiegel Test Prep Question Bank",
       shortTitle: "Spiegel Test Prep",
       description: `Psychiatry Test Preparation & Review Manual study questions imported from the legacy Spiegel Test Prep site. Includes ${multiSelectCount} select-all-that-apply question${multiSelectCount === 1 ? "" : "s"}.`,
-      version: `legacy-ks-subjects-v2-${sourceChecksum.slice(0, 12)}`,
+      version: `legacy-ks-subjects-${SPIEGEL_SUBJECT_REVISION}-${sourceChecksum.slice(0, 12)}`,
       sourceType: "user-imported",
       contentClass: "source-material",
       sourceLabel: "Spiegel Test Prep · dancingremote/spiegel-test-prep",

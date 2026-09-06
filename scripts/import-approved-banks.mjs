@@ -42,7 +42,7 @@ const spiegelSource = Object.freeze({
   path: 'data.js',
   expectedGitBlobSha: '2a39e53c784d9067892197018186375500116abd',
   expectedQuestionCount: 1060,
-  expectedVersion: 'legacy-ks-subjects-v2-f5c34b4ef2ad',
+  expectedVersion: 'legacy-ks-subjects-v3-f5c34b4ef2ad',
 });
 
 const spiegelImages = Object.freeze([

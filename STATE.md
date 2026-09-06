@@ -1,6 +1,26 @@
 # ABPN Study Web current state
 
-Last updated: 2026-09-03
+Purpose: concise implementation status and explicit release boundaries.
+
+Last updated: 2026-09-06
+
+## Current work: coaching scope and reviewed subject metadata
+
+- Release candidate: 15 reviewed Spiegel subject corrections,
+  source-checksum-bound registry, bank version v3, shared coaching export scope.
+- Coaching exports and automatic snapshots now include supplemental learning
+  history independently of dashboard metrics preferences, excluding system fixtures.
+- No question content, keys, stable IDs, source sections, or study records changed.
+- Build consistency/idempotence, all 253 Node tests, cost guardrails, and all six
+  desktop Deck Library tests passed, including exact label-history preservation.
+- User authorized continuation through deployment on 2026-09-06. Next: protected
+  PR checks, private staging verification, merge and production deployment.
+  Deployment receipts belong in the canonical governance ledger.
+- Unreviewed labels remain heuristic; disputed clinical content remains unchanged.
+  See docs/STUDY_COACH_METADATA_REVIEW.md for scope and follow-up boundaries.
+- iPhone remains excluded. Historical checkpoint below is not current release status.
+
+## Historical checkpoint: 2026-09-03
 
 ## Current local gate
 
