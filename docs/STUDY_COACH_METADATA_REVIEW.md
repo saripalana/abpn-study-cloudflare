@@ -42,6 +42,11 @@ No clinical key or source wording is changed in this metadata correction.
 
 ## Release
 
+CI additionally exposed an existing startup race: Sync was enabled before its
+controller attached, so early clicks could do nothing. The shell now disables
+Sync until its handler is installed. The existing actual-click repair regression
+guards this contract; required CI must pass without weakening that assertion.
+
 Local verification is not production acceptance. Commit, PR, merge and deployment
 remain separate authorization gates. After an approved release, normal verified
 seed reconciliation loads the reviewed metadata. A newly sent coaching package

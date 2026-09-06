@@ -504,6 +504,23 @@ test("a verified K&S seed revision repairs derived correctness without changing 
   expect(upgraded.marker.repairedAnswers).toBe(1);
 });
 
+test("Sync stays disabled until its controller attaches", async ({ page }) => {
+  let releaseController;
+  const controllerGate = new Promise((resolve) => { releaseController = resolve; });
+  await page.route("**/sync-controller.js", async (route) => {
+    await controllerGate;
+    await route.continue();
+  });
+  try {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("DECK LIBRARY · 2 INSTALLED")).toBeVisible();
+    await expect(page.locator("#syncBtn")).toBeDisabled();
+  } finally {
+    releaseController();
+  }
+  await expect(page.locator("#syncBtn")).toBeEnabled();
+});
+
 test("the Sync button applies K&S catalog corrections and uploads repaired answer metadata", async ({ page }) => {
   const observedSyncChanges = [];
   await installSyncApiRoute(page, observedSyncChanges);

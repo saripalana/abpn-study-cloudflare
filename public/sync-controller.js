@@ -141,6 +141,9 @@ syncButton.onclick = () => {
   }
   void runSync();
 };
+// The dashboard renders before this controller loads. Never expose an enabled
+// Sync button whose click handler is not attached yet (especially on slow starts).
+syncButton.disabled = false;
 window.addEventListener("online", () => void runSync({ background: true }), { passive: true });
 window.addEventListener("load", () => void runSync({ background: true }), { once: true });
 setInterval(() => void runSync({ background: true }), SYNC_CLIENT_LIMITS.minimumBackgroundIntervalMs);
