@@ -4,6 +4,18 @@ Purpose: concise implementation status and explicit release boundaries.
 
 Last updated: 2026-09-07
 
+## Added release scope: creation labels
+
+- New tests snapshot deck, status AND/OR, subjects/source sections, ranges,
+  flagged override, mode/timing and order into existing synchronized name field.
+  Pending/history cards show Created with. Older unnamed records explicitly say
+  Original filters not recorded; no historical criteria are invented.
+- Name persistence added to session serialization and coach export; Worker
+  accepts up to 8000 characters instead of silently truncating at 200. No schema
+  migration or answer mutation. Real SQLite push/pull verifies long labels.
+- Labels and dropdown are locally verified; live release remains blocked at
+  authenticated staging browser access as recorded below.
+
 ## Release checkpoint: PR62, staging acceptance blocked
 
 - User authorized release through live unless an issue occurs. Protected PR62

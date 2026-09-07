@@ -1,5 +1,6 @@
 import { QUESTION_BANKS } from './banks/catalog.js';
 import { focusCoachPractice } from './client/study-coach-practice-selection.js';
+import { practiceSetLabel } from './client/practice-set-label.js';
 import { isUserSelectableDeck, practiceSetDeckLabel, resolveUserActiveDeck } from './client/deck-display.js';
 
 // ABPN_USER_FACING_DECKS_PATCH_V1
@@ -465,6 +466,7 @@ function historyMarkup(history) {
           <strong>${record.mode === 'tutor' ? 'Tutor' : 'Test'} set · ${record.questionIds.length} questions</strong>
           <span class="pill good">Completed</span>
         </div>
+        <small><strong>Created with:</strong> ${esc(record.name || 'Original filters not recorded')}</small>
         <small><strong>Decks:</strong> ${esc(practiceSetDeckLabel(banks, record))}</small>
         ${specialCriteriaSummary(record.specialCriteria) ? `<small><strong>Special criteria:</strong> ${esc(specialCriteriaSummary(record.specialCriteria))}</small>` : ''}
         <small>${formatDateTime(record.completedAt || record.updatedAt)} · ${record.timed ? 'Timed' : 'Untimed'}</small>
@@ -584,6 +586,7 @@ async function renderDashboard() {
               </div>
               <div class="history-details">
                 <div class="history-title"><strong>${set.mode === 'tutor' ? 'Tutor' : 'Test'} set · ${set.questionIds.length} questions</strong><span class="pill">Pending</span></div>
+                <small><strong>Created with:</strong> ${esc(set.name || 'Original filters not recorded')}</small>
                 <small><strong>Decks:</strong> ${esc(practiceSetDeckLabel(banks, set))}</small>
                 ${specialCriteriaSummary(set.specialCriteria) ? `<small><strong>Special criteria:</strong> ${esc(specialCriteriaSummary(set.specialCriteria))}</small>` : ''}
                 <small>${set.timed ? `${formatTime(set.remainingSeconds)} remaining` : 'Untimed'} · ${remaining} unanswered · saved ${esc(formatDateTime(set.updatedAt || set.startedAt))}</small>
@@ -1268,6 +1271,11 @@ async function startSet() {
 
   activeSet = {
     ...session,
+    name: practiceSetLabel({mode,timed,secondsPerQuestion,randomized,pool,specialCriteria,
+      deckLabels:[practiceSetDeckLabel(banks,session)],
+      subjects:categories.length===categoryEntries(activeBank).length?null:categories,
+      sections:!document.querySelector('input[name="sourceSectionFilter"]') || sourceSections.length===sourceSectionEntries(activeBank).length?null:sourceSections,
+      filterDeck:settings.scope!==DECK_SCOPE_CURRENT?activeBank.shortTitle:''}),
     answers: new Map(),
     submitted: false,
     completedAt: null,

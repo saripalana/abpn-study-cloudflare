@@ -24,6 +24,6 @@ for (const combined of [false,true]) test(`status AND/OR creates matching ${comb
   await page.locator('#startBtn').click();
   await expect.poll(()=>page.evaluate(async()=>{
     const {STORES,getAllRecords}=await import('/client/storage.js');
-    return (await getAllRecords(STORES.SETS)).map(s=>({criteria:s.specialCriteria,ids:s.questionIds}));
-  })).toEqual([expect.objectContaining({criteria:expect.objectContaining({statusMatch:'and'}),ids:expect.arrayContaining([expect.stringMatching(/both/)])})]);
+    return (await getAllRecords(STORES.SETS)).map(s=>({criteria:s.specialCriteria,ids:s.questionIds,name:s.name}));
+  })).toEqual([expect.objectContaining({name:expect.stringContaining('Wrong AND Flagged'),criteria:expect.objectContaining({statusMatch:'and'}),ids:expect.arrayContaining([expect.stringMatching(/both/)])})]);
 });

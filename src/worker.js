@@ -587,7 +587,7 @@ async function upsertPracticeSet(env, userId, deviceId, payload) {
       revision = excluded.revision, updated_at = excluded.updated_at,
       updated_by_device = excluded.updated_by_device
   `).bind(
-    id, userId, bankId, payload.name == null ? null : String(payload.name).slice(0, 200),
+    id, userId, bankId, payload.name == null ? null : boundedString(payload.name, "practiceSet name", 8000),
     boundedString(payload.mode, "practiceSet mode", 20), boundedString(payload.status, "practiceSet status", 40),
     String(payload.startedAt || updatedAt), payload.completedAt || null, Math.max(0, Number(payload.elapsedMs || 0)),
     JSON.stringify(questionIds), Number(Boolean(payload.timed)), Math.max(0, Number(payload.index || 0)),

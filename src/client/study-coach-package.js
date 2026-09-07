@@ -352,6 +352,7 @@ function normalizePracticeSet(row, index) {
     : null;
   return {
     id: text(row.id, `${prefix}.id`, 200),
+    ...(row.name ? { name: text(row.name, `${prefix}.name`, 8000) } : {}),
     bankId: optionalText(row.bankId, `${prefix}.bankId`, 100),
     selectedBankIds: boundedArray(row.selectedBankIds || [], `${prefix}.selectedBankIds`, MAX_PACKAGE_BANKS)
       .map((entry, entryIndex) => text(entry, `${prefix}.selectedBankIds[${entryIndex}]`, 100)),
