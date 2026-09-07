@@ -77,8 +77,21 @@ test("combined K&S and added-deck set survives reload, submission, history, and 
   await expect(page.locator(".exam .eyebrow")).toContainText("Combined Flow");
   await page.locator('.choice[data-answer="A"]').click();
   await page.locator('.choice[data-answer="C"]').click();
-  await page.getByRole("button", { name: "Check answer" }).click();
+  await page.getByRole("button", { name: "Submit answer", exact: true }).click();
   await expect(page.locator(".explanation strong")).toHaveText("Correct");
+
+  await page.getByRole('button', { name: 'Reset answer', exact: true }).click();
+  await expect(page.locator('.explanation')).toHaveCount(0);
+  await expect(page.locator('#checkAnswerBtn')).toBeDisabled();
+  await page.locator('.choice[data-answer="A"]').click();
+  await page.locator('.choice[data-answer="C"]').click();
+  await page.locator('#checkAnswerBtn').click();
+  await expect(page.locator('.explanation strong')).toHaveText('Correct');
+  const retryProgress = await page.evaluate(async () => {
+    const { getRecord, STORES } = await import('/client/storage.js');
+    return getRecord(STORES.PROGRESS, ['combined-flow-deck', 'combined-flow-1']);
+  });
+  expect(retryProgress.timesUsed).toBe(1);
 
   await page.getByRole("button", { name: "Save and exit" }).click();
   await expect(page.getByRole("button", { name: "Resume set" })).toBeVisible();
@@ -122,7 +135,7 @@ test("special retest criteria preserve multi-answer behavior and show a dated an
   await page.locator("#timingSelect").selectOption("untimed");
   await page.getByRole("button", { name: "Start set" }).click();
   await page.locator('.choice[data-answer="A"]').click();
-  await page.getByRole("button", { name: "Check answer" }).click();
+  await page.getByRole("button", { name: "Submit answer", exact: true }).click();
   await expect(page.locator(".explanation strong")).toContainText("Correct answers");
   await page.getByRole("button", { name: "Flag question" }).click();
   await page.getByRole("button", { name: "Submit set" }).click();
@@ -177,7 +190,7 @@ test("combined-deck Wrong filter uses progress-aware availability and starts onl
   await page.locator("#timingSelect").selectOption("untimed");
   await page.getByRole("button", { name: "Start set" }).click();
   await page.locator('.choice[data-answer="B"]').click();
-  await page.getByRole("button", { name: "Check answer" }).click();
+  await page.getByRole("button", { name: "Submit answer", exact: true }).click();
   await page.getByRole("button", { name: "Submit set" }).click();
   await page.getByRole("button", { name: "Back to dashboard" }).click();
 

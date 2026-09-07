@@ -1,4 +1,5 @@
 import { QUESTION_BANKS } from './banks/catalog.js';
+import { focusCoachPractice } from './client/study-coach-practice-selection.js';
 import { isUserSelectableDeck, practiceSetDeckLabel, resolveUserActiveDeck } from './client/deck-display.js';
 
 // ABPN_USER_FACING_DECKS_PATCH_V1
@@ -51,6 +52,7 @@ import {
   putRecord,
   recordsByIndex,
   completePracticeSetSubmission,
+  commitTutorAnswer,
   updateQuestionProgress,
   updatePracticeSet,
   updatePracticeSetAnswer,
@@ -70,6 +72,7 @@ let banks;
 let activeBank;
 let allowSystemValidation = false;
 let activeSet = null;
+let answerActionPending = null;
 // Review filters are deliberately transient. They change only the review UI and
 // are never written into the saved test, question bank, or progress records.
 let reviewQuestionIndexes = null;
@@ -259,6 +262,14 @@ async function hydrateStoredSet(saved) {
 
   const savedAnswers = await recordsByIndex(STORES.ANSWERS, 'bySet', saved.id);
   const answers = new Map(savedAnswers.map((answer) => [answer.questionId, answer]));
+  // Older cloud records omitted finalized. Single-choice tutor answers were
+  // immediately graded then; preserve that behavior only for those legacy rows.
+  if (saved.mode === 'tutor') for (const item of setQuestionItems(banks, normalized)) {
+    const answer = answers.get(item.answerKey);
+    if (hasQuestionAnswer(answer) && answer.finalized == null && !item.question.isMultiSelect) {
+      answers.set(item.answerKey, { ...answer, finalized: true });
+    }
+  }
   // Timed practice sets are intentionally paused whenever the question screen is
   // not open. The running interval is the only timer writer; hydration must
   // trust the last persisted remainingSeconds so Save and exit, reload, sync, or
@@ -650,6 +661,7 @@ async function renderDashboard() {
               </div>
             </div>
           </details>
+          ${activeBank.id === 'study-coach-question-bank' ? '<button id="latestCoachTestBtn" type="button" class="secondary">Practice latest coach test (New questions)</button>' : ''}
           ${sourceSections.length ? `<details id="sourceSectionPicker" class="subject-picker source-section-picker">
             <summary>
               <span>Source organization</span>
@@ -830,6 +842,8 @@ async function renderDashboard() {
           <div><strong>Install the latest coach update</strong><p class="muted">Pull the protected Cloudflare output and automatically add its new questions as the next test in the Study Coach Question Bank.</p><button id="pullStudyCoachOutputBtn" class="primary" type="button">Update Study Coach</button></div>
         </div>
       </div>
+      <p id="studyCoachHandoffStatus" class="muted" aria-live="polite"></p>
+      <button id="checkStudyCoachStatusBtn" type="button">Check coach status</button>
       <p id="studyCoachPackageStatus" class="muted" aria-live="polite"></p>
       <p id="studyCoachStatus" class="muted" aria-live="polite"></p>
       <details class="study-coach-advanced">
@@ -1111,6 +1125,10 @@ async function renderDashboard() {
   });
   subjectInputs.forEach((input) => input.addEventListener('change', updateBuilderAvailability));
   sourceSectionInputs.forEach((input) => input.addEventListener('change', updateBuilderAvailability));
+  document.getElementById('latestCoachTestBtn')?.addEventListener('click', async () => {
+    focusCoachPractice(activeBank);
+    await renderDashboard();
+  });
   countInput.addEventListener('input', () => {
     const nextCount = Number(countInput.value);
     if (Number.isFinite(nextCount) && nextCount >= 1) {
@@ -1355,7 +1373,7 @@ async function renderQuestion() {
   const answer = activeSet.answers.get(context.answerKey);
   const selectedLetters = selectedAnswerLetters(answer?.selectedAnswer);
   const hasAnswer = selectedLetters.length > 0;
-  const tutorFinalized = !question.isMultiSelect || answer?.finalized === true;
+  const tutorFinalized = answer?.finalized === true;
   const reveal = activeSet.submitted || (activeSet.mode === 'tutor' && hasAnswer && tutorFinalized);
   const progressByBank = new Map();
   for (const bankId of [...new Set(items.map((item) => item.bankId))]) progressByBank.set(bankId, await progressMap(bankId));
@@ -1417,14 +1435,15 @@ async function renderQuestion() {
           }).join('')}</div>
           ${reveal ? `<div class="explanation"><strong>${answeredCorrectly ? 'Correct' : `Correct answer${correctLetters.length === 1 ? '' : 's'}: ${esc(correctLetters.join(', '))}`}</strong>${question.answerText ? `<div class="answer-text">${esc(question.answerText)}</div>` : ''}<div>${esc(question.explanation)}</div></div>` : ''}
           ${activeSet.submitted ? answerHistoryMarkup(answerHistory) : ''}
-          <div class="actions question-actions"><button id="flagBtn" class="secondary" type="button">${flagged ? 'Unflag' : 'Flag'} question</button>${question.isMultiSelect && activeSet.mode === 'tutor' && !activeSet.submitted && !reveal ? `<button id="checkAnswerBtn" class="primary" type="button" ${hasAnswer ? '' : 'disabled'}>Check answer</button>` : ''}${!activeSet.submitted ? '<button id="submitBtn" class="danger" type="button">Submit set</button>' : ''}</div>
+          <div class="actions question-actions"><button id="flagBtn" class="secondary" type="button">${flagged ? 'Unflag' : 'Flag'} question</button>${activeSet.mode === 'tutor' && !activeSet.submitted ? `${!reveal ? `<button id="checkAnswerBtn" class="primary" type="button" ${hasAnswer ? '' : 'disabled'}>Submit answer</button>` : ''}<button id="resetAnswerBtn" class="secondary" type="button" ${hasAnswer ? '' : 'disabled'}>Reset answer</button>` : ''}${!activeSet.submitted ? '<button id="submitBtn" class="danger" type="button">Submit set</button>' : ''}</div>
           <div class="exam-nav"><button id="prevBtn" class="secondary" type="button" ${isFirstQuestion ? 'disabled' : ''}>Previous</button><button id="exitBtn" class="secondary" type="button">${activeSet.submitted ? 'Back to test summary' : 'Save and exit'}</button>${finalNavigation}</div>
         </div>
       </div>
     </section>`;
 
-  document.querySelectorAll('.choice').forEach((button) => { button.onclick = () => answerQuestion(context, button.dataset.answer); });
-  document.getElementById('checkAnswerBtn')?.addEventListener('click', () => finalizeMultiSelectAnswer(context));
+  document.querySelectorAll('.choice').forEach((button) => { button.onclick = () => runAnswerAction(context, () => answerQuestion(context, button.dataset.answer)); });
+  document.getElementById('checkAnswerBtn')?.addEventListener('click', () => runAnswerAction(context, () => finalizeTutorAnswer(context)));
+  document.getElementById('resetAnswerBtn')?.addEventListener('click', () => runAnswerAction(context, () => resetTutorAnswer(context)));
   document.getElementById('flagBtn').onclick = async () => {
     const old = progress.get(context.questionId);
     await updateQuestionProgress({ bankId: context.bankId, questionId: context.questionId, deviceId, patch: { isFlagged: !old?.isFlagged } });
@@ -1444,9 +1463,29 @@ async function renderQuestion() {
   }, 1000);
 }
 
+// Serialize response writes before navigation/submission and recover visibly
+// from failed storage, rather than displaying an answer that was not saved.
+async function runAnswerAction(context, action) {
+  if (answerActionPending) return;
+  document.querySelectorAll('.exam button').forEach(button => { button.disabled = true; });
+  homeBtn.disabled = true;
+  answerActionPending = (async () => {
+    try { await action(); }
+    catch (error) {
+      console.error('Tutor response save failed', error);
+      const saved = await getRecord(STORES.ANSWERS, [activeSet.id, context.answerKey]);
+      if (saved) activeSet.answers.set(context.answerKey, saved);
+      else activeSet.answers.delete(context.answerKey);
+      alert('The answer change could not be saved. Please try again.');
+      await renderQuestion();
+    }
+  })();
+  try { await answerActionPending; } finally { answerActionPending = null; homeBtn.disabled = false; }
+}
+
 async function persistSetAnswer(context, entry) {
-  activeSet.answers.set(context.answerKey, entry);
   await updatePracticeSetAnswer({ deviceId, record: { setId: activeSet.id, questionId: context.answerKey, ...entry } });
+  activeSet.answers.set(context.answerKey, entry);
 }
 
 async function answerQuestion(context, selectedAnswer) {
@@ -1459,44 +1498,56 @@ async function answerQuestion(context, selectedAnswer) {
     const current = selectedAnswerLetters(existing?.selectedAnswer);
     const selected = current.includes(selectedAnswer) ? current.filter((letter) => letter !== selectedAnswer) : [...current, selectedAnswer];
     const ordered = question.choiceLetters.filter((letter) => selected.includes(letter));
-    await persistSetAnswer(context, { selectedAnswer: ordered, isCorrect: isQuestionAnswerCorrect(question, ordered), finalized: false, timeMs: Number(existing?.timeMs || 0) + elapsed, updatedAt: new Date().toISOString() });
+    await persistSetAnswer(context, { ...existing, selectedAnswer: ordered, isCorrect: isQuestionAnswerCorrect(question, ordered), finalized: false, timeMs: Number(existing?.timeMs || 0) + elapsed, updatedAt: new Date().toISOString() });
   } else {
-    const entry = { selectedAnswer, isCorrect: isQuestionAnswerCorrect(question, selectedAnswer), finalized: true, timeMs: Number(existing?.timeMs || 0) + elapsed, updatedAt: new Date().toISOString() };
+    const entry = { ...existing, selectedAnswer, isCorrect: isQuestionAnswerCorrect(question, selectedAnswer), finalized: activeSet.mode !== 'tutor', timeMs: Number(existing?.timeMs || 0) + elapsed, updatedAt: new Date().toISOString() };
     await persistSetAnswer(context, entry);
-    if (activeSet.mode === 'tutor') await saveProgress(context, entry);
   }
   await saveActiveSet(); await renderQuestion();
 }
 
-async function finalizeMultiSelectAnswer(context) {
+async function finalizeTutorAnswer(context) {
+  if (!activeSet || activeSet.submitted || activeSet.mode !== 'tutor') return;
   const existing = activeSet.answers.get(context.answerKey);
+  if (existing?.finalized) return;
   if (!hasQuestionAnswer(existing)) return alert('Select at least one answer before checking this question.');
   const entry = { ...existing, isCorrect: isQuestionAnswerCorrect(context.question, existing.selectedAnswer), finalized: true, timeMs: Number(existing.timeMs || 0) + Math.max(0, Date.now() - startedQuestionAt), updatedAt: new Date().toISOString() };
-  await persistSetAnswer(context, entry); await saveProgress(context, entry); await saveActiveSet(); await renderQuestion();
+  const saved = await commitTutorAnswer({ record: { ...entry, setId: activeSet.id, questionId: context.answerKey }, bankId: context.bankId, questionId: context.questionId, deviceId });
+  activeSet.answers.set(context.answerKey, saved);
+  scheduleStudyCoachRefresh({ banks });
+  await saveActiveSet(); await renderQuestion();
 }
 
-async function saveProgress(context, entry) {
-  const current = (await progressMap(context.bankId)).get(context.questionId);
-  await updateQuestionProgress({ bankId: context.bankId, questionId: context.questionId, deviceId, patch: { selectedAnswer: entry.selectedAnswer, isCorrect: entry.isCorrect, timesUsed: Number(current?.timesUsed || 0) + 1, totalTimeMs: Number(current?.totalTimeMs || 0) + Number(entry.timeMs || 0), lastUsedAt: new Date().toISOString() } });
-  scheduleStudyCoachRefresh({ banks });
+// Reset only this active test's response; preserve previous completed history
+// and the last submitted global response until another answer is submitted.
+async function resetTutorAnswer(context) {
+  if (!activeSet || activeSet.submitted || activeSet.mode !== 'tutor') return;
+  const existing = activeSet.answers.get(context.answerKey);
+  if (!hasQuestionAnswer(existing)) return;
+  await persistSetAnswer(context, { ...existing, selectedAnswer: null, isCorrect: null, finalized: false,
+    progressRecorded: existing.progressRecorded || existing.finalized === true,
+    progressTimeMs: existing.progressTimeMs ?? (existing.finalized ? Number(existing.timeMs || 0) : 0),
+    updatedAt: new Date().toISOString() });
+  await saveActiveSet(); await renderQuestion();
 }
 
 async function submitSet({ auto = false, showResults = true } = {}) {
+  if (answerActionPending) await answerActionPending;
   if (!activeSet || activeSet.submitted) return;
   const completedAt = new Date().toISOString();
   activeSet.submitted = true;
   activeSet.completedAt = completedAt;
   try {
-    const progressUpdates = activeSet.mode === 'test'
-      ? progressEntriesForSession(banks, activeSet, activeSet.answers, { hasAnswer: hasQuestionAnswer })
+    const progressUpdates = progressEntriesForSession(banks, activeSet, activeSet.answers, { hasAnswer: hasQuestionAnswer })
+        .filter((item) => activeSet.mode === 'test' || !item.entry.finalized)
         .map((item) => ({
           bankId: item.bankId,
           questionId: item.questionId,
           selectedAnswer: item.entry.selectedAnswer,
           isCorrect: item.entry.isCorrect,
-          timeMs: item.entry.timeMs,
-        }))
-      : [];
+          timeMs: Math.max(0, Number(item.entry.timeMs || 0) - (activeSet.mode === 'tutor' ? Number(item.entry.progressTimeMs || 0) : 0)),
+          attemptIncrement: activeSet.mode === 'tutor' && item.entry.progressRecorded ? 0 : 1,
+        }));
     const record = persistenceRecordForSession(activeSet);
     record.status = 'completed';
     await completePracticeSetSubmission({ record, progressUpdates, deviceId });

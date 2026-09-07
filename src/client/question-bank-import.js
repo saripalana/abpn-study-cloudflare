@@ -212,16 +212,32 @@ export function questionFingerprint(question) {
   });
 }
 
+// Cloud-authoritative coach organization may change labels, never question
+// identity, teaching content, keys, linked order, or vignette membership.
+export function isCoachOrganizationUpdate(existing, incoming) {
+  if (![existing, incoming].every(bank => bank?.id === 'study-coach-question-bank' && bank.contentClass === 'assistant-supplemental' && bank.sourceType === 'assistant-supplemental')) return false;
+  const nextById = new Map(incoming.questions.map(q => [q.id, q]));
+  const members = (bank, question) => question.linkedGroupId
+    ? bank.questions.filter(q => q.linkedGroupId === question.linkedGroupId).map(q => q.id).sort().join('|') : '';
+  return existing.questions.every(old => {
+    const next = nextById.get(old.id);
+    return next && old.subjectTitle === next.subjectTitle && members(existing, old) === members(incoming, next)
+      && questionFingerprint(old) === questionFingerprint({ ...next, chapter: old.chapter, chapterTitle: old.chapterTitle, linkedGroupId: old.linkedGroupId });
+  });
+}
+
 export function analyzeQuestionBankUpdate(existing, incoming, {
   hasStudyData = false,
   allowVerifiedCatalogSeedUpdate = false,
+  allowCoachOrganizationUpdate = false,
 } = {}) {
   if (!existing) return { status: "new", additive: true, addedQuestions: incoming.questions.length };
   if (existing.checksum === incoming.checksum) return { status: "unchanged", additive: true, addedQuestions: 0 };
   // This flag is set only by the application-bundled seed installer. It also
   // permits that trusted package to repair a corrupted same-version cache.
   const verifiedCatalogSeedUpdate = Boolean(allowVerifiedCatalogSeedUpdate);
-  if (existing.version === incoming.version && !verifiedCatalogSeedUpdate) {
+  const coachOrganizationUpdate = allowCoachOrganizationUpdate && isCoachOrganizationUpdate(existing, incoming);
+  if (existing.version === incoming.version && !verifiedCatalogSeedUpdate && !coachOrganizationUpdate) {
     throw new Error("The package content changed without a new bank version. Increase the version before importing it.");
   }
   if (existing.contentClass !== incoming.contentClass || existing.sourceType !== incoming.sourceType) {
@@ -235,7 +251,7 @@ export function analyzeQuestionBankUpdate(existing, incoming, {
   });
   // Some approved catalog decks retain user-imported provenance, so
   // sourceType alone cannot identify the trusted update boundary.
-  if (hasStudyData && changedOrRemoved.length && !verifiedCatalogSeedUpdate) {
+  if (hasStudyData && changedOrRemoved.length && !verifiedCatalogSeedUpdate && !coachOrganizationUpdate) {
     throw new Error(
       `This update changes or removes ${changedOrRemoved.length} existing question(s) while progress or test history exists. Import it under a new bank id to protect prior results.`
     );
@@ -300,6 +316,7 @@ function installationRecords(incoming, existing, now) {
 export async function installQuestionBankPackagesAtomically(packages, {
   reservedIds = [],
   allowVerifiedCatalogSeedUpdate = false,
+  allowCoachOrganizationUpdate = false,
 } = {}) {
   if (!Array.isArray(packages) || packages.length < 1 || packages.length > 12) {
     throw new Error("Question-bank batch must contain between 1 and 12 packages.");
@@ -325,6 +342,7 @@ export async function installQuestionBankPackagesAtomically(packages, {
     const analysis = analyzeQuestionBankUpdate(existing, incoming, {
       hasStudyData: progress.length > 0 || sets.length > 0,
       allowVerifiedCatalogSeedUpdate,
+      allowCoachOrganizationUpdate,
     });
     return { incoming, existing, progress, sets, allSets, answers, analysis };
   }));

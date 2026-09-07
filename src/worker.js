@@ -620,18 +620,24 @@ async function upsertPracticeSetAnswer(env, userId, deviceId, payload) {
   await env.DB.prepare(`
     INSERT INTO practice_set_answers (
       set_id, question_id, selected_answer, is_correct, is_flagged, time_ms,
-      answered_at, revision, updated_at, updated_by_device
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      answered_at, revision, updated_at, updated_by_device, tutor_state_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(set_id, question_id) DO UPDATE SET
       selected_answer = excluded.selected_answer, is_correct = excluded.is_correct,
       is_flagged = excluded.is_flagged, time_ms = excluded.time_ms,
       answered_at = excluded.answered_at, revision = excluded.revision,
-      updated_at = excluded.updated_at, updated_by_device = excluded.updated_by_device
+      updated_at = excluded.updated_at, updated_by_device = excluded.updated_by_device,
+      tutor_state_json = COALESCE(excluded.tutor_state_json, practice_set_answers.tutor_state_json)
   `).bind(
     setId, questionId, payload.selectedAnswer == null ? null : String(payload.selectedAnswer).slice(0, 20),
     payload.isCorrect == null ? null : Number(Boolean(payload.isCorrect)), Number(Boolean(payload.isFlagged)),
     Math.max(0, Number(payload.timeMs || 0)), payload.answeredAt || updatedAt,
-    incomingRevision, updatedAt, deviceId
+    incomingRevision, updatedAt, deviceId,
+    typeof payload.finalized === 'boolean' ? JSON.stringify({
+      finalized: payload.finalized,
+      progressRecorded: payload.progressRecorded === true,
+      progressTimeMs: Math.max(0, Number(payload.progressTimeMs) || 0),
+    }) : null
   ).run();
 
   const change = await env.DB.prepare(`
@@ -716,7 +722,7 @@ async function handleSyncPull(request, env) {
            pa.selected_answer AS pa_selected_answer, pa.is_correct AS pa_is_correct,
            pa.is_flagged AS pa_is_flagged, pa.time_ms AS pa_time_ms,
            pa.answered_at AS pa_answered_at, pa.updated_at AS pa_updated_at,
-           pa.updated_by_device AS pa_updated_by_device
+           pa.updated_by_device AS pa_updated_by_device, pa.tutor_state_json AS pa_tutor_state_json
     FROM sync_changes sc
     LEFT JOIN question_progress qp
       ON sc.user_id = qp.user_id
@@ -770,6 +776,7 @@ async function handleSyncPull(request, env) {
       deviceId: row.ps_updated_by_device,
     };
     if (row.entity_type === "practiceSetAnswer" && row.pa_set_id) payload = {
+      ...JSON.parse(row.pa_tutor_state_json || '{}'),
       setId: row.pa_set_id,
       questionId: row.pa_question_id,
       selectedAnswer: row.pa_selected_answer,

@@ -292,13 +292,14 @@ test('multiple pending tests remain independently resumable', async ({ page }) =
   await expect(page.getByRole('heading', { name: 'Question 1 of 1' })).toBeVisible();
 });
 
-test('tutor mode reveals feedback immediately and records analytics', async ({ page }) => {
+test('tutor mode reveals feedback on submission and records analytics', async ({ page }) => {
   await useValidationBank(page);
   await page.locator('#countInput').fill('1');
   await page.locator('#modeSelect').selectOption('tutor');
   await page.locator('#timingSelect').selectOption('untimed');
   await page.getByRole('button', { name: 'Start set' }).click();
   await page.locator('.choice').first().click();
+  await page.locator('#checkAnswerBtn').click();
   await expect(page.locator('.explanation')).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
   await expect(page.getByRole('columnheader', { name: 'Subject' })).toBeVisible();

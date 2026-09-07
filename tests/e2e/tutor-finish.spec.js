@@ -1,6 +1,48 @@
 import { test, expect } from '@playwright/test';
 import { selectActiveBank } from './helpers/active-bank.mjs';
 
+// Exercise response lifecycle against real IndexedDB, including reload and retry.
+test('Tutor drafts and reset survive reload without duplicate attempts or history edits', async ({ page }) => {
+  await startOrderedValidationSet(page, 'tutor');
+  const progress = () => page.evaluate(async () => {
+    const { STORES, getAllRecords } = await import('/client/storage.js');
+    return getAllRecords(STORES.PROGRESS);
+  });
+  await expect(page.locator('#checkAnswerBtn')).toBeDisabled();
+  await page.locator('.choice').first().click();
+  await expect(page.locator('.explanation')).toHaveCount(0);
+  expect(await progress()).toHaveLength(0);
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+  await page.reload();
+  await page.getByRole('button', { name: 'Resume set', exact: true }).click();
+  await expect(page.locator('.explanation')).toHaveCount(0);
+  await page.locator('#checkAnswerBtn').click();
+  await expect(page.locator('.explanation')).toBeVisible();
+  expect((await progress())[0].timesUsed).toBe(1);
+  await page.locator('#resetAnswerBtn').click();
+  await expect(page.locator('.explanation')).toHaveCount(0);
+  await expect(page.locator('#checkAnswerBtn')).toBeDisabled();
+  await expect(page.locator('.question-map button').first()).toHaveClass(/unanswered/);
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+  await page.reload();
+  await page.getByRole('button', { name: 'Resume set', exact: true }).click();
+  await page.locator('.choice').nth(1).click();
+  await page.locator('#checkAnswerBtn').click();
+  await expect(page.locator('.explanation')).toBeVisible();
+  expect((await progress())[0]).toMatchObject({ timesUsed: 1, selectedAnswer: 'B' });
+  // A whole-set submission also commits an unsubmitted retry exactly once.
+  await page.locator('#resetAnswerBtn').click();
+  await page.locator('.choice').first().click();
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#submitBtn').click();
+  await expect(page.getByText('SET RESULTS')).toBeVisible();
+  expect((await progress())[0]).toMatchObject({ timesUsed: 1, selectedAnswer: 'A' });
+  await page.getByRole('button', { name: 'Review all questions' }).click();
+  await expect(page.locator('#resetAnswerBtn')).toHaveCount(0);
+  await expect(page.locator('#checkAnswerBtn')).toHaveCount(0);
+  await expect(page.locator('.choice').first()).toBeDisabled();
+});
+
 async function startOrderedValidationSet(page, mode) {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Import from file' })).toBeEnabled();
@@ -13,10 +55,39 @@ async function startOrderedValidationSet(page, mode) {
   await page.locator('#startBtn').click();
 }
 
-test('Tutor question map uses blue answered states and immediate incorrect dots', async ({ page }) => {
+test('Legacy single-choice tutor answers remain graded and reset without recounting', async ({ page }) => {
+  await startOrderedValidationSet(page, 'tutor');
+  await page.locator('.choice').first().click();
+  await page.locator('#checkAnswerBtn').click();
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+  await page.evaluate(async () => {
+    const { STORES, getAllRecords, putRecord } = await import('/client/storage.js');
+    const [answer] = await getAllRecords(STORES.ANSWERS);
+    delete answer.finalized;
+    delete answer.progressRecorded;
+    delete answer.progressTimeMs;
+    await putRecord(STORES.ANSWERS, answer);
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Resume set', exact: true }).click();
+  await expect(page.locator('.explanation')).toBeVisible();
+  await page.locator('#resetAnswerBtn').click();
+  await page.locator('.choice').nth(1).click();
+  await page.locator('#checkAnswerBtn').click();
+  const records = await page.evaluate(async () => {
+    const { STORES, getAllRecords } = await import('/client/storage.js');
+    return getAllRecords(STORES.PROGRESS);
+  });
+  expect(records[0].timesUsed).toBe(1);
+});
+
+test('Tutor question map reveals correctness only after Submit answer', async ({ page }) => {
   await startOrderedValidationSet(page, 'tutor');
 
   await page.locator('.choice').first().click();
+  await expect(page.locator('.explanation')).toHaveCount(0);
+  await expect(page.locator('.question-map button').nth(0)).not.toHaveClass(/incorrect-answer/);
+  await page.locator('#checkAnswerBtn').click();
   await expect(page.locator('.question-map button').nth(0)).toHaveClass(/answered/);
   await expect(page.locator('.question-map button').nth(0)).toHaveClass(/incorrect-answer/);
   await expect(page.locator('.question-map button').nth(0)).toHaveAttribute('aria-label', 'Question 1, answered, incorrect');
@@ -116,6 +187,7 @@ test('Tutor mode supports confirmed submission at any point, answer states, and 
   await expect(page.getByText('Answered', { exact: true }).last()).toBeVisible();
 
   await page.locator('.choice').first().click();
+  await page.locator('#checkAnswerBtn').click();
   await expect(page.locator('.explanation')).toBeVisible();
   await expect(page.locator('.question-state.answered')).toHaveText('Answered');
   await expect(page.locator('.question-map button.answered')).toHaveCount(1);
