@@ -1,4 +1,5 @@
 import { buildStudyCoachDataset } from "./client/weakness-analytics.js";
+import { studyCoachHandoff } from "./client/study-coach-handoff.js";
 import { getAllRecords, STORES } from "./client/storage.js";
 import { ensureStagingSession } from "./client/staging-lifecycle.js";
 import {
@@ -20,6 +21,7 @@ import {
 } from "./client/study-coach-deck-library.js";
 import { QUESTION_BANKS } from "./banks/catalog.js";
 import { reconcileStudyCoachCloudDeck } from "./client/deck-library.js";
+import { focusCoachPractice } from "./client/study-coach-practice-selection.js";
 import {
   banksForStudyCoach,
   studyRecordsForBanks,
@@ -180,12 +182,23 @@ function renderCoachOutput(outputNode, output) {
   `;
 }
 
-async function installGeneratedDecks(output) {
+async function installGeneratedDecks(output, fromCloud = false) {
   const generatedDecks = Array.isArray(output?.generatedDecks) ? output.generatedDecks : [];
   if (!generatedDecks.length) return [];
   const protectedBanks = protectedStudyCoachBanks(currentBanks);
   await assertNoProtectedQuestionCopies(generatedDecks, protectedBanks);
   const reservedIds = protectedBanks.map((bank) => bank.id);
+  if (fromCloud) {
+    // Materialization has already assigned canonical sections in Cloudflare.
+    // Always reconcile, including retries when the output IDs exist locally.
+    const reconciliation = await reconcileStudyCoachCloudDeck({ reservedIds });
+    const bank = reconciliation.bank;
+    const ids = generatedDecks.flatMap(deck => deck.package.bank.questions.map(q => q.id));
+    const missing = buildStudyCoachDeckLibraryUpdate({ existingBank: bank, generatedDecks, generatedAt: output.generatedAt });
+    if (!bank || missing.changed) throw new Error('Cloud bank does not contain the complete coach output. No local test was generated. Retry Update Study Coach.');
+    const sections = focusCoachPractice(bank, localStorage, ids);
+    return [{ title: sections.join(', '), bankId: bank.id, questionCount: ids.length, totalQuestionCount: bank.questions.length, status: 'installed', cloudStatus: reconciliation.status }];
+  }
   const existingBank = currentBanks.find((bank) => bank.id === STUDY_COACH_BANK_ID) || null;
   const update = buildStudyCoachDeckLibraryUpdate({
     existingBank,
@@ -227,6 +240,8 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
   const deleteData = section.querySelector("#deleteStudyCoachDataBtn");
   const statusNode = section.querySelector("#studyCoachStatus");
   const packageStatusNode = section.querySelector("#studyCoachPackageStatus");
+  const handoffStatusNode = section.querySelector("#studyCoachHandoffStatus");
+  const checkStatus = section.querySelector("#checkStudyCoachStatusBtn");
   const exportPackage = section.querySelector("#exportStudyCoachPackageBtn");
   const publishPackage = section.querySelector("#publishStudyCoachPackageBtn");
   const archivePackage = section.querySelector("#archiveStudyCoachPackageBtn");
@@ -285,17 +300,18 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
     }
   };
 
-  const applyImportedOutput = async (output, message) => {
-    const installedDecks = await installGeneratedDecks(output);
+  const applyImportedOutput = async (output, message, fromCloud = false) => {
+    const installedDecks = await installGeneratedDecks(output, fromCloud);
     currentOutput = output;
     await saveStudyCoachOutput(currentOutput);
     outputHistory = await loadStudyCoachOutputHistory();
     renderOutputs();
+    render();
     if (installedDecks.length) {
       await refreshCoachDeckView();
     }
     packageStatusNode.textContent = installedDecks.length
-      ? `${message} Added ${installedDecks.map((deck) => `${deck.title} (${deck.questionCount} new; ${deck.totalQuestionCount} total)`).join(", ")} to the Study Coach Question Bank in the Deck Library and reconciled it with Cloudflare${installedDecks.some((deck) => deck.cloudStatus === "queued") ? " (cloud update queued until connectivity returns)" : ""}.`
+      ? `${message} Ready: ${installedDecks.map((deck) => `${deck.title} (${deck.questionCount} batch questions; ${deck.totalQuestionCount} total)`).join(", ")} in the Study Coach Question Bank in the Deck Library, reconciled with Cloudflare${installedDecks.some((deck) => deck.cloudStatus === "queued") ? " (cloud update queued until connectivity returns)" : ""}.`
       : message;
   };
 
@@ -363,7 +379,7 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
       });
       status = await request("/api/assistant/study-coach/permission");
       render();
-      await applyImportedOutput(preparedOutput, `Latest Study Coach output materialized and pulled from Cloudflare: ${formatTimestamp(result.file?.createdAt)}.`);
+      await applyImportedOutput(preparedOutput, `Latest Study Coach output materialized and pulled from Cloudflare: ${formatTimestamp(result.file?.createdAt)}.`, true);
     } catch (error) {
       packageStatusNode.textContent = `Cloudflare coach-output pull failed: ${error.message}`;
     } finally {
@@ -393,8 +409,23 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
     if (publishOutput) publishOutput.disabled = !permissionEnabled;
     if (pullOutput) pullOutput.disabled = !permissionEnabled;
     statusNode.textContent = sharingUnavailableError ? `Study Coach access is temporarily unavailable: ${sharingUnavailableError}` : statusText(status);
+    if (handoffStatusNode) handoffStatusNode.textContent = sharingUnavailableError
+      ? "Coach status unavailable. Existing local study material remains available."
+      : studyCoachHandoff(status, currentOutput);
   };
   render();
+
+  // Explicit metadata refresh, not polling or a generation/materialization action.
+  checkStatus?.addEventListener("click", async () => {
+    checkStatus.disabled = true;
+    try {
+      status = await request("/api/assistant/study-coach/permission");
+      sharingUnavailableError = "";
+      render();
+    } catch {
+      if (handoffStatusNode) handoffStatusNode.textContent = "Could not check coach status. Try again when connected; your local material is unchanged.";
+    } finally { checkStatus.disabled = false; }
+  });
 
   importOutput?.addEventListener("click", () => {
     outputFileAction = "import";
@@ -407,6 +438,7 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
       currentOutput = null;
       outputHistory = [];
       renderOutputs();
+      render();
       packageStatusNode.textContent = "Imported Study Coach output cleared from this browser.";
     } finally {
       clearOutput.disabled = false;
@@ -527,7 +559,7 @@ export async function attachAssistantWeaknessControls({ root, banks }) {
         });
         status = await request("/api/assistant/study-coach/permission");
         render();
-        await applyImportedOutput(output, `Study Coach output published to Cloudflare from ${selectedFileName}: ${formatTimestamp(result.file?.createdAt)}.`);
+        await applyImportedOutput(output, `Study Coach output published to Cloudflare from ${selectedFileName}: ${formatTimestamp(result.file?.createdAt)}.`, true);
       } else {
         await applyImportedOutput(output, `Study Coach output imported from ${selectedFileName}: ${formatTimestamp(output.generatedAt)}.`);
       }

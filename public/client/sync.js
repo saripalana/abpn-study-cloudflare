@@ -202,7 +202,9 @@ export class SyncClient {
     return result;
   }
 
-  async synchronize({ background = false, force = false } = {}) {
+  async synchronize({ background = false, force = false, onProgress = () => {} } = {}) {
+    // Presentation observers must never interrupt persistence or acknowledgement.
+    const report = (progress) => { try { onProgress(progress); } catch {} };
     const state = await getSyncState();
     if (state.suspended) {
       return {
@@ -232,13 +234,16 @@ export class SyncClient {
       let pushed = 0;
       let pendingCount = 0;
       const conflicts = [];
+      report({ phase: "upload", pushed: 0, pending: pending.length });
       for (let batch = 0; batch < 5; batch += 1) {
         const result = await this.pushPending();
         pushed += result.pushed;
         pendingCount = result.pending;
         conflicts.push(...(result.conflicts ?? []));
+        report({ phase: "upload", pushed, pending: pendingCount });
         if (!pendingCount) break;
       }
+      report({ phase: "download", pushed, pending: pendingCount });
       const pull = await this.pullRemote({ cursor: cursorRecord?.value ?? null });
       const nextState = await saveSyncState({
         mode: "cloud-ready",

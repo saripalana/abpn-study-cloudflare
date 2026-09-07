@@ -207,6 +207,40 @@ export async function updatePracticeSetAnswer({ record, deviceId }) {
   });
 }
 
+// Commit tutor grading and its per-test accounting watermark together. Resetting
+// an answer keeps this watermark so retrying cannot inflate lifetime attempts.
+export async function commitTutorAnswer({ record, bankId, questionId, deviceId }) {
+  if (!record?.setId || !record?.questionId || !bankId || !questionId || !deviceId) throw new Error('Tutor answer identity is required');
+  const db = await openStudyDatabase();
+  try {
+    const tx = db.transaction([STORES.ANSWERS, STORES.PROGRESS, STORES.OUTBOX], 'readwrite');
+    const answers = tx.objectStore(STORES.ANSWERS);
+    const progress = tx.objectStore(STORES.PROGRESS);
+    const outbox = tx.objectStore(STORES.OUTBOX);
+    const [previous, current] = await Promise.all([
+      requestResult(answers.get([record.setId, record.questionId])),
+      requestResult(progress.get([bankId, questionId])),
+    ]);
+    if (previous?.finalized) { await transactionDone(tx); return previous; }
+    const updatedAt = new Date().toISOString();
+    const answer = { ...previous, ...record, finalized: true, progressRecorded: true,
+      progressTimeMs: Number(record.timeMs || 0), deviceId, updatedAt,
+      revision: Number(previous?.revision || 0) + 1 };
+    const next = { ...current, bankId, questionId, selectedAnswer: answer.selectedAnswer,
+      isCorrect: answer.isCorrect, timesUsed: Number(current?.timesUsed || 0) + (previous?.progressRecorded ? 0 : 1),
+      totalTimeMs: Number(current?.totalTimeMs || 0) + Math.max(0, answer.progressTimeMs - Number(previous?.progressTimeMs || 0)),
+      lastUsedAt: updatedAt, updatedAt, deviceId, revision: Number(current?.revision || 0) + 1 };
+    answers.put(answer);
+    progress.put(next);
+    for (const [entityType, entityKey, payload] of [
+      ['practiceSetAnswer', `${record.setId}:${record.questionId}`, answer],
+      ['questionProgress', `${bankId}:${questionId}`, next],
+    ]) outbox.put({ id: `${entityType}:${entityKey}`, entityType, entityKey, operation: 'upsert', payload, createdAt: updatedAt });
+    await transactionDone(tx);
+    return answer;
+  } finally { db.close(); }
+}
+
 export async function completePracticeSetSubmission({ record, progressUpdates = [], deviceId }) {
   if (!record?.id || !record?.bankId) throw new Error("practice set id and bankId are required");
   if (!record.submitted || record.status !== "completed") throw new Error("completed practice set record is required");
@@ -227,6 +261,7 @@ export async function completePracticeSetSubmission({ record, progressUpdates = 
       selectedAnswer: update.selectedAnswer,
       isCorrect: Boolean(update.isCorrect),
       timeMs: Math.max(0, Number(update.timeMs || 0)),
+      attemptIncrement: update.attemptIncrement === 0 ? 0 : 1,
     };
   });
 
@@ -269,7 +304,7 @@ export async function completePracticeSetSubmission({ record, progressUpdates = 
         questionId: update.questionId,
         selectedAnswer: update.selectedAnswer,
         isCorrect: update.isCorrect,
-        timesUsed: Number(current.timesUsed || 0) + 1,
+        timesUsed: Number(current.timesUsed || 0) + update.attemptIncrement,
         totalTimeMs: Number(current.totalTimeMs || 0) + update.timeMs,
         lastUsedAt: updatedAt,
         deviceId,

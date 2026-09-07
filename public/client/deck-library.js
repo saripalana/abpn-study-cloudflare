@@ -210,7 +210,7 @@ export async function reconcileStudyCoachCloudDeck({
   });
 
   if (reconciliation.status === "remote-ahead") {
-    const installed = await installQuestionBankPackage(remotePackage, { reservedIds });
+    const installed = await installQuestionBankPackage(remotePackage, { reservedIds, allowCoachOrganizationUpdate: true });
     return { ...reconciliation, status: "installed-cloud-superset", bank: installed.bank };
   }
   if (reconciliation.status === "current" || reconciliation.status === "absent") return reconciliation;
@@ -223,7 +223,7 @@ export async function reconcileStudyCoachCloudDeck({
     }, { reservedIds })
     : installedBankPackage(reconciliation.bank);
   if (reconciliation.status === "merged") {
-    await installQuestionBankPackage(prepared, { reservedIds });
+    await installQuestionBankPackage(prepared, { reservedIds, allowCoachOrganizationUpdate: true });
   }
 
   try {

@@ -2,6 +2,7 @@ import { SYNC_CLIENT_LIMITS, SyncClient, clearSyncSuspension, getSyncState } fro
 import { QUESTION_BANKS } from "./banks/catalog.js";
 import { installSeedQuestionBanks } from "./client/question-bank-import.js";
 import { ensureStagingSession, STAGING_SESSION_KEY } from "./client/staging-lifecycle.js";
+import { getAllRecords, STORES } from "./client/storage.js";
 
 // Module scripts may load concurrently when bootstrap uses top-level await.
 // Reuse the same preparation promise before reading the per-session device ID.
@@ -70,6 +71,11 @@ async function renderStoredSyncState() {
     return;
   }
   if (state.lastSuccessAt) {
+    const waiting = (await getAllRecords(STORES.OUTBOX)).length;
+    if (waiting) {
+      showStatus(`${waiting} changes waiting`, "Progress is saved locally. Select Sync to upload the remaining changes.");
+      return;
+    }
     showStatus("Cloud ready", `Last successful synchronization: ${new Date(state.lastSuccessAt).toLocaleString()}`);
     return;
   }
@@ -84,7 +90,12 @@ async function runSync({ background = false } = {}) {
   try {
     if (!background) await clearSyncSuspension();
     const preReconcile = await reconcileVerifiedCatalogSeeds();
-    const result = await client.synchronize({ background, force: !background });
+    const result = await client.synchronize({ background, force: !background,
+      onProgress: ({ phase, pushed, pending }) => showStatus(
+        `Syncing · ${pushed} uploaded · ${pending} waiting`,
+        phase === "download" ? "Checking for remote changes. Keep this page open." : "Uploading saved changes in safe batches. Keep this page open.",
+      ),
+    });
     const postReconcile = await reconcileVerifiedCatalogSeeds();
     let repairPush = { pushed: 0, pending: 0, conflicts: [] };
     if (postReconcile.updated || postReconcile.repairedProgress || postReconcile.repairedAnswers) {
@@ -111,9 +122,10 @@ async function runSync({ background = false } = {}) {
       staleStagingSession = false;
       syncButton.textContent = "Sync";
       const conflicts = result.conflicts?.length || 0;
+      const waiting = (await getAllRecords(STORES.OUTBOX)).length;
       showStatus(
-        conflicts ? "Synced · review needed" : catalogRepairs.updated || catalogRepairs.repairedProgress || catalogRepairs.repairedAnswers ? "Synced · corrections applied" : "Cloud ready",
-        `${(result.pushed || 0) + catalogRepairs.pushed} local change(s) uploaded, ${result.pulled || 0} remote change(s) received, ${result.pending || repairPush.pending || 0} still waiting, ${conflicts + (repairPush.conflicts?.length || 0)} conflict(s).${catalogRepairs.updated || catalogRepairs.repairedProgress || catalogRepairs.repairedAnswers ? ` Verified catalog updates: ${catalogRepairs.updated}; repaired progress records: ${catalogRepairs.repairedProgress}; repaired answer-log records: ${catalogRepairs.repairedAnswers}.` : ""}`
+        conflicts ? "Synced · review needed" : waiting ? `${waiting} changes waiting · Sync again` : catalogRepairs.updated || catalogRepairs.repairedProgress || catalogRepairs.repairedAnswers ? "Synced · corrections applied" : "Cloud ready",
+        `${(result.pushed || 0) + catalogRepairs.pushed} local change(s) uploaded, ${result.pulled || 0} remote change(s) received, ${waiting} still waiting, ${conflicts + (repairPush.conflicts?.length || 0)} conflict(s).${catalogRepairs.updated || catalogRepairs.repairedProgress || catalogRepairs.repairedAnswers ? ` Verified catalog updates: ${catalogRepairs.updated}; repaired progress records: ${catalogRepairs.repairedProgress}; repaired answer-log records: ${catalogRepairs.repairedAnswers}.` : ""}`
       );
     }
   } catch (error) {

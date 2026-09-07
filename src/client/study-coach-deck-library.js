@@ -1,4 +1,4 @@
-import { questionFingerprint, stableStringify } from "./question-bank-import.js";
+import { questionFingerprint, stableStringify, isCoachOrganizationUpdate } from "./question-bank-import.js";
 
 export const STUDY_COACH_BANK_ID = "study-coach-question-bank";
 export const STUDY_COACH_BANK_TITLE = "Study Coach Question Bank";
@@ -67,9 +67,12 @@ export function reconcileStudyCoachBanks({ localBank = null, remoteBank = null }
   const localById = new Map(localBank.questions.map((question) => [question.id, question]));
   const remoteById = new Map(remoteBank.questions.map((question) => [question.id, question]));
   const conflictingIds = [];
+  const sharedLocal = { ...localBank, questions: localBank.questions.filter(q => remoteById.has(q.id)) };
+  const sharedRemote = { ...remoteBank, questions: remoteBank.questions.filter(q => localById.has(q.id)) };
+  const organizationOnly = isCoachOrganizationUpdate(sharedLocal, sharedRemote);
   for (const [id, localQuestion] of localById) {
     const remoteQuestion = remoteById.get(id);
-    if (remoteQuestion && questionFingerprint(localQuestion) !== questionFingerprint(remoteQuestion)) {
+    if (remoteQuestion && questionFingerprint(localQuestion) !== questionFingerprint(remoteQuestion) && !organizationOnly) {
       conflictingIds.push(id);
     }
   }
@@ -81,17 +84,21 @@ export function reconcileStudyCoachBanks({ localBank = null, remoteBank = null }
 
   const remoteOnly = remoteBank.questions.filter((question) => !localById.has(question.id));
   const localOnly = localBank.questions.filter((question) => !remoteById.has(question.id));
+  const organizationChanged = localBank.questions.some(q => remoteById.has(q.id) && questionFingerprint(q) !== questionFingerprint(remoteById.get(q.id)));
+  if (organizationChanged && !localOnly.length) {
+    return { status: "remote-ahead", bank: remoteBank, addedLocally: remoteOnly.length, addedRemotely: 0 };
+  }
   if (!remoteOnly.length && !localOnly.length) {
     return { status: "equivalent", bank: localBank, addedLocally: 0, addedRemotely: 0 };
   }
-  if (!remoteOnly.length) {
+  if (!remoteOnly.length && !organizationChanged) {
     return { status: "local-ahead", bank: localBank, addedLocally: 0, addedRemotely: localOnly.length };
   }
   if (!localOnly.length) {
     return { status: "remote-ahead", bank: remoteBank, addedLocally: remoteOnly.length, addedRemotely: 0 };
   }
 
-  const questions = [...localBank.questions, ...remoteOnly];
+  const questions = [...remoteBank.questions, ...localOnly];
   return {
     status: "merged",
     addedLocally: remoteOnly.length,

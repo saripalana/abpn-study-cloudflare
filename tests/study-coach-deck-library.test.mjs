@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { prepareQuestionBankPackage } from "../public/client/question-bank-import.js";
+import { prepareQuestionBankPackage, analyzeQuestionBankUpdate, isCoachOrganizationUpdate } from "../public/client/question-bank-import.js";
+import { focusCoachPractice } from "../public/client/study-coach-practice-selection.js";
 import {
   buildStudyCoachDeckLibraryUpdate,
   reconcileStudyCoachBanks,
@@ -116,7 +117,7 @@ test("reconciliation unions compatible branches and rejects changed reused ids",
   assert.equal(merged.status, "merged");
   assert.equal(merged.addedLocally, 1);
   assert.equal(merged.addedRemotely, 1);
-  assert.deepEqual(merged.bank.questions.map((entry) => entry.id), ["coach-q1", "coach-local", "coach-remote"]);
+  assert.deepEqual(merged.bank.questions.map((entry) => entry.id), ["coach-q1", "coach-remote", "coach-local"]);
   assert.match(merged.bank.version, /^1\.2\.3\./);
 
   const changedRemote = {
@@ -129,4 +130,38 @@ test("reconciliation unions compatible branches and rejects changed reused ids",
     () => reconcileStudyCoachBanks({ localBank: local, remoteBank: changedRemote }),
     /reused question id.*No copy was replaced/i,
   );
+});
+
+// Canonical numbering may differ after offline installation, but content must not.
+test("Cloudflare organization repairs are replay safe and reject content changes", async () => {
+  const local = (await prepareQuestionBankPackage(buildStudyCoachDeckLibraryUpdate({
+    generatedDecks: [generatedDeck('batch', [question('coach-a'), question('coach-b')])],
+  }).package)).bank;
+  const remote = { ...local, checksum: 'canonical-checksum', questions: local.questions.map(q => ({ ...q, chapterTitle: 'Study Coach Test 6', chapter: 6 })) };
+  assert.equal(isCoachOrganizationUpdate(local, remote), true);
+  assert.equal(reconcileStudyCoachBanks({localBank: local, remoteBank: remote}).status, 'remote-ahead');
+  assert.doesNotThrow(() => analyzeQuestionBankUpdate(local, remote, {hasStudyData: true, allowCoachOrganizationUpdate: true}));
+  assert.equal(reconcileStudyCoachBanks({localBank: remote, remoteBank: remote}).status, 'current');
+  for (const change of [{question: 'Different stem'}, {correctLetter: 'B', correctLetters: ['B']}, {explanation: 'Different explanation'}, {subjectTitle: 'Different subject'}]) {
+    const changed = {...remote, questions: remote.questions.map((q, i) => i ? q : {...q, ...change})};
+    assert.equal(isCoachOrganizationUpdate(local, changed), false);
+    assert.throws(() => reconcileStudyCoachBanks({localBank: local, remoteBank: changed}), /reused question id/i);
+    assert.throws(() => analyzeQuestionBankUpdate(local, changed, {hasStudyData: true, allowCoachOrganizationUpdate: true}));
+  }
+  assert.equal(isCoachOrganizationUpdate(local, {...remote, questions: remote.questions.slice(1)}), false);
+});
+
+test("latest coach practice clears restrictive filters without changing history or timing", () => {
+  const bank = {id: STUDY_COACH_BANK_ID, questions: [
+    {id:'old', chapterTitle:'Study Coach Test 4'},
+    {id:'new', chapterTitle:'Study Coach Test 6'},
+    {id:'linked', chapterTitle:'Study Coach Test 6 · Vignette 1'},
+  ]};
+  const key = `abpn-study:builder-settings:${bank.id}`;
+  const records = new Map([[key, JSON.stringify({count:40, timing:'custom', secondsPerQuestion:90, categories:['old'], pools:['wrong'], sourceSections:['Study Coach Test 4'], specialCriteria:{range:'1-2'}})], ['history','unchanged']]);
+  const storage = {getItem:k=>records.get(k), setItem:(k,v)=>records.set(k,v)};
+  assert.deepEqual(focusCoachPractice(bank, storage), ['Study Coach Test 6','Study Coach Test 6 · Vignette 1']);
+  assert.deepEqual(JSON.parse(records.get(key)), {count:40, timing:'custom', secondsPerQuestion:90, categories:null, pools:['new'], sourceSections:['Study Coach Test 6','Study Coach Test 6 · Vignette 1'], specialCriteria:null});
+  assert.equal(records.get('history'), 'unchanged');
+  assert.deepEqual(focusCoachPractice(bank, storage, ['old']), ['Study Coach Test 4']);
 });
