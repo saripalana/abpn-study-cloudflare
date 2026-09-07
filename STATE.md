@@ -4,6 +4,19 @@ Purpose: concise implementation status and explicit release boundaries.
 
 Last updated: 2026-09-07
 
+## Release checkpoint: PR62, staging acceptance blocked
+
+- User authorized release through live unless an issue occurs. Protected PR62
+  contains AND/OR filtering; added requested source-backed K&S 25.17/25.18
+  linkage and parent-case context for orphan follow-ups in existing sets.
+- K&S catalog revision is ak1-link1. Stable IDs, keys, selected answers, and
+  existing set membership are unchanged. New groups include parent/follow-up.
+- Latest checks: 260 Node tests and 9 desktop tests passed, including catalog
+  update, history preservation, Sync correction, AND/OR counts and creation.
+- Authenticated staging browser navigation timed out and reset the connection.
+  No staging/production deployment for PR62; production remains PR61. Restore
+  browser acceptance access, verify current PR CI, then stage/accept/promote.
+
 ## Current local feature: status AND/OR
 
 - Added Combine question statuses dropdown, default OR; AND requires every

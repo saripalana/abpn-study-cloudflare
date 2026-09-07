@@ -489,7 +489,7 @@ test("a verified K&S seed revision repairs derived correctness without changing 
 
   const upgraded = await readKsCorrectnessRepair(page, staged);
 
-  expect(upgraded.version).toBe("020aae0f5c55ad3bb0c122760c7b7d3fe26f1b46-ak1");
+  expect(upgraded.version).toBe("020aae0f5c55ad3bb0c122760c7b7d3fe26f1b46-ak1-link1");
   expect(upgraded.correctLetters).toEqual(["C"]);
   expect(upgraded.selectedAnswer).toEqual(staged.selectedAnswer);
   expect(upgraded.progressCorrect).toBe(true);
@@ -545,7 +545,7 @@ test("the Sync button applies K&S catalog corrections and uploads repaired answe
         .length,
     };
   }).toEqual({
-    version: "020aae0f5c55ad3bb0c122760c7b7d3fe26f1b46-ak1",
+    version: "020aae0f5c55ad3bb0c122760c7b7d3fe26f1b46-ak1-link1",
     progressCorrect: true,
     answerCorrect: true,
     hasOutbox: false,
@@ -553,7 +553,7 @@ test("the Sync button applies K&S catalog corrections and uploads repaired answe
   });
 
   const repaired = await readKsCorrectnessRepair(page, staged);
-  expect(repaired.version).toBe("020aae0f5c55ad3bb0c122760c7b7d3fe26f1b46-ak1");
+  expect(repaired.version).toBe("020aae0f5c55ad3bb0c122760c7b7d3fe26f1b46-ak1-link1");
   expect(repaired.correctLetters).toEqual(["C"]);
   expect(repaired.selectedAnswer).toEqual(staged.selectedAnswer);
   expect(repaired.progressCorrect).toBe(true);
