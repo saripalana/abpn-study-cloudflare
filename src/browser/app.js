@@ -481,7 +481,8 @@ function specialCriteriaSummary(criteria) {
   if (normalized.rangeStart != null || Number.isFinite(normalized.rangeEnd)) {
     parts.push(`question range ${normalized.rangeStart || 1}–${Number.isFinite(normalized.rangeEnd) ? normalized.rangeEnd : 'end'}`);
   }
-  if (normalized.includeFlagged) parts.push('flagged questions included');
+  if (normalized.statusMatch === 'and') parts.push('statuses must all match (AND)');
+  if (normalized.includeFlagged) parts.push(normalized.statusMatch === 'and' ? 'flagged required' : 'flagged questions included');
   return parts.join(' · ');
 }
 
@@ -624,7 +625,12 @@ async function renderDashboard() {
                   <span id="questionStatusSummary" class="subject-summary"></span>
                 </summary>
                 <div class="subject-picker-body">
-                  <p class="muted status-picker-help">Specific statuses are combined. For example, New + Wrong includes questions in either group.</p>
+                  <label for="statusMatchSelect">Combine question statuses</label>
+                  <select id="statusMatchSelect">
+                    <option value="or" ${builder.specialCriteria.statusMatch !== 'and' ? 'selected' : ''}>OR — match any selected status</option>
+                    <option value="and" ${builder.specialCriteria.statusMatch === 'and' ? 'selected' : ''}>AND — match every selected status</option>
+                  </select>
+                  <p class="muted status-picker-help">OR: Flagged or Wrong. AND: both Flagged and Wrong. Subjects, source tests, and ranges remain separate limits. Linked vignette questions stay together.</p>
                   <div class="question-status-options">
                     <label class="subject-option" for="question-status-all"><input id="question-status-all" name="questionStatusFilter" type="checkbox" value="all" ${builder.pools.includes('all') ? 'checked' : ''}><span>All questions</span></label>
                     <label class="subject-option" for="question-status-new"><input id="question-status-new" name="questionStatusFilter" type="checkbox" value="new" ${builder.pools.includes('new') ? 'checked' : ''}><span>New</span></label>
@@ -966,6 +972,7 @@ async function renderDashboard() {
   const subjectInputs = [...document.querySelectorAll('input[name="subjectFilter"]')];
   const sourceSectionInputs = [...document.querySelectorAll('input[name="sourceSectionFilter"]')];
   const questionStatusInputs = [...document.querySelectorAll('input[name="questionStatusFilter"]')];
+  const statusMatchSelect = document.getElementById('statusMatchSelect');
   const countInput = document.getElementById('countInput');
   const modeSelect = document.getElementById('modeSelect');
   const timingSelect = document.getElementById('timingSelect');
@@ -993,6 +1000,7 @@ async function renderDashboard() {
     rangeStart: rangeStartInput.value,
     rangeEnd: rangeEndInput.value,
     includeFlagged: includeFlaggedInput.checked,
+    statusMatch: statusMatchSelect.value,
   }, activeBank.questions.length);
 
   const persistBuilderSettings = () => {
@@ -1038,7 +1046,7 @@ async function renderDashboard() {
     }
     const statusLabels = { all: 'All questions', new: 'New', used: 'Used', incorrect: 'Wrong', flagged: 'Flagged' };
     questionStatusSummary.textContent = selectedStatuses.length
-      ? selectedStatuses.map((status) => statusLabels[status]).join(' + ')
+      ? selectedStatuses.map((status) => statusLabels[status]).join(statusMatchSelect.value === 'and' ? ' AND ' : ' OR ')
       : 'No status selected';
     specialCriteriaSummaryElement.textContent = specialCriteriaSummary(specialCriteria) || 'Optional';
     persistBuilderSettings();
@@ -1091,6 +1099,16 @@ async function renderDashboard() {
         : eligible.length
           ? `${eligible.length} question${eligible.length === 1 ? '' : 's'} available${combinedScope ? ' across the selected study decks' : ''}${capped ? '; requested set size adjusted to match.' : '.'}`
           : 'No questions match the selected decks, subjects, source sections, and question statuses.';
+    // Explain intersecting filters without silently replacing the user's criteria.
+    // This is shared by all decks; it reads progress but never updates attempts.
+    if (!combinedScope && !invalidRange && selectedStatuses.length && !eligible.length) {
+      const filters = { subjects: selectedCategories, sections: sourceSections.length ? selectedSections : null };
+      const matching = eligibleQuestionIds(activeBank, progress, ['all'], filters, specialCriteria);
+      if (matching.length) {
+        const fresh = eligibleQuestionIds(activeBank, progress, ['new'], filters, specialCriteria).length;
+        eligibleCount.textContent = `No ${selectedStatuses.map(status => statusLabels[status]).join(' + ')} questions match. The selected subjects, source tests, and range contain ${matching.length} questions: ${fresh} new and ${matching.length - fresh} used. Choose All questions to include answered questions, or change the selected source tests.`;
+      }
+    }
     eligibleCount.dataset.empty = eligible.length ? 'false' : 'true';
     lastEligibleCount = eligible.length;
   };
@@ -1166,6 +1184,7 @@ async function renderDashboard() {
     updateBuilderAvailability();
   }));
   randomizeOrder.addEventListener('change', persistBuilderSettings);
+  statusMatchSelect.addEventListener('change', updateBuilderAvailability);
   rangeStartInput.addEventListener('input', updateBuilderAvailability);
   rangeEndInput.addEventListener('input', updateBuilderAvailability);
   includeFlaggedInput.addEventListener('change', updateBuilderAvailability);
@@ -1198,6 +1217,7 @@ async function startSet() {
     rangeStart: document.getElementById('rangeStartInput').value,
     rangeEnd: document.getElementById('rangeEndInput').value,
     includeFlagged: document.getElementById('includeFlaggedInput').checked,
+    statusMatch: document.getElementById('statusMatchSelect').value,
   }, activeBank.questions.length);
   if (specialCriteria.rangeStart != null && specialCriteria.rangeEnd != null && specialCriteria.rangeStart > specialCriteria.rangeEnd) {
     return alert('The start of the question range must be before the end.');

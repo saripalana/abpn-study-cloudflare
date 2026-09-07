@@ -12,7 +12,7 @@ test('canonical coach organization preserves saved study records and exposes lat
     const q = id => ({id, question:'Synthetic validation question?', choices:['One','Two'], choiceLetters:['A','B'], correctLetter:'A', correctLetters:['A'], isMultiSelect:false, explanation:'Synthetic validation explanation.', subjectTitle:'Psychiatry'});
     const update = buildStudyCoachDeckLibraryUpdate({generatedDecks:[{bankId:'validation-cycle', package:{format:'abpn-question-bank',schemaVersion:1,bank:{questions:[q('coach-old'),q('coach-new')]}}}]});
     await installQuestionBankPackage(update.package);
-    await putRecord(STORES.PROGRESS,{bankId,questionId:'coach-old',timesUsed:1,selectedAnswer:'B',correct:false});
+    await putRecord(STORES.PROGRESS,{bankId,questionId:'coach-old',timesUsed:1,selectedAnswer:'B',isCorrect:false,isFlagged:true});
     await putRecord(STORES.SETS,{id:'saved-test',bankId,status:'completed',questionIds:['coach-old'],score:0});
     await putRecord(STORES.ANSWERS,{setId:'saved-test',questionId:'coach-old',selectedAnswer:'B',finalized:true});
     const stores = [STORES.PROGRESS,STORES.SETS,STORES.ANSWERS,STORES.OUTBOX];
@@ -32,4 +32,30 @@ test('canonical coach organization preserves saved study records and exposes lat
   expect(settings.sourceSections).toEqual(['Study Coach Test 6']);
   expect(settings.pools).toEqual(['new']);
   await expect(page.locator('#startBtn')).toBeEnabled();
+  // Ordinary controls must work independently of the latest-batch shortcut.
+  await page.locator('#sourceSectionPicker').evaluate(e => { e.open = true; });
+  await page.locator('#clearSourceSectionsBtn').click();
+  await page.locator('input[name="sourceSectionFilter"][value="Study Coach Test 1"]').check();
+  await expect(page.locator('#startBtn')).toBeDisabled();
+  await expect(page.locator('#eligibleCount')).toContainText('0 new and 1 used');
+  await page.locator('input[name="questionStatusFilter"]').first().evaluate(e => { e.closest('details').open = true; });
+  for (const status of ['all', 'used', 'incorrect', 'flagged']) {
+    await page.locator('input[name="questionStatusFilter"]').evaluateAll(inputs => {
+      for (const input of inputs) input.checked = false;
+    });
+    await page.locator(`input[name="questionStatusFilter"][value="${status}"]`).check();
+    await expect(page.locator('#eligibleCount')).toContainText('1 question available');
+    await expect(page.locator('#startBtn')).toBeEnabled();
+  }
+  await page.locator('input[name="questionStatusFilter"][value="new"]').check();
+  await page.locator('#selectAllSourceSectionsBtn').click();
+  await expect(page.locator('#eligibleCount')).toContainText('2 questions available');
+  await page.reload();
+  await expect(page.locator('#eligibleCount')).toContainText('2 questions available');
+  await page.locator('#startBtn').click();
+  await expect.poll(() => page.evaluate(async () => {
+    const {getAllRecords, STORES} = await import('/client/storage.js');
+    const created = (await getAllRecords(STORES.SETS)).find(s => s.id !== 'saved-test');
+    return created?.questionIds?.slice().sort();
+  })).toEqual(['coach-new','coach-old']);
 });

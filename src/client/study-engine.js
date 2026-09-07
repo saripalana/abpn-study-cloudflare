@@ -142,6 +142,8 @@ export function normalizeSpecialTestCriteria(criteria = null, questionCount = In
     rangeStart: rangeStart == null && rangeEnd != null ? 1 : rangeStart,
     rangeEnd: rangeEnd == null && rangeStart != null ? maximum : rangeEnd,
     includeFlagged: Boolean(source.includeFlagged),
+    // Missing mode preserves the historical OR contract in saved/synced tests.
+    ...(source.statusMatch === 'and' ? { statusMatch: 'and' } : {}),
   };
 }
 
@@ -181,15 +183,18 @@ export function eligibleQuestionIds(bank, progress, pool = "all", categories = n
     if (selectedSections && !selectedSections.has(question.chapterTitle || "Test 1")) return false;
     if (!questionMatchesSpecialCriteria(bank, question, criteria)) return false;
     const record = progress.get(question.id);
-    if (criteria.includeFlagged && record?.isFlagged === true) return true;
+    const requireAll = criteria.statusMatch === 'and';
+    if (!requireAll && criteria.includeFlagged && record?.isFlagged === true) return true;
+    if (requireAll && criteria.includeFlagged && record?.isFlagged !== true) return false;
     if (selectedPools.includes("all")) return true;
-    return selectedPools.some((selectedPool) => {
+    const matches = (selectedPool) => {
       if (selectedPool === "new") return !record || !record.timesUsed;
       if (selectedPool === "used") return Number(record?.timesUsed || 0) > 0;
       if (selectedPool === "incorrect") return record?.isCorrect === false;
       if (selectedPool === "flagged") return record?.isFlagged === true;
       return false;
-    });
+    };
+    return selectedPools.length > 0 && (requireAll ? selectedPools.every(matches) : selectedPools.some(matches));
   }).map((question) => question.id);
 }
 

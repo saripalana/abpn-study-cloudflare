@@ -347,6 +347,7 @@ function normalizePracticeSet(row, index) {
       rangeStart: row.specialCriteria.rangeStart == null ? null : integer(row.specialCriteria.rangeStart, `${prefix}.specialCriteria.rangeStart`),
       rangeEnd: row.specialCriteria.rangeEnd == null ? null : integer(row.specialCriteria.rangeEnd, `${prefix}.specialCriteria.rangeEnd`),
       includeFlagged: Boolean(row.specialCriteria.includeFlagged),
+      ...(row.specialCriteria.statusMatch === 'and' ? { statusMatch: 'and' } : {}),
     }
     : null;
   return {

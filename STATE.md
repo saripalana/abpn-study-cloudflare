@@ -2,7 +2,38 @@
 
 Purpose: concise implementation status and explicit release boundaries.
 
-Last updated: 2026-09-06
+Last updated: 2026-09-07
+
+## Current local feature: status AND/OR
+
+- Added Combine question statuses dropdown, default OR; AND requires every
+  selected status. Shared eligibility engine drives counts and selection for
+  current/combined decks. Subjects, sections, and ranges still intersect;
+  linked vignette groups remain indivisible as before.
+- Optional specialCriteria.statusMatch='and' preserves the choice in local
+  builder settings/test metadata and coach package export. Absent means legacy
+  OR. Existing answer records and database schema are unchanged. Cloud sync of
+  the new criteria metadata has not been verified; selected IDs are explicit.
+- Verification: 259 Node tests and two desktop browser tests passed, covering
+  OR-to-AND counts, reload, and persisted created-set IDs for current/combined
+  scope. git diff --check passed. No commit, push, PR, or deployment performed.
+- Next gate: approve commit/push/PR for this and the pending empty-filter UX,
+  excluding unrelated Gemini edits, then staging and production gates.
+
+## Current local correction: explain empty intersecting test filters
+
+- Screenshot selects New plus an older coach source test. Local real-browser
+  regression confirms ordinary All/Used/Wrong/Flagged, combined statuses, source
+  sections, reload, and test creation work independently of the latest shortcut.
+- Shared builder now explains status-empty results with new/used counts within
+  the selected subjects/sections/range. It does not override user selections or
+  mutate study history. Exact live progress counts remain unverified.
+- Regression expanded in coach-organization.spec.mjs. Source and generated asset
+  updated locally; commit, PR, and deployment remain separate approval gates.
+- Prior PR61 production version: 4d709795-2049-42ff-a2e3-83a81fcd9ac1;
+  migration 0013 verified. Authenticated live smoke remains unverified because
+  the browser debugger detached. Do not repeat that migration/deployment.
+- Unrelated Gemini package/runner edits are preserved and excluded.
 
 ## Current local work: Cloud-authoritative coach installation
 
