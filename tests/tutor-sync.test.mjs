@@ -28,9 +28,10 @@ test('tutor state survives Worker sync; additive migration preserves existing an
     };
     // Seed an existing completed record before applying the additive change.
     const now = new Date().toISOString();
+    const name = 'Test · Flagged AND Wrong · Subjects: ' + Array(20).fill('Synthetic source section').join(', ');
     await request('push', { changes: [{ id: 'set', entityType: 'practiceSet', operation: 'upsert', payload: {
       id: 'test-set', bankId: 'test-bank', mode: 'tutor', status: 'completed', submitted: true,
-      questionIds: ['q1'], revision: 1, updatedAt: now,
+      questionIds: ['q1'], name, revision: 1, updatedAt: now,
     } }] });
     db.exec("INSERT INTO practice_set_answers (set_id, question_id, selected_answer, is_correct, time_ms, revision, updated_at) VALUES ('test-set', 'q1', 'B', 1, 1200, 1, '2026-09-06T00:00:00Z')");
     const before = db.prepare('SELECT * FROM practice_set_answers').get();
@@ -49,6 +50,7 @@ test('tutor state survives Worker sync; additive migration preserves existing an
       } }] });
       assert.deepEqual(result.conflicts, []);
       const pull = await request('pull');
+      assert.equal(pull.changes.find(change => change.entityType === 'practiceSet').payload.name, name);
       const answer = pull.changes.find(change => change.entityType === 'practiceSetAnswer').payload;
       for (const key of Object.keys(state)) assert.equal(answer[key], state[key]);
     }

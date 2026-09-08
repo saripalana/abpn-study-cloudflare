@@ -99,6 +99,7 @@ export function persistenceRecordForSession(set, updatedAt = new Date().toISOStr
   if (!set) return null;
   return {
     id: set.id,
+    name: set.name ?? null,
     bankId: set.bankId,
     scope: set.scope,
     schemaVersion: set.schemaVersion,

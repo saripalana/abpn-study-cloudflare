@@ -2,7 +2,75 @@
 
 Purpose: concise implementation status and explicit release boundaries.
 
-Last updated: 2026-09-06
+Last updated: 2026-09-07
+
+## Latest release gate checkpoint
+
+- Corrected two obsolete study-flow UI assertions (explicit OR wording and
+  status-specific empty-filter explanation). Full chromium-desktop suite:
+  57 passed, 2 skipped; no failures. Existing 262 Node tests passed previously.
+- No merge or deployment performed. Next: required PR CI on this correction,
+  then restore authenticated staging acceptance access before promotion.
+- Fresh existing-staging-tab claim/read also timed out and reset browser
+  control. This is an acceptance-tool blocker, not evidence of an app failure.
+- Native browser fallback was interrupted while the user was using Chrome;
+  no staging acceptance action was verified and no study answers changed.
+
+## Added release scope: creation labels
+
+- New tests snapshot deck, status AND/OR, subjects/source sections, ranges,
+  flagged override, mode/timing and order into existing synchronized name field.
+  Pending/history cards show Created with. Older unnamed records explicitly say
+  Original filters not recorded; no historical criteria are invented.
+- Name persistence added to session serialization and coach export; Worker
+  accepts up to 8000 characters instead of silently truncating at 200. No schema
+  migration or answer mutation. Real SQLite push/pull verifies long labels.
+- Labels and dropdown are locally verified; live release remains blocked at
+  authenticated staging browser access as recorded below.
+
+## Release checkpoint: PR62, staging acceptance blocked
+
+- User authorized release through live unless an issue occurs. Protected PR62
+  contains AND/OR filtering; added requested source-backed K&S 25.17/25.18
+  linkage and parent-case context for orphan follow-ups in existing sets.
+- K&S catalog revision is ak1-link1. Stable IDs, keys, selected answers, and
+  existing set membership are unchanged. New groups include parent/follow-up.
+- Latest checks: 260 Node tests and 9 desktop tests passed, including catalog
+  update, history preservation, Sync correction, AND/OR counts and creation.
+- Authenticated staging browser navigation timed out and reset the connection.
+  No staging/production deployment for PR62; production remains PR61. Restore
+  browser acceptance access, verify current PR CI, then stage/accept/promote.
+
+## Current local feature: status AND/OR
+
+- Added Combine question statuses dropdown, default OR; AND requires every
+  selected status. Shared eligibility engine drives counts and selection for
+  current/combined decks. Subjects, sections, and ranges still intersect;
+  linked vignette groups remain indivisible as before.
+- Optional specialCriteria.statusMatch='and' preserves the choice in local
+  builder settings/test metadata and coach package export. Absent means legacy
+  OR. Existing answer records and database schema are unchanged. Cloud sync of
+  the new criteria metadata has not been verified; selected IDs are explicit.
+- Verification: 259 Node tests and two desktop browser tests passed, covering
+  OR-to-AND counts, reload, and persisted created-set IDs for current/combined
+  scope. git diff --check passed. No commit, push, PR, or deployment performed.
+- Next gate: approve commit/push/PR for this and the pending empty-filter UX,
+  excluding unrelated Gemini edits, then staging and production gates.
+
+## Current local correction: explain empty intersecting test filters
+
+- Screenshot selects New plus an older coach source test. Local real-browser
+  regression confirms ordinary All/Used/Wrong/Flagged, combined statuses, source
+  sections, reload, and test creation work independently of the latest shortcut.
+- Shared builder now explains status-empty results with new/used counts within
+  the selected subjects/sections/range. It does not override user selections or
+  mutate study history. Exact live progress counts remain unverified.
+- Regression expanded in coach-organization.spec.mjs. Source and generated asset
+  updated locally; commit, PR, and deployment remain separate approval gates.
+- Prior PR61 production version: 4d709795-2049-42ff-a2e3-83a81fcd9ac1;
+  migration 0013 verified. Authenticated live smoke remains unverified because
+  the browser debugger detached. Do not repeat that migration/deployment.
+- Unrelated Gemini package/runner edits are preserved and excluded.
 
 ## Current local work: Cloud-authoritative coach installation
 

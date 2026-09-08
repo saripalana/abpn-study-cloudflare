@@ -347,10 +347,12 @@ function normalizePracticeSet(row, index) {
       rangeStart: row.specialCriteria.rangeStart == null ? null : integer(row.specialCriteria.rangeStart, `${prefix}.specialCriteria.rangeStart`),
       rangeEnd: row.specialCriteria.rangeEnd == null ? null : integer(row.specialCriteria.rangeEnd, `${prefix}.specialCriteria.rangeEnd`),
       includeFlagged: Boolean(row.specialCriteria.includeFlagged),
+      ...(row.specialCriteria.statusMatch === 'and' ? { statusMatch: 'and' } : {}),
     }
     : null;
   return {
     id: text(row.id, `${prefix}.id`, 200),
+    ...(row.name ? { name: text(row.name, `${prefix}.name`, 8000) } : {}),
     bankId: optionalText(row.bankId, `${prefix}.bankId`, 100),
     selectedBankIds: boundedArray(row.selectedBankIds || [], `${prefix}.selectedBankIds`, MAX_PACKAGE_BANKS)
       .map((entry, entryIndex) => text(entry, `${prefix}.selectedBankIds[${entryIndex}]`, 100)),

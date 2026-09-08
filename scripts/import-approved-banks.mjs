@@ -191,6 +191,7 @@ for (const [index, question] of questions.entries()) {
 const linkedQuestionGroups = [
   ["k-25.21", "k-25.22"],
   ["k-25.23", "k-25.24"],
+  ["k-25.17", "k-25.18"],
 ];
 for (const [groupIndex, questionIds] of linkedQuestionGroups.entries()) {
   questionIds.forEach((questionId, linkedOrder) => {
@@ -201,12 +202,16 @@ for (const [groupIndex, questionIds] of linkedQuestionGroups.entries()) {
   });
 }
 
+// Existing randomized sets retain their original IDs/order. Give this formerly
+// orphaned follow-up its source case even when an older set lacks the parent.
+questions.find(q => q.id === 'k-25.18').vignetteStem = questions.find(q => q.id === 'k-25.17').question;
+
 const bank = {
   id: 'ks-psychiatry-core',
   title: 'K&S Psychiatry Question Bank',
   shortTitle: 'K&S Psychiatry',
   description: 'Kaplan & Sadock psychiatry review questions for personal board preparation.',
-  version: `${ksSource.commit}-ak1`,
+  version: `${ksSource.commit}-ak1-link1`,
   source: {
     ...ksSource,
     verifiedGitBlobSha: gitBlobSha,

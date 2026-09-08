@@ -3,7 +3,19 @@ import assert from 'node:assert/strict';
 
 import { KS_PSYCHIATRY_BANK } from '../public/banks/generated/ks-psychiatry-core.js';
 import { SPIEGEL_TEST_PREP_BANK } from '../public/banks/generated/spiegel-test-prep.js';
-import { normalizeBank } from '../src/client/study-engine.js';
+import { normalizeBank, eligibleQuestionGroups } from '../src/client/study-engine.js';
+
+test('K&S 25.18 retains its parent case and cannot be selected as an isolated new group', () => {
+  const bank = normalizeBank(KS_PSYCHIATRY_BANK);
+  const parent = bank.byId.get('k-25.17');
+  const followup = bank.byId.get('k-25.18');
+  assert.equal(followup.linkedGroupId,parent.linkedGroupId);
+  assert.ok(parent.linkedGroupId);
+  assert.equal(followup.vignetteStem,parent.question);
+  const progress = new Map([[parent.id,{timesUsed:1}]]);
+  const group = eligibleQuestionGroups(bank,progress,'new').find(ids=>ids.includes(followup.id));
+  assert.deepEqual(group,[parent.id,followup.id]);
+});
 
 const approvedBanks = [KS_PSYCHIATRY_BANK, SPIEGEL_TEST_PREP_BANK];
 const unsafeCharacters = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200D\u2060\uFEFF\uFFFD]/;
