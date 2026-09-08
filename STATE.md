@@ -4,6 +4,18 @@ Purpose: concise implementation status and explicit release boundaries.
 
 Last updated: 2026-09-07
 
+## Latest release gate checkpoint
+
+- Corrected two obsolete study-flow UI assertions (explicit OR wording and
+  status-specific empty-filter explanation). Full chromium-desktop suite:
+  57 passed, 2 skipped; no failures. Existing 262 Node tests passed previously.
+- No merge or deployment performed. Next: required PR CI on this correction,
+  then restore authenticated staging acceptance access before promotion.
+- Fresh existing-staging-tab claim/read also timed out and reset browser
+  control. This is an acceptance-tool blocker, not evidence of an app failure.
+- Native browser fallback was interrupted while the user was using Chrome;
+  no staging acceptance action was verified and no study answers changed.
+
 ## Added release scope: creation labels
 
 - New tests snapshot deck, status AND/OR, subjects/source sections, ranges,

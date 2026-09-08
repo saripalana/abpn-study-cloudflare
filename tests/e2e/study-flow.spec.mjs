@@ -122,14 +122,14 @@ test('combines subject selection with multiple question statuses in the live bui
   await setQuestionStatuses(page, ['incorrect']);
   await expect(page.locator('#eligibleCount')).toContainText('2 questions available');
   await statusInput(page, 'flagged').check();
-  await expect(page.locator('#questionStatusSummary')).toHaveText('Wrong + Flagged');
+  await expect(page.locator('#questionStatusSummary')).toHaveText('Wrong OR Flagged');
   await expect(page.locator('#eligibleCount')).toContainText('2 questions available');
   await setQuestionStatuses(page, ['flagged']);
   await expect(page.locator('#eligibleCount')).toContainText('1 question available');
   await page.locator('#subjectPicker summary').click();
   await page.getByRole('button', { name: 'Clear', exact: true }).click();
   await page.locator('input[name="subjectFilter"][value="Question Banks"]').check();
-  await expect(page.locator('#eligibleCount')).toContainText('No questions match');
+  await expect(page.locator('#eligibleCount')).toContainText('No Flagged questions match');
   await expect(page.getByRole('button', { name: 'Start set' })).toBeDisabled();
 });
 
